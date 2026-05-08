@@ -1,0 +1,3 @@
+web: bin/dev-run web
+worker: bin/dev-run worker
+vite: npm run dev

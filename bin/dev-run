@@ -1,0 +1,26 @@
+#!/usr/bin/env sh
+
+set -eu
+
+role="${1:-web}"
+
+export ADDR="${ADDR:-:8080}"
+export BASE_URL="${BASE_URL:-http://localhost:5173}"
+export DATABASE_PATH="${DATABASE_PATH:-./data/likeable.dev.db}"
+export REDIS_URL="${REDIS_URL:-redis://localhost:6379/0}"
+export ADMIN_EMAIL="${ADMIN_EMAIL:-admin@example.com}"
+export LIKEABLE_DEV_AUTH="${LIKEABLE_DEV_AUTH:-1}"
+export LIKEABLE_ROLE="$role"
+
+case "$role" in
+  web)
+    exec air -c .air.web.toml
+    ;;
+  worker)
+    exec air -c .air.worker.toml
+    ;;
+  *)
+    echo "unknown dev role: $role" >&2
+    exit 1
+    ;;
+esac

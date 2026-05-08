@@ -1,0 +1,61 @@
+x-fibe.gg:
+  variables:
+    REPO_URL:
+      name: Repository URL
+      required: true
+    SUBDOMAIN:
+      name: Subdomain
+      default: "@"
+    BASE_URL:
+      name: Public app URL
+      default: "http://likeable.phoenix.test"
+    ADMIN_EMAIL:
+      name: Admin email
+      default: "admin@example.com"
+    LIKEABLE_DEV_AUTH:
+      name: Enable dev auth
+      default: "0"
+services:
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1"]
+    volumes:
+      - redis_data:/data
+
+  app:
+    build: "."
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    labels:
+      fibe.gg/repo_url: $$var__REPO_URL
+      fibe.gg/source_mount: /src
+      fibe.gg/dockerfile: Dockerfile
+      fibe.gg/expose: external:8080
+      fibe.gg/subdomain: $$var__SUBDOMAIN
+      fibe.gg/healthcheck_path: /healthz
+      fibe.gg/healthcheck_interval: 30s
+      fibe.gg/healthcheck_timeout: 5s
+      fibe.gg/healthcheck_retries: "3"
+      fibe.gg/healthcheck_start_period: 10s
+    environment:
+      ADDR: ":8080"
+      ADMIN_EMAIL: $$var__ADMIN_EMAIL
+      BASE_URL: $$var__BASE_URL
+      DATABASE_PATH: /data/likeable.db
+      HOME: /tmp
+      LIKEABLE_DEV_AUTH: $$var__LIKEABLE_DEV_AUTH
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      - redis
+    volumes:
+      - likeable_data:/data
+
+volumes:
+  likeable_data:
+  redis_data:

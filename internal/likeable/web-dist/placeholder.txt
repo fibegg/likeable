@@ -1,0 +1,3 @@
+This directory is populated by the frontend build.
+
+The placeholder keeps Go embed builds valid in clean source checkouts. Docker builds replace this directory with Vite production assets before compiling the Go binary.

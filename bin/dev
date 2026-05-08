@@ -1,0 +1,32 @@
+#!/usr/bin/env sh
+
+set -eu
+
+cd "$(dirname "$0")/.."
+
+gobin="$(go env GOBIN 2>/dev/null || true)"
+if [ -z "$gobin" ]; then
+  gobin="$(go env GOPATH)/bin"
+fi
+export PATH="$gobin:$PATH"
+
+if ! command -v air >/dev/null 2>&1; then
+  echo "Installing air..."
+  go install github.com/air-verse/air@latest
+fi
+
+if ! gem list foreman -i --silent; then
+  echo "Installing foreman..."
+  gem install foreman
+fi
+
+mkdir -p data tmp
+
+export ADDR="${ADDR:-:8080}"
+export BASE_URL="${BASE_URL:-http://localhost:5173}"
+export DATABASE_PATH="${DATABASE_PATH:-./data/likeable.dev.db}"
+export REDIS_URL="${REDIS_URL:-redis://localhost:6379/0}"
+export ADMIN_EMAIL="${ADMIN_EMAIL:-admin@example.com}"
+export LIKEABLE_DEV_AUTH="${LIKEABLE_DEV_AUTH:-1}"
+
+exec foreman start -f Procfile.dev "$@"
