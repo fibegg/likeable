@@ -18,13 +18,14 @@ type AdminUserDetail = domain.AdminUserDetail
 type AdminUserFilters = domain.AdminUserFilters
 
 type RuntimeConfig struct {
-	Addr         string
-	BaseURL      string
-	DatabasePath string
-	AdminEmail   string
-	RedisURL     string
-	DevAuth      bool
-	WebDir       string
+	Addr           string
+	BaseURL        string
+	DatabasePath   string
+	AdminEmail     string
+	RedisURL       string
+	DevAuth        bool
+	BootstrapToken string
+	WebDir         string
 }
 
 func normalizeEmail(email string) string {

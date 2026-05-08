@@ -35,13 +35,14 @@ const (
 func Run() error {
 	role := runtimeRole()
 	cfg := RuntimeConfig{
-		Addr:         env("ADDR", ":8080"),
-		BaseURL:      strings.TrimRight(env("BASE_URL", "http://localhost:8080"), "/"),
-		DatabasePath: env("DATABASE_PATH", "./data/likeable.db"),
-		AdminEmail:   normalizeEmail(os.Getenv("ADMIN_EMAIL")),
-		RedisURL:     redisURLFromEnv(),
-		DevAuth:      os.Getenv("LIKEABLE_DEV_AUTH") == "1",
-		WebDir:       os.Getenv("LIKEABLE_WEB_DIR"),
+		Addr:           env("ADDR", ":8080"),
+		BaseURL:        strings.TrimRight(env("BASE_URL", "http://localhost:8080"), "/"),
+		DatabasePath:   env("DATABASE_PATH", "./data/likeable.db"),
+		AdminEmail:     normalizeEmail(os.Getenv("ADMIN_EMAIL")),
+		RedisURL:       redisURLFromEnv(),
+		DevAuth:        os.Getenv("LIKEABLE_DEV_AUTH") == "1",
+		BootstrapToken: strings.TrimSpace(os.Getenv("LIKEABLE_BOOTSTRAP_TOKEN")),
+		WebDir:         os.Getenv("LIKEABLE_WEB_DIR"),
 	}
 	appStore, err := store.Open(cfg.DatabasePath)
 	if err != nil {

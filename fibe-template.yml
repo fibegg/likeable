@@ -15,6 +15,9 @@ x-fibe.gg:
     LIKEABLE_DEV_AUTH:
       name: Enable dev auth
       default: "0"
+    BOOTSTRAP_TOKEN:
+      name: One-time bootstrap token
+      default: ""
 services:
   redis:
     image: redis:7.4-alpine
@@ -50,6 +53,7 @@ services:
       DATABASE_PATH: /data/likeable.db
       HOME: /tmp
       LIKEABLE_DEV_AUTH: $$var__LIKEABLE_DEV_AUTH
+      LIKEABLE_BOOTSTRAP_TOKEN: $$var__BOOTSTRAP_TOKEN
       REDIS_URL: redis://redis:6379/0
     depends_on:
       - redis

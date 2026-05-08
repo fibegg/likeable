@@ -49,6 +49,12 @@ func (s *Store) UserBySessionToken(ctx context.Context, token string) (*User, er
 	return scanUser(row)
 }
 
+func (s *Store) UserCount(ctx context.Context) (int, error) {
+	var count int
+	row := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM users`)
+	return count, row.Scan(&count)
+}
+
 func scanUser(scanner interface{ Scan(...any) error }) (*User, error) {
 	var user User
 	if err := scanner.Scan(&user.ID, &user.Email, &user.Name, &user.AvatarURL, &user.AccessStatus, &user.AccessNote, &user.CreatedAt); err != nil {

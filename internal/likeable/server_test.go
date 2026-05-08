@@ -63,6 +63,150 @@ func TestHealthzChecksSQLite(t *testing.T) {
 	}
 }
 
+func TestBootstrapConfigRejectsMissingOrWrongToken(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	body := `{"google_client_id":"client","google_client_secret":"secret"}`
+	for _, tc := range []struct {
+		name   string
+		token  string
+		header string
+		status int
+	}{
+		{name: "disabled", token: "", header: "Bearer deploy-token", status: http.StatusNotFound},
+		{name: "missing", token: "deploy-token", header: "", status: http.StatusUnauthorized},
+		{name: "wrong", token: "deploy-token", header: "Bearer wrong-token", status: http.StatusUnauthorized},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test", BootstrapToken: tc.token}, http: http.DefaultClient}
+			req := httptest.NewRequest(http.MethodPost, "/api/bootstrap/config", strings.NewReader(body))
+			if tc.header != "" {
+				req.Header.Set("Authorization", tc.header)
+			}
+			rec := httptest.NewRecorder()
+
+			server.routes().ServeHTTP(rec, req)
+
+			if rec.Code != tc.status {
+				t.Fatalf("bootstrap returned %d, want %d; body=%s", rec.Code, tc.status, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestBootstrapConfigWritesGoogleConfigWithoutExposingSecret(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test", BootstrapToken: "deploy-token"}, http: http.DefaultClient}
+	req := httptest.NewRequest(http.MethodPost, "/api/bootstrap/config", strings.NewReader(`{"google_client_id":"client-id","google_client_secret":"client-secret","signup_mode":"all"}`))
+	req.Header.Set("Authorization", "Bearer deploy-token")
+	rec := httptest.NewRecorder()
+
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("bootstrap returned %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "client-secret") || strings.Contains(rec.Body.String(), "google_client_secret") {
+		t.Fatalf("bootstrap response exposed secret material: %s", rec.Body.String())
+	}
+	cfg, err := store.ConfigMap(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg["google_client_id"] != "client-id" || cfg["google_client_secret"] != "client-secret" || cfg["signup_mode"] != "all" {
+		t.Fatalf("stored config=%+v, want google config and signup mode", cfg)
+	}
+	public := publicAdminConfig(cfg)
+	entry := public["google_client_secret"].(map[string]any)
+	if !entry["secret"].(bool) || !entry["set"].(bool) || entry["value"].(string) != "" {
+		t.Fatalf("google secret public entry=%+v, want write-only secret", entry)
+	}
+	meReq := httptest.NewRequest(http.MethodGet, "/api/me", nil)
+	meRec := httptest.NewRecorder()
+	server.routes().ServeHTTP(meRec, meReq)
+	if meRec.Code != http.StatusOK {
+		t.Fatalf("me returned %d: %s", meRec.Code, meRec.Body.String())
+	}
+	var me struct {
+		Auth struct {
+			GoogleConfigured bool   `json:"googleConfigured"`
+			DevAuth          bool   `json:"devAuth"`
+			SignupMode       string `json:"signupMode"`
+		} `json:"auth"`
+	}
+	if err := json.NewDecoder(meRec.Body).Decode(&me); err != nil {
+		t.Fatal(err)
+	}
+	if !me.Auth.GoogleConfigured || me.Auth.DevAuth || me.Auth.SignupMode != "all" {
+		t.Fatalf("me auth=%+v, want configured google, no dev auth, signup all", me.Auth)
+	}
+}
+
+func TestBootstrapConfigRejectsAfterUserExists(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if _, err := store.UpsertUser(t.Context(), "admin@example.com", "Admin", ""); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test", BootstrapToken: "deploy-token"}, http: http.DefaultClient}
+	req := httptest.NewRequest(http.MethodPost, "/api/bootstrap/config", strings.NewReader(`{"google_client_id":"client-id","google_client_secret":"client-secret"}`))
+	req.Header.Set("Authorization", "Bearer deploy-token")
+	rec := httptest.NewRecorder()
+
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("bootstrap returned %d, want 409; body=%s", rec.Code, rec.Body.String())
+	}
+	cfg, err := store.ConfigMap(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg["google_client_id"] != "" || cfg["google_client_secret"] != "" {
+		t.Fatalf("bootstrap wrote config after user existed: %+v", cfg)
+	}
+}
+
+func TestBootstrapConfigIsOneTime(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test", BootstrapToken: "deploy-token"}, http: http.DefaultClient}
+	first := httptest.NewRequest(http.MethodPost, "/api/bootstrap/config", strings.NewReader(`{"google_client_id":"client-id","google_client_secret":"client-secret"}`))
+	first.Header.Set("Authorization", "Bearer deploy-token")
+	firstRec := httptest.NewRecorder()
+	server.routes().ServeHTTP(firstRec, first)
+	if firstRec.Code != http.StatusOK {
+		t.Fatalf("first bootstrap returned %d, want 200; body=%s", firstRec.Code, firstRec.Body.String())
+	}
+	second := httptest.NewRequest(http.MethodPost, "/api/bootstrap/config", strings.NewReader(`{"google_client_id":"other","google_client_secret":"other-secret"}`))
+	second.Header.Set("Authorization", "Bearer deploy-token")
+	secondRec := httptest.NewRecorder()
+	server.routes().ServeHTTP(secondRec, second)
+	if secondRec.Code != http.StatusConflict {
+		t.Fatalf("second bootstrap returned %d, want 409; body=%s", secondRec.Code, secondRec.Body.String())
+	}
+	cfg, err := store.ConfigMap(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg["google_client_id"] != "client-id" || cfg["google_client_secret"] != "client-secret" {
+		t.Fatalf("bootstrap was overwritten: %+v", cfg)
+	}
+}
+
 func TestProjectEndpointsEnforceUserOwnership(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {

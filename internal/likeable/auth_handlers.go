@@ -46,6 +46,84 @@ func (s *Server) googleConfigured(ctx context.Context) bool {
 	return clientID != "" && clientSecret != ""
 }
 
+func (s *Server) handleBootstrapConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	token := strings.TrimSpace(s.config.BootstrapToken)
+	if token == "" {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	if !validBearerToken(r.Header.Get("Authorization"), token) {
+		writeError(w, http.StatusUnauthorized, "invalid bootstrap token")
+		return
+	}
+	userCount, err := s.store.UserCount(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if userCount > 0 {
+		writeError(w, http.StatusConflict, "bootstrap is no longer available")
+		return
+	}
+	if s.googleConfigured(r.Context()) {
+		writeError(w, http.StatusConflict, "bootstrap is already configured")
+		return
+	}
+	var body struct {
+		GoogleClientID          string `json:"google_client_id"`
+		GoogleClientIDCamel     string `json:"googleClientId"`
+		GoogleClientSecret      string `json:"google_client_secret"`
+		GoogleClientSecretCamel string `json:"googleClientSecret"`
+		SignupMode              string `json:"signup_mode"`
+		SignupModeCamel         string `json:"signupMode"`
+	}
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	clientID := strings.TrimSpace(firstNonEmpty(body.GoogleClientID, body.GoogleClientIDCamel))
+	clientSecret := strings.TrimSpace(firstNonEmpty(body.GoogleClientSecret, body.GoogleClientSecretCamel))
+	if clientID == "" || clientSecret == "" {
+		writeError(w, http.StatusBadRequest, "google client id and secret are required")
+		return
+	}
+	values := map[string]string{
+		"google_client_id":     clientID,
+		"google_client_secret": clientSecret,
+	}
+	if mode := strings.TrimSpace(firstNonEmpty(body.SignupMode, body.SignupModeCamel)); mode != "" {
+		values["signup_mode"] = normalizeSignupMode(mode)
+	}
+	if err := s.store.UpsertConfig(r.Context(), values, secretConfigKeys); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	cfg, _ := s.store.ConfigMap(r.Context())
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":               true,
+		"googleConfigured": s.googleConfigured(r.Context()),
+		"signupMode":       s.signupMode(cfg),
+	})
+}
+
+func validBearerToken(header, expected string) bool {
+	header = strings.TrimSpace(header)
+	if !strings.HasPrefix(strings.ToLower(header), "bearer ") {
+		return false
+	}
+	actual := strings.TrimSpace(header[len("bearer "):])
+	if len(actual) != len(expected) {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(actual), []byte(expected)) == 1
+}
+
 func (s *Server) oauthConfig(ctx context.Context) (*oauth2.Config, error) {
 	cfg, _ := s.store.ConfigMap(ctx)
 	clientID := strings.TrimSpace(cfg["google_client_id"])
@@ -90,7 +168,11 @@ func (s *Server) canSignInEmail(ctx context.Context, email string) (bool, error)
 }
 
 func (s *Server) signupMode(cfg map[string]string) string {
-	mode := strings.ToLower(firstNonEmpty(cfg["signup_mode"], "forbidden"))
+	return normalizeSignupMode(firstNonEmpty(cfg["signup_mode"], "forbidden"))
+}
+
+func normalizeSignupMode(raw string) string {
+	mode := strings.ToLower(strings.TrimSpace(raw))
 	switch strings.ReplaceAll(mode, "-", "_") {
 	case "all", "allow_all", "open", "enabled":
 		return "all"

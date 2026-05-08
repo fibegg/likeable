@@ -102,6 +102,8 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.URL.Path == "/api/me":
 		s.handleMe(w, r)
+	case r.URL.Path == "/api/bootstrap/config":
+		s.handleBootstrapConfig(w, r)
 	case r.URL.Path == "/api/auth/google/start":
 		s.handleGoogleStart(w, r)
 	case r.URL.Path == "/api/auth/google/callback":
