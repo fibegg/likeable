@@ -10,6 +10,7 @@ import (
 	"strings"
 )
 
+//go:embed web-dist/*
 var embeddedWeb embed.FS
 
 func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
