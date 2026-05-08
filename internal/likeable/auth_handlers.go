@@ -52,7 +52,7 @@ func (s *Server) handleBootstrapConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	token := strings.TrimSpace(s.config.BootstrapToken)
-	if token == "" {
+	if bootstrapTokenDisabled(token) {
 		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
@@ -110,6 +110,10 @@ func (s *Server) handleBootstrapConfig(w http.ResponseWriter, r *http.Request) {
 		"googleConfigured": s.googleConfigured(r.Context()),
 		"signupMode":       s.signupMode(cfg),
 	})
+}
+
+func bootstrapTokenDisabled(token string) bool {
+	return token == "" || strings.EqualFold(token, "placeholder")
 }
 
 func validBearerToken(header, expected string) bool {

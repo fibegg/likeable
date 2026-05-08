@@ -77,6 +77,7 @@ func TestBootstrapConfigRejectsMissingOrWrongToken(t *testing.T) {
 		status int
 	}{
 		{name: "disabled", token: "", header: "Bearer deploy-token", status: http.StatusNotFound},
+		{name: "placeholder", token: "placeholder", header: "Bearer placeholder", status: http.StatusNotFound},
 		{name: "missing", token: "deploy-token", header: "", status: http.StatusUnauthorized},
 		{name: "wrong", token: "deploy-token", header: "Bearer wrong-token", status: http.StatusUnauthorized},
 	} {
