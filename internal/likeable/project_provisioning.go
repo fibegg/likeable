@@ -210,6 +210,24 @@ func (s *Server) recoverProjectReadiness(ctx context.Context, userID string, pro
 	return s.store.UpdateProjectProvisioning(ctx, project.ID, userID, project.PlaygroundID, project.PlayspecID, project.PropID, project.RepoURL, project.PreviewURL, "ready")
 }
 
+func (s *Server) refreshProjectReadiness(ctx context.Context, user *User, project *Project) (*Project, error) {
+	if user == nil || !projectNeedsReadinessRecovery(project) {
+		return project, nil
+	}
+	fibe, err := s.fibeClientForProject(ctx, project, user.Email)
+	if err != nil {
+		return project, err
+	}
+	if err := s.recoverProjectReadiness(ctx, user.ID, project, fibe); err != nil {
+		return project, err
+	}
+	updated, err := s.store.ProjectForUser(ctx, user.ID, project.ID)
+	if err != nil {
+		return project, err
+	}
+	return updated, nil
+}
+
 func projectNeedsReadinessRecovery(project *Project) bool {
 	if project == nil {
 		return false

@@ -1,6 +1,7 @@
 package likeable
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	projecttext "github.com/fibegg/likeable/internal/project"
 	"github.com/google/uuid"
@@ -34,6 +36,17 @@ func (s *Server) handleProjectMessages(w http.ResponseWriter, r *http.Request, u
 	if len(attachmentHeaders) > maxMessageAttachments {
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("too many attachments; max %d", maxMessageAttachments))
 		return
+	}
+	if project.Status != "ready" && projectNeedsReadinessRecovery(project) {
+		ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+		updated, err := s.refreshProjectReadiness(ctx, user, project)
+		cancel()
+		if err == nil && updated != nil {
+			project = updated
+		} else {
+			log.Printf("message readiness recovery for project %s is still pending: %v", project.ID, err)
+			s.recoverProjectAsync(user.ID, user.Email, project)
+		}
 	}
 	if project.Status != "ready" || project.PreviewURL == "" {
 		writeError(w, http.StatusConflict, "canvas is still starting")

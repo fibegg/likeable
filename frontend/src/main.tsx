@@ -139,10 +139,10 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const messageQuotaLabel = messageQuota ? `${messageQuota.remaining}/${messageQuota.limit}` : '';
   const messageQuotaTooltip = messageQuota ? `${messageQuota.paidRemaining ?? 0} paid credits · resets in ${formatResetCountdown(messageQuota.resetsAt, quotaNow)}` : '';
   const isProjectStarting = activeProject?.status === 'creating' || activeProject?.status === 'launching';
-  const previewReady = Boolean(activeProject?.status === 'ready' && activeProject?.previewUrl && previewStatus?.ready);
+  const previewReady = Boolean(activeProject?.previewUrl && previewStatus?.ready);
   const canvasStatusLabel = agentWorking ? 'Agent working' : activeProject?.status === 'ready' ? (previewReady ? 'Canvas live' : 'Canvas starting') : isProjectStarting ? 'Canvas starting' : activeProject?.status === 'error' ? 'Canvas error' : 'Canvas idle';
   const hasDraft = Boolean(prompt.trim()) || attachments.length > 0;
-  const canSend = signedIn && hasDraft && !busy && !messageSubmitting && activeProject?.status === 'ready' && Boolean(activeProject?.previewUrl);
+  const canSend = signedIn && hasDraft && !busy && !messageSubmitting && Boolean(activeProject?.previewUrl) && (activeProject?.status === 'ready' || previewReady);
   const hasActiveNotification = rows.some((row) => row.kind === 'notification' && row.active);
   const utilityScreenOpen = showProjects || showProfile;
   const inputPlaceholder = !signedIn
@@ -254,7 +254,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     setPreviewStatus(null);
   }, [activeProject?.id, activeProject?.previewUrl, activeProject?.status]);
   useEffect(() => {
-    if (!activeProject?.id || activeProject.status !== 'ready' || !activeProject.previewUrl) {
+    if (!activeProject?.id || !activeProject.previewUrl || activeProject.status === 'error' || activeProject.status === 'deleting') {
       setPreviewStatus(null);
       return;
     }
@@ -264,6 +264,10 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
         if (cancelled) return;
         setPreviewStatus(status);
         if (!status.ready) setIframeLoaded(false);
+        if (status.ready && activeProject.status !== 'ready') {
+          setProjects((current) => current.map((project) => project.id === activeProject.id ? { ...project, status: 'ready', errorMessage: '' } : project));
+          setFeed((current) => current?.project.id === activeProject.id ? { ...current, project: { ...current.project, status: 'ready', errorMessage: '' } } : current);
+        }
       })
       .catch(() => {
         if (cancelled) return;
@@ -606,19 +610,29 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     <section className="previewPane">
       {activeProject?.status === 'error' ? (
         <CanvasLoader title="Canvas launch failed" body={projectLaunchErrorMessage(activeProject.errorMessage)} tone="error" />
-      ) : isProjectStarting ? (
-        <CanvasLoader title={previewTitle} body={previewBody} />
-      ) : activeProject?.status === 'ready' && activeProject?.previewUrl ? (
+      ) : activeProject?.previewUrl && previewReady ? (
         <>
           <iframe
             title="preview"
-            src={previewReady ? activeProject.previewUrl : 'about:blank'}
+            src={activeProject.previewUrl}
             className={previewReady && iframeLoaded ? 'loaded' : ''}
             onLoad={() => {
               if (previewReady) setIframeLoaded(true);
             }}
           />
           {(!previewReady || !iframeLoaded) && <CanvasLoader title="Connecting canvas" body={connectingCanvasBody} />}
+        </>
+      ) : isProjectStarting ? (
+        <CanvasLoader title={previewTitle} body={previewBody} />
+      ) : activeProject?.status === 'ready' && activeProject?.previewUrl ? (
+        <>
+          <iframe
+            title="preview"
+            src="about:blank"
+            className=""
+            onLoad={() => undefined}
+          />
+          <CanvasLoader title="Connecting canvas" body={connectingCanvasBody} />
         </>
       ) : <EmptyCanvas />}
       {viewMode === 'split' && <div className={`canvasStatus ${agentWorking ? 'working' : ''}`}><span /> {canvasStatusLabel}</div>}

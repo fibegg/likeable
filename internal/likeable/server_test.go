@@ -636,6 +636,127 @@ func TestProjectPreviewStatusMarksReachablePreviewReady(t *testing.T) {
 	}
 }
 
+func TestProjectPreviewStatusPromotesLaunchingReadyWorkspace(t *testing.T) {
+	previewServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte("<!doctype html><title>ready</title>"))
+	}))
+	defer previewServer.Close()
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	fakeFibeCLI(t)
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url": "server.test:3000",
+		"fibe_api_key":  "test-key",
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: previewServer.Client()}
+	user, _ := store.UpsertUser(t.Context(), "a@example.com", "A", "")
+	if err := store.CreateSession(t.Context(), user.ID, "token-a", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{
+		ID:             "project-preview-promote",
+		UserID:         user.ID,
+		Title:          "Preview",
+		ConversationID: "conv-preview",
+		AgentID:        "agent-1",
+		PlaygroundID:   "123",
+		PreviewURL:     previewServer.URL,
+		Status:         "launching",
+	}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/projects/project-preview-promote/preview-status", nil)
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "token-a"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("preview-status returned %d: %s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Ready  bool   `json:"ready"`
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.Ready || body.Status != "200 OK" {
+		t.Fatalf("body=%+v, want ready preview", body)
+	}
+	updated, err := store.ProjectForUser(t.Context(), user.ID, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Status != "ready" {
+		t.Fatalf("status=%q, want ready", updated.Status)
+	}
+}
+
+func TestProjectMessagePromotesLaunchingReadyWorkspace(t *testing.T) {
+	previewServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte("<!doctype html><title>ready</title>"))
+	}))
+	defer previewServer.Close()
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	_, _, stdinPath := fakeFibeCLI(t)
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url": "server.test:3000",
+		"fibe_api_key":  "test-key",
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: previewServer.Client()}
+	user, _ := store.UpsertUser(t.Context(), "a@example.com", "A", "")
+	if err := store.CreateSession(t.Context(), user.ID, "token-a", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{
+		ID:             "project-message-promote",
+		UserID:         user.ID,
+		Title:          "Preview",
+		ConversationID: "conv-preview",
+		AgentID:        "agent-1",
+		PlaygroundID:   "123",
+		PreviewURL:     previewServer.URL,
+		Status:         "launching",
+	}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/projects/project-message-promote/messages", strings.NewReader(`{"text":"change the heading"}`))
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "token-a"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("message returned %d: %s", rec.Code, rec.Body.String())
+	}
+	updated, err := store.ProjectForUser(t.Context(), user.ID, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Status != "ready" {
+		t.Fatalf("status=%q, want ready", updated.Status)
+	}
+	if !strings.Contains(readFile(t, stdinPath), "change the heading") {
+		t.Fatalf("agent prompt was not sent: %s", readFile(t, stdinPath))
+	}
+}
+
 func TestProjectFeedTriggersReadinessRecovery(t *testing.T) {
 	previewServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")

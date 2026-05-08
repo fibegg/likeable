@@ -240,25 +240,36 @@ func (s *Server) handleProjectPreviewStatus(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
+	user := userFromContext(r.Context())
 	if project.Status != "ready" || strings.TrimSpace(project.PreviewURL) == "" {
 		if projectNeedsReadinessRecovery(project) {
-			user := userFromContext(r.Context())
 			if user != nil {
-				s.recoverProjectAsync(user.ID, user.Email, project)
+				ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+				updated, err := s.refreshProjectReadiness(ctx, user, project)
+				cancel()
+				if err == nil && updated != nil {
+					project = updated
+				} else {
+					log.Printf("preview status recovery for project %s is still pending: %v", project.ID, err)
+					s.recoverProjectAsync(user.ID, user.Email, project)
+				}
 			}
+			if project.Status != "ready" || strings.TrimSpace(project.PreviewURL) == "" {
+				writeJSON(w, http.StatusOK, map[string]any{
+					"ready":     false,
+					"status":    "starting",
+					"checkedAt": nowString(),
+				})
+				return
+			}
+		} else {
 			writeJSON(w, http.StatusOK, map[string]any{
 				"ready":     false,
-				"status":    "starting",
+				"status":    project.Status,
 				"checkedAt": nowString(),
 			})
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"ready":     false,
-			"status":    project.Status,
-			"checkedAt": nowString(),
-		})
-		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
