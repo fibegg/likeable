@@ -117,7 +117,16 @@ func resourceDeleteRetryable(err error) bool {
 		"503",
 		"504",
 		"conflict",
+		"deleting",
+		"depend",
+		"destroying",
+		"in progress",
+		"in use",
+		"in_progress",
 		"locked",
+		"must be in_progress",
+		"pending",
+		"referenced",
 		"still in use",
 	}
 	for _, token := range retryableTokens {
