@@ -189,25 +189,27 @@ func (s *Server) recoverProjectAsync(userID, userEmail string, project *Project)
 }
 
 func (s *Server) recoverProjectReadiness(ctx context.Context, userID string, project *Project, fibe *fibe.Client) error {
+	if _, ready, _, err := s.promoteProjectFromReachablePreview(ctx, userID, project); ready || previewEmbeddingBlocked(err) {
+		return err
+	}
 	ready, status, err := fibe.PlaygroundReady(ctx, project.PlaygroundID)
 	if err != nil {
 		return err
 	}
 	if !ready {
-		if status == "error" || status == "failed" {
-			_ = s.store.UpdateProjectError(ctx, project.ID, userID, fmt.Sprintf("workspace is %s", status))
+		if strings.TrimSpace(project.PreviewURL) != "" {
+			_ = s.store.UpdateProjectStatus(ctx, project.ID, userID, "launching")
+			return fmt.Errorf("workspace is still converging: %s", status)
 		}
 		return fmt.Errorf("workspace is still starting: %s", status)
 	}
-	previewReady, previewStatus, err := fibe.PreviewReachable(ctx, project.PreviewURL)
-	if err != nil {
+	if _, previewReady, previewStatus, err := s.promoteProjectFromReachablePreview(ctx, userID, project); err != nil {
 		return err
-	}
-	if !previewReady {
+	} else if !previewReady {
 		_ = s.store.UpdateProjectStatus(ctx, project.ID, userID, "launching")
 		return fmt.Errorf("preview is still starting: %s", previewStatus)
 	}
-	return s.store.UpdateProjectProvisioning(ctx, project.ID, userID, project.PlaygroundID, project.PlayspecID, project.PropID, project.RepoURL, project.PreviewURL, "ready")
+	return nil
 }
 
 func (s *Server) refreshProjectReadiness(ctx context.Context, user *User, project *Project) (*Project, error) {
@@ -237,6 +239,27 @@ func projectNeedsReadinessRecovery(project *Project) bool {
 		return false
 	}
 	return strings.TrimSpace(project.PlaygroundID) != "" && strings.TrimSpace(project.PreviewURL) != ""
+}
+
+func (s *Server) promoteProjectFromReachablePreview(ctx context.Context, userID string, project *Project) (*Project, bool, string, error) {
+	if project == nil || strings.TrimSpace(project.PreviewURL) == "" {
+		return project, false, "starting", nil
+	}
+	ready, status, err := fibe.ProbePreviewURL(ctx, s.http, project.PreviewURL)
+	if err != nil {
+		return project, false, status, err
+	}
+	if !ready {
+		return project, false, status, nil
+	}
+	if userID != "" && project.Status != "ready" {
+		if err := s.store.UpdateProjectProvisioning(ctx, project.ID, userID, project.PlaygroundID, project.PlayspecID, project.PropID, project.RepoURL, project.PreviewURL, "ready"); err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return project, false, status, err
+		}
+	}
+	project.Status = "ready"
+	project.ErrorMessage = ""
+	return project, true, status, nil
 }
 
 func previewEmbeddingBlocked(err error) bool {

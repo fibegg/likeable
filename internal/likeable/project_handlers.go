@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fibegg/likeable/internal/fibe"
 	projecttext "github.com/fibegg/likeable/internal/project"
 )
 
@@ -241,39 +240,28 @@ func (s *Server) handleProjectPreviewStatus(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	user := userFromContext(r.Context())
-	if project.Status != "ready" || strings.TrimSpace(project.PreviewURL) == "" {
-		if projectNeedsReadinessRecovery(project) {
-			if user != nil {
-				ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
-				updated, err := s.refreshProjectReadiness(ctx, user, project)
-				cancel()
-				if err == nil && updated != nil {
-					project = updated
-				} else {
-					log.Printf("preview status recovery for project %s is still pending: %v", project.ID, err)
-					s.recoverProjectAsync(user.ID, user.Email, project)
-				}
-			}
-			if project.Status != "ready" || strings.TrimSpace(project.PreviewURL) == "" {
-				writeJSON(w, http.StatusOK, map[string]any{
-					"ready":     false,
-					"status":    "starting",
-					"checkedAt": nowString(),
-				})
-				return
-			}
+	if projectNeedsReadinessRecovery(project) && user != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+		updated, err := s.refreshProjectReadiness(ctx, user, project)
+		cancel()
+		if err == nil && updated != nil {
+			project = updated
 		} else {
-			writeJSON(w, http.StatusOK, map[string]any{
-				"ready":     false,
-				"status":    project.Status,
-				"checkedAt": nowString(),
-			})
-			return
+			log.Printf("preview status recovery for project %s is still pending: %v", project.ID, err)
+			s.recoverProjectAsync(user.ID, user.Email, project)
 		}
+	}
+	if strings.TrimSpace(project.PreviewURL) == "" {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ready":     false,
+			"status":    publicPreviewProbeStatus(project.Status),
+			"checkedAt": nowString(),
+		})
+		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
-	ready, status, err := fibe.ProbePreviewURL(ctx, s.http, project.PreviewURL)
+	_, ready, status, err := s.promoteProjectFromReachablePreview(ctx, project.UserID, project)
 	if err != nil {
 		log.Printf("preview status probe for project %s failed: %v", project.ID, err)
 		ready = false

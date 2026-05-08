@@ -59,9 +59,15 @@ func SourceName(title string) string {
 }
 
 func PreviewSubdomain(project *domain.Project) string {
-	seed := project.ID
+	seed := ""
+	if project != nil {
+		seed = project.ID
+		if strings.TrimSpace(seed) == "" {
+			seed = project.ConversationID
+		}
+	}
 	if strings.TrimSpace(seed) == "" {
-		seed = project.ConversationID
+		seed = strconv.FormatInt(time.Now().UnixNano(), 36)
 	}
 	suffix := dnsSafeHexSuffix(seed)
 	return "lk-" + suffix

@@ -2,6 +2,7 @@ package likeable
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -92,10 +93,39 @@ func Run() error {
 	}
 	if role == "all" && server.jobs != nil && server.jobs.server != nil {
 		server.jobs.Start()
-		server.startRecurringJobs(context.Background())
 	}
 	log.Printf("likeable %s listening on %s", role, cfg.Addr)
-	return http.ListenAndServe(cfg.Addr, server.routes())
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if role == "all" && server.jobs != nil && server.jobs.server != nil {
+		server.startRecurringJobs(ctx)
+	}
+	httpServer := &http.Server{
+		Addr:              cfg.Addr,
+		Handler:           server.routes(),
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- httpServer.ListenAndServe()
+	}()
+	select {
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		if err := httpServer.Shutdown(shutdownCtx); err != nil {
+			return err
+		}
+		if err := <-errCh; err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
+		return nil
+	case err := <-errCh:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return err
+	}
 }
 
 func runtimeRole() string {
