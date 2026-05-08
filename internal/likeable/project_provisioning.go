@@ -2,6 +2,8 @@ package likeable
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -75,7 +77,7 @@ func (s *Server) provisionProjectAsync(userID, userEmail, projectID, prompt stri
 		}
 		if err := s.provisionProject(ctx, userID, userEmail, project, prompt); err != nil {
 			log.Printf("provision project %s: %v", project.ID, err)
-			_ = s.store.UpdateProjectError(ctx, project.ID, userID, err.Error())
+			s.recordProjectProvisionFailure(ctx, userID, project, err)
 		}
 	}()
 }
@@ -85,36 +87,43 @@ func (s *Server) provisionProject(ctx context.Context, userID, userEmail string,
 	if err != nil {
 		return err
 	}
-	if err := fibe.CreateConversation(ctx, project.ConversationID, project.Title); err != nil {
-		return err
-	}
-	result, err := fibe.CreateGreenfield(ctx, project)
-	if err != nil {
-		return err
-	}
-	project.PlaygroundID = result.PlaygroundID
-	project.RepoURL = result.RepoURL
-	project.PreviewURL = result.PreviewURL
-	project.PlayspecID = result.PlayspecID
-	project.PropID = result.PropID
-	project.Status = "launching"
-	if err := s.store.UpdateProjectProvisioning(ctx, project.ID, userID, project.PlaygroundID, project.PlayspecID, project.PropID, project.RepoURL, project.PreviewURL, project.Status); err != nil {
-		return err
+	if strings.TrimSpace(project.PlaygroundID) == "" {
+		if err := fibe.CreateConversation(ctx, project.ConversationID, project.Title); err != nil {
+			return err
+		}
+		result, err := fibe.CreateGreenfield(ctx, project)
+		if err != nil {
+			return err
+		}
+		project.PlaygroundID = result.PlaygroundID
+		project.RepoURL = result.RepoURL
+		project.PreviewURL = result.PreviewURL
+		project.PlayspecID = result.PlayspecID
+		project.PropID = result.PropID
+		project.Status = "launching"
+		if err := s.store.UpdateProjectProvisioning(ctx, project.ID, userID, project.PlaygroundID, project.PlayspecID, project.PropID, project.RepoURL, project.PreviewURL, project.Status); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				_ = fibe.DeleteProjectResources(ctx, project)
+			}
+			return err
+		}
+	} else if project.Status != "launching" {
+		project.Status = "launching"
+		if err := s.store.UpdateProjectStatus(ctx, project.ID, userID, project.Status); err != nil {
+			return err
+		}
 	}
 	if err := fibe.WaitPlaygroundReady(ctx, project.PlaygroundID); err != nil {
 		return err
 	}
-	reachable, probeStatus, err := fibe.PreviewReachable(ctx, project.PreviewURL)
-	if err != nil {
-		if previewEmbeddingBlocked(err) {
-			return err
-		}
-		log.Printf("preview probe for project %s failed before readiness; continuing with running playground: %v", project.ID, err)
-	} else if !reachable {
-		log.Printf("preview probe for project %s is not reachable before readiness; continuing with running playground: %s", project.ID, probeStatus)
+	if err := fibe.WaitPreviewReachable(ctx, project.PreviewURL); err != nil {
+		return err
 	}
 	project.Status = "ready"
 	if err := s.store.UpdateProjectProvisioning(ctx, project.ID, userID, project.PlaygroundID, project.PlayspecID, project.PropID, project.RepoURL, project.PreviewURL, project.Status); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			_ = fibe.DeleteProjectResources(ctx, project)
+		}
 		return err
 	}
 	if strings.TrimSpace(prompt) != "" {
@@ -123,6 +132,21 @@ func (s *Server) provisionProject(ctx context.Context, userID, userEmail string,
 		}
 	}
 	return nil
+}
+
+func (s *Server) recordProjectProvisionFailure(ctx context.Context, userID string, project *Project, err error) {
+	if retryProjectProvisionLater(project, err) {
+		_ = s.store.UpdateProjectStatus(ctx, project.ID, userID, "launching")
+		return
+	}
+	_ = s.store.UpdateProjectError(ctx, project.ID, userID, err.Error())
+}
+
+func retryProjectProvisionLater(project *Project, err error) bool {
+	if !projectHasFibeResources(project) {
+		return false
+	}
+	return !previewEmbeddingBlocked(err)
 }
 
 func (s *Server) recoverProjectsAsync(userID, userEmail string, projects []Project) {
@@ -158,22 +182,32 @@ func (s *Server) recoverProjectAsync(userID, userEmail string, project *Project)
 		if err != nil {
 			return
 		}
-		ready, status, err := fibe.PlaygroundReady(ctx, current.PlaygroundID)
-		if err != nil || !ready {
-			if err == nil && (status == "error" || status == "failed") {
-				_ = s.store.UpdateProjectError(ctx, current.ID, userID, fmt.Sprintf("workspace is %s", status))
-			}
+		if err := s.recoverProjectReadiness(ctx, userID, current, fibe); err != nil {
 			return
 		}
-		reachable, _, err := fibe.PreviewReachable(ctx, current.PreviewURL)
-		if err != nil {
-			return
-		}
-		if !reachable {
-			log.Printf("preview probe for project %s is not reachable during recovery; marking ready from running playground", current.ID)
-		}
-		_ = s.store.UpdateProjectProvisioning(ctx, current.ID, userID, current.PlaygroundID, current.PlayspecID, current.PropID, current.RepoURL, current.PreviewURL, "ready")
 	}()
+}
+
+func (s *Server) recoverProjectReadiness(ctx context.Context, userID string, project *Project, fibe *fibe.Client) error {
+	ready, status, err := fibe.PlaygroundReady(ctx, project.PlaygroundID)
+	if err != nil {
+		return err
+	}
+	if !ready {
+		if status == "error" || status == "failed" {
+			_ = s.store.UpdateProjectError(ctx, project.ID, userID, fmt.Sprintf("workspace is %s", status))
+		}
+		return fmt.Errorf("workspace is still starting: %s", status)
+	}
+	previewReady, previewStatus, err := fibe.PreviewReachable(ctx, project.PreviewURL)
+	if err != nil {
+		return err
+	}
+	if !previewReady {
+		_ = s.store.UpdateProjectStatus(ctx, project.ID, userID, "launching")
+		return fmt.Errorf("preview is still starting: %s", previewStatus)
+	}
+	return s.store.UpdateProjectProvisioning(ctx, project.ID, userID, project.PlaygroundID, project.PlayspecID, project.PropID, project.RepoURL, project.PreviewURL, "ready")
 }
 
 func projectNeedsReadinessRecovery(project *Project) bool {

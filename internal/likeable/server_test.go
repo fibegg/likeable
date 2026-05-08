@@ -401,6 +401,29 @@ func TestDeletingProjectFreesProjectQuota(t *testing.T) {
 	if len(projects) != 0 {
 		t.Fatalf("listed projects=%d, want 0", len(projects))
 	}
+	deleting, err := store.DeletingProjects(t.Context(), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(deleting) != 1 || deleting[0].ID != project.ID {
+		t.Fatalf("deleting projects=%+v, want hidden deletion row", deleting)
+	}
+	if err := store.UpdateProjectProvisioning(t.Context(), project.ID, user.ID, "playground", "playspec", "prop", "repo", "preview", "ready"); err == nil {
+		t.Fatal("provisioning update should not resurrect a deleting project")
+	}
+	if err := store.UpdateProjectStatus(t.Context(), project.ID, user.ID, "launching"); err == nil {
+		t.Fatal("non-deleting status update should not resurrect a deleting project")
+	}
+	if err := store.UpdateProjectError(t.Context(), project.ID, user.ID, "failed"); err == nil {
+		t.Fatal("error update should not resurrect a deleting project")
+	}
+	stillDeleting, err := store.ProjectForUser(t.Context(), user.ID, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stillDeleting.Status != "deleting" {
+		t.Fatalf("status=%q, want deleting", stillDeleting.Status)
+	}
 }
 
 func TestProfileDeleteAllRequiresEmailConfirmation(t *testing.T) {
@@ -517,6 +540,51 @@ func TestProjectPreviewStatusKeepsPlatform404BehindPlaceholder(t *testing.T) {
 	}
 }
 
+func TestProjectPreviewStatusRecoversErroredProjectWithResources(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	user, _ := store.UpsertUser(t.Context(), "a@example.com", "A", "")
+	if err := store.CreateSession(t.Context(), user.ID, "token-a", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{
+		ID:             "project-preview-recover",
+		UserID:         user.ID,
+		Title:          "Preview",
+		ConversationID: "conv-preview",
+		PlaygroundID:   "playground-1",
+		PreviewURL:     "http://preview.example.test",
+		Status:         "error",
+		ErrorMessage:   "The canvas could not start.",
+	}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/projects/project-preview-recover/preview-status", nil)
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "token-a"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("preview-status returned %d: %s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Ready  bool   `json:"ready"`
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Ready || body.Status != "starting" {
+		t.Fatalf("body=%+v, want not ready and retryable starting state", body)
+	}
+}
+
 func TestProjectPreviewStatusMarksReachablePreviewReady(t *testing.T) {
 	previewServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
@@ -566,6 +634,67 @@ func TestProjectPreviewStatusMarksReachablePreviewReady(t *testing.T) {
 	if body.Status != "200 OK" {
 		t.Fatalf("status=%q, want 200 OK", body.Status)
 	}
+}
+
+func TestProjectFeedTriggersReadinessRecovery(t *testing.T) {
+	previewServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte("<!doctype html><title>ready</title>"))
+	}))
+	defer previewServer.Close()
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	cliPath, _, _ := fakeFibeCLI(t)
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url": "server.test:3000",
+		"fibe_api_key":  "test-key",
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: previewServer.Client()}
+	user, _ := store.UpsertUser(t.Context(), "a@example.com", "A", "")
+	if err := store.CreateSession(t.Context(), user.ID, "token-a", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{
+		ID:             "project-feed-recover",
+		UserID:         user.ID,
+		Title:          "Preview",
+		ConversationID: "conv-preview",
+		AgentID:        "agent-1",
+		PlaygroundID:   "123",
+		PreviewURL:     previewServer.URL,
+		Status:         "launching",
+	}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", filepath.Dir(cliPath)+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/projects/project-feed-recover/feed", nil)
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "token-a"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("feed returned %d: %s", rec.Code, rec.Body.String())
+	}
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		updated, err := store.ProjectForUser(t.Context(), user.ID, project.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if updated.Status == "ready" {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	updated, _ := store.ProjectForUser(t.Context(), user.ID, project.ID)
+	t.Fatalf("project status=%q, want recovered ready", updated.Status)
 }
 
 func TestProfileDeleteAllDeletesFibeResourcesAndLocalData(t *testing.T) {

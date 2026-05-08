@@ -33,7 +33,6 @@ function App() {
   };
 
   if (!me) return <div className="loading">Loading</div>;
-  if (!me.user) return <Login me={me} />;
 
   return (
     <Shell me={me} nav={nav}>
@@ -42,23 +41,9 @@ function App() {
   );
 }
 
-function Login({ me }: { me: Me }) {
-  return (
-    <main className="login">
-      <section className="loginPanel">
-        <div className="mark">L</div>
-        <h1>Likeable</h1>
-        <a className={`primaryButton ${!me.auth?.googleConfigured ? 'disabled' : ''}`} href="/api/auth/google/start">
-          Continue with Google
-        </a>
-        {me.auth?.devAuth && <button className="ghostButton" onClick={() => fetch('/api/dev/login?email=admin@example.com', { method: 'POST' }).then(() => location.reload())}>Dev sign in</button>}
-      </section>
-    </main>
-  );
-}
-
 function Shell({ me, nav, children }: { me: Me; nav: (to: string) => void; children: React.ReactNode }) {
   const [notices, setNotices] = useState<UserNotice[]>(me.notices ?? []);
+  const googleReady = me.auth?.googleConfigured !== false;
   useEffect(() => setNotices(me.notices ?? []), [me.notices]);
   const notice = notices[0];
   const dismissNotice = async (noticeID: string) => {
@@ -77,12 +62,21 @@ function Shell({ me, nav, children }: { me: Me; nav: (to: string) => void; child
         </button>
         <nav>
           <button onClick={() => nav('/')}><MessageSquare size={18} /> Builder</button>
-          <button onClick={() => nav('/profile')}><UserRound size={18} /> Profile</button>
+          {me.user && <button onClick={() => nav('/profile')}><UserRound size={18} /> Profile</button>}
           {me.isAdmin && <button onClick={() => nav('/admin')}><Settings size={18} /> Admin</button>}
         </nav>
         <div className="account">
-          <span>{me.user?.email}</span>
-          <button onClick={() => fetch('/api/auth/logout', { method: 'POST' }).then(() => location.reload())}><LogOut size={17} /></button>
+          {me.user ? (
+            <>
+              <span>{me.user.email}</span>
+              <button onClick={() => fetch('/api/auth/logout', { method: 'POST' }).then(() => location.reload())}><LogOut size={17} /></button>
+            </>
+          ) : (
+            <>
+              <a className={!googleReady ? 'disabled' : ''} href="/api/auth/google/start">Sign in</a>
+              {me.auth?.devAuth && <button onClick={() => fetch('/api/dev/login?email=admin@example.com', { method: 'POST' }).then(() => location.reload())}>Dev</button>}
+            </>
+          )}
         </div>
       </header>
       {notice && (
@@ -98,6 +92,8 @@ function Shell({ me, nav, children }: { me: Me; nav: (to: string) => void; child
 }
 
 function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void; me: Me; profileRoute?: boolean }) {
+  const signedIn = Boolean(me.user);
+  const googleReady = me.auth?.googleConfigured !== false;
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeID, setActiveID] = useState<string>('');
   const [feed, setFeed] = useState<Feed | null>(null);
@@ -106,7 +102,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const [messageSubmitting, setMessageSubmitting] = useState(false);
   const [projectCap, setProjectCap] = useState<number | null>(null);
   const [showProjects, setShowProjects] = useState(false);
-  const [showProfile, setShowProfile] = useState(profileRoute);
+  const [showProfile, setShowProfile] = useState(profileRoute && signedIn);
   const [confirmNewProject, setConfirmNewProject] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Project | null>(null);
   const [dialog, setDialog] = useState<AppDialogConfig | null>(null);
@@ -134,7 +130,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const active = useMemo(() => projects.find((p) => p.id === activeID), [projects, activeID]);
   const activeProject = feed?.project?.id === activeID ? feed.project : active;
   const rows = useMemo(() => feedRows(feed), [feed]);
-  const agentWorking = Boolean(activeProject?.status === 'ready' && activeProject?.previewUrl && (messageSubmitting || feed?.live?.isProcessing || feedAwaitingAgent(feed)));
+  const agentWorking = Boolean(signedIn && activeProject?.status === 'ready' && activeProject?.previewUrl && (messageSubmitting || feed?.live?.isProcessing || feedAwaitingAgent(feed)));
   const agentWorkingLabel = messageSubmitting ? 'Transmitting request' : 'Synthesizing canvas';
   const lastRow = rows.at(-1);
   const lastRowSignature = lastRow ? `${lastRow.id}:${lastRow.body}` : '';
@@ -146,10 +142,12 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const previewReady = Boolean(activeProject?.status === 'ready' && activeProject?.previewUrl && previewStatus?.ready);
   const canvasStatusLabel = agentWorking ? 'Agent working' : activeProject?.status === 'ready' ? (previewReady ? 'Canvas live' : 'Canvas starting') : isProjectStarting ? 'Canvas starting' : activeProject?.status === 'error' ? 'Canvas error' : 'Canvas idle';
   const hasDraft = Boolean(prompt.trim()) || attachments.length > 0;
-  const canSend = hasDraft && !busy && !messageSubmitting && activeProject?.status === 'ready' && Boolean(activeProject?.previewUrl);
+  const canSend = signedIn && hasDraft && !busy && !messageSubmitting && activeProject?.status === 'ready' && Boolean(activeProject?.previewUrl);
   const hasActiveNotification = rows.some((row) => row.kind === 'notification' && row.active);
   const utilityScreenOpen = showProjects || showProfile;
-  const inputPlaceholder = isProjectStarting
+  const inputPlaceholder = !signedIn
+    ? 'Sign in with Google to start building...'
+    : isProjectStarting
     ? 'Canvas is starting...'
     : activeProject?.status === 'error'
       ? 'Project needs attention...'
@@ -169,12 +167,18 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     .catch(() => undefined);
 
   useEffect(() => {
+    if (!signedIn) {
+      setProjects([]);
+      setActiveID('');
+      setFeed(null);
+      return;
+    }
     void loadProjects().catch(() => {
       setProjects([]);
       setActiveID('');
     });
     void refreshQuota();
-  }, []);
+  }, [signedIn]);
   useEffect(() => {
     localStorage.setItem(BUILDER_MODE_KEY, mode);
   }, [mode]);
@@ -203,12 +207,12 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     return () => removeEventListener('resize', resize);
   }, []);
   useEffect(() => {
-    setShowProfile(profileRoute);
-    if (profileRoute) {
+    setShowProfile(profileRoute && signedIn);
+    if (profileRoute && signedIn) {
       setShowProjects(false);
       setBasicChatCollapsed(false);
     }
-  }, [profileRoute]);
+  }, [profileRoute, signedIn]);
   useEffect(() => {
     setMessageQuota(me.messageQuota ?? null);
   }, [me.messageQuota]);
@@ -285,6 +289,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   }, [activeID, lastRowSignature, agentWorking]);
 
   const createOrSend = async () => {
+    if (!signedIn) return;
     const text = prompt.trim();
     const files = attachments;
     if (!text && files.length === 0) return;
@@ -314,7 +319,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     }
   };
   const interruptAgent = async () => {
-    if (!activeProject) return;
+    if (!signedIn || !activeProject) return;
     setBusy(true);
     try {
       await api(`/api/projects/${activeProject.id}/agent/interrupt`, { method: 'POST', body: JSON.stringify({}) });
@@ -327,6 +332,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     }
   };
   const createProject = async (title?: string) => {
+    if (!signedIn) return;
     setBusy(true);
     try {
       const trimmedTitle = title?.trim();
@@ -346,6 +352,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     }
   };
   const renameProject = async (project: Project, title: string) => {
+    if (!signedIn) return;
     const trimmedTitle = title.trim();
     if (!trimmedTitle || trimmedTitle === project.title) return;
     setBusy(true);
@@ -360,7 +367,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     }
   };
   const deleteProject = async () => {
-    if (!deleteTarget) return;
+    if (!signedIn || !deleteTarget) return;
     const targetID = deleteTarget.id;
     setBusy(true);
     try {
@@ -468,11 +475,13 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     setBasicChatCollapsed(false);
   };
   const openProjectsPanel = () => {
+    if (!signedIn) return;
     setShowProjects((open) => !open);
     setShowProfile(false);
     if (location.pathname.startsWith('/profile')) nav('/');
   };
   const openProfilePanel = () => {
+    if (!signedIn) return;
     setShowProfile(true);
     setShowProjects(false);
     setBasicChatCollapsed(false);
@@ -488,9 +497,9 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
         <span className="mark small statusMark">L<span className="brandStatusDot" /></span>
       </button>
       {topOpenLink}
-      <button className="projectTitleButton tooltip tooltipBottom" onClick={openProjectsPanel} aria-label="Projects" data-tip="Projects">
-        <span className="projectTitleMain">{activeProject?.title ?? 'New project'}</span>
-        <span className="projectTitleCount"><FolderOpen size={15} /><span>{projectCapLabel}</span></span>
+      <button className="projectTitleButton tooltip tooltipBottom" onClick={openProjectsPanel} disabled={!signedIn} aria-label="Projects" data-tip={signedIn ? 'Projects' : 'Sign in to create projects'}>
+        <span className="projectTitleMain">{activeProject?.title ?? (signedIn ? 'New project' : 'Sign in to build')}</span>
+        <span className="projectTitleCount"><FolderOpen size={15} /><span>{signedIn ? projectCapLabel : '-'}</span></span>
       </button>
       <nav className="chatNav">
         <div className="chromePill identityPill">
@@ -512,7 +521,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
               {messageQuotaLabel}
             </span>
           )}
-          <button className={showProfile ? 'chromeIconButton selected tooltip tooltipBottom' : 'chromeIconButton tooltip tooltipBottom'} onClick={showProfile ? closeProfilePanel : openProfilePanel} aria-label="Profile" data-tip="Profile"><UserRound size={16} /></button>
+          <button className={showProfile ? 'chromeIconButton selected tooltip tooltipBottom' : 'chromeIconButton tooltip tooltipBottom'} onClick={showProfile ? closeProfilePanel : openProfilePanel} disabled={!signedIn} aria-label="Profile" data-tip={signedIn ? 'Profile' : 'Sign in to open profile'}><UserRound size={16} /></button>
           {me.isAdmin && <button className="chromeIconButton tooltip tooltipBottom" onClick={() => nav('/admin')} aria-label="Admin" data-tip="Admin"><Settings size={16} /></button>}
         </div>
         <div className="chromePill">
@@ -521,8 +530,17 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
         </div>
       </nav>
       <div className="account chatAccount">
-        <span>{me.user?.email}</span>
-        <button className="tooltip tooltipBottom" onClick={() => fetch('/api/auth/logout', { method: 'POST' }).then(() => location.reload())} aria-label="Sign out" data-tip="Sign out"><LogOut size={16} /></button>
+        {me.user ? (
+          <>
+            <span>{me.user.email}</span>
+            <button className="tooltip tooltipBottom" onClick={() => fetch('/api/auth/logout', { method: 'POST' }).then(() => location.reload())} aria-label="Sign out" data-tip="Sign out"><LogOut size={16} /></button>
+          </>
+        ) : (
+          <>
+            <a className={!googleReady ? 'disabled' : ''} href="/api/auth/google/start">Sign in</a>
+            {me.auth?.devAuth && <button onClick={() => fetch('/api/dev/login?email=admin@example.com', { method: 'POST' }).then(() => location.reload())}>Dev</button>}
+          </>
+        )}
       </div>
     </div>
   );
@@ -558,10 +576,10 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
                 ))}
               </div>
             )}
-            <button className="attachButton" type="button" onClick={() => fileInputRef.current?.click()} disabled={attachments.length >= MAX_ATTACHMENTS} aria-label="Attach files">
+            <button className="attachButton" type="button" onClick={() => fileInputRef.current?.click()} disabled={!signedIn || attachments.length >= MAX_ATTACHMENTS} aria-label="Attach files">
               <Paperclip size={20} />
             </button>
-            <textarea ref={textareaRef} value={prompt} onChange={(e) => setPrompt(e.target.value)} onKeyDown={handleComposerKeyDown} placeholder={inputPlaceholder} rows={1} />
+            <textarea ref={textareaRef} value={prompt} onChange={(e) => setPrompt(e.target.value)} onKeyDown={handleComposerKeyDown} placeholder={inputPlaceholder} rows={1} disabled={!signedIn} />
             <button className={`sendButton ${messageSubmitting ? 'working' : ''}`} disabled={!canSend} onClick={createOrSend}>
               {messageSubmitting ? <Loader2 className="spinIcon" size={22} /> : <Send size={22} />}
             </button>

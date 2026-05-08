@@ -12,6 +12,7 @@ func (s *Server) deleteProjectResourcesAsync(userID, userEmail string, project *
 		if err := s.enqueueProjectJob(context.Background(), taskDeleteProjectResources, projectJobPayload{UserID: userID, UserEmail: userEmail, ProjectID: project.ID}, asynq.Queue("critical"), asynq.MaxRetry(10), asynq.Timeout(10*time.Minute), asynq.Unique(30*time.Second)); err != nil {
 			log.Printf("enqueue project delete %s: %v", project.ID, err)
 		}
+		s.enqueueProjectDeletionSweep(context.Background(), 2*time.Minute)
 		return
 	}
 	snapshot := *project

@@ -27,7 +27,7 @@ func (s *Store) UpdateProjectProvisioning(ctx context.Context, projectID, userID
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE projects
 		SET playground_id = ?, playspec_id = ?, prop_id = ?, repo_url = ?, preview_url = ?, status = ?, error_message = '', updated_at = ?
-		WHERE id = ? AND user_id = ?
+		WHERE id = ? AND user_id = ? AND status != 'deleting'
 	`, playgroundID, playspecID, propID, repoURL, previewURL, status, nowString(), projectID, userID)
 	if err != nil {
 		return err
@@ -43,7 +43,7 @@ func (s *Store) UpdateProjectError(ctx context.Context, projectID, userID, messa
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE projects
 		SET status = 'error', error_message = ?, updated_at = ?
-		WHERE id = ? AND user_id = ?
+		WHERE id = ? AND user_id = ? AND status != 'deleting'
 	`, publicProjectErrorMessage(message), nowString(), projectID, userID)
 	if err != nil {
 		return err
@@ -73,8 +73,8 @@ func (s *Store) UpdateProjectStatus(ctx context.Context, projectID, userID, stat
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE projects
 		SET status = ?, updated_at = ?
-		WHERE id = ? AND user_id = ?
-	`, status, nowString(), projectID, userID)
+		WHERE id = ? AND user_id = ? AND (status != 'deleting' OR ? = 'deleting')
+	`, status, nowString(), projectID, userID, status)
 	if err != nil {
 		return err
 	}
@@ -154,6 +154,35 @@ func (s *Store) ProjectsForUser(ctx context.Context, userID string) ([]Project, 
 		WHERE user_id = ? AND status != 'deleting'
 		ORDER BY updated_at DESC
 	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Project
+	for rows.Next() {
+		project, err := scanProject(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *project)
+	}
+	if out == nil {
+		out = []Project{}
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) DeletingProjects(ctx context.Context, limit int) ([]Project, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 100
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, user_id, title, conversation_id, agent_id, marquee_id, playground_id, playspec_id, prop_id, repo_url, preview_url, status, error_message, created_at, updated_at
+		FROM projects
+		WHERE status = 'deleting'
+		ORDER BY updated_at ASC
+		LIMIT ?
+	`, limit)
 	if err != nil {
 		return nil, err
 	}

@@ -183,6 +183,7 @@ func (s *Server) handleProjectUpdate(w http.ResponseWriter, r *http.Request, use
 
 func (s *Server) handleProjectDelete(w http.ResponseWriter, r *http.Request, user *User, project *Project) {
 	if project.Status == "deleting" {
+		s.deleteProjectResourcesAsync(user.ID, user.Email, project)
 		writeJSON(w, http.StatusAccepted, map[string]any{"project": project})
 		return
 	}
@@ -220,6 +221,7 @@ func (s *Server) handleProjectFeed(w http.ResponseWriter, r *http.Request, user 
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
+	s.recoverProjectAsync(user.ID, user.Email, project)
 	local, _ := s.store.MessagesForProject(r.Context(), project.ID)
 	fibe, err := s.fibeClientForProject(r.Context(), project, user.Email)
 	if err != nil {
@@ -239,6 +241,18 @@ func (s *Server) handleProjectPreviewStatus(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if project.Status != "ready" || strings.TrimSpace(project.PreviewURL) == "" {
+		if projectNeedsReadinessRecovery(project) {
+			user := userFromContext(r.Context())
+			if user != nil {
+				s.recoverProjectAsync(user.ID, user.Email, project)
+			}
+			writeJSON(w, http.StatusOK, map[string]any{
+				"ready":     false,
+				"status":    "starting",
+				"checkedAt": nowString(),
+			})
+			return
+		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"ready":     false,
 			"status":    project.Status,

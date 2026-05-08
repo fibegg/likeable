@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -20,6 +19,7 @@ const (
 	taskProvisionProject       = "likeable:project:provision"
 	taskRecoverProject         = "likeable:project:recover"
 	taskDeleteProjectResources = "likeable:project:delete_resources"
+	taskProjectDeletionSweep   = "likeable:project:deletion_sweep"
 	taskArchiveDeleteProject   = "likeable:project:archive_delete"
 	taskSendEmail              = "likeable:email:send"
 	taskProjectQuotaSweep      = "likeable:project_quota:sweep"
@@ -50,6 +50,7 @@ func newJobSystem(redisOpt asynq.RedisClientOpt, s *Server) *JobSystem {
 	mux.HandleFunc(taskProvisionProject, s.handleProvisionProjectTask)
 	mux.HandleFunc(taskRecoverProject, s.handleRecoverProjectTask)
 	mux.HandleFunc(taskDeleteProjectResources, s.handleDeleteProjectResourcesTask)
+	mux.HandleFunc(taskProjectDeletionSweep, s.handleProjectDeletionSweepTask)
 	mux.HandleFunc(taskArchiveDeleteProject, s.handleArchiveDeleteProjectTask)
 	mux.HandleFunc(taskSendEmail, s.handleSendEmailTask)
 	mux.HandleFunc(taskProjectQuotaSweep, s.handleProjectQuotaSweepTask)
@@ -162,11 +163,26 @@ func (s *Server) enqueueProjectQuotaSweep(ctx context.Context, delay time.Durati
 	}
 }
 
+func (s *Server) enqueueProjectDeletionSweep(ctx context.Context, delay time.Duration) {
+	if s.jobs == nil {
+		return
+	}
+	opts := []asynq.Option{asynq.Queue("critical"), asynq.MaxRetry(2), asynq.Timeout(15 * time.Minute), asynq.Unique(10 * time.Minute)}
+	if delay > 0 {
+		opts = append(opts, asynq.ProcessIn(delay))
+	}
+	_, err := s.jobs.client.EnqueueContext(ctx, asynq.NewTask(taskProjectDeletionSweep, nil), opts...)
+	if err != nil && !errors.Is(err, asynq.ErrDuplicateTask) {
+		log.Printf("enqueue project deletion sweep: %v", err)
+	}
+}
+
 func (s *Server) startRecurringJobs(ctx context.Context) {
 	if s.jobs == nil {
 		return
 	}
 	s.enqueueProjectQuotaSweep(ctx, 0)
+	s.enqueueProjectDeletionSweep(ctx, 0)
 	go func() {
 		ticker := time.NewTicker(time.Hour)
 		defer ticker.Stop()
@@ -176,6 +192,7 @@ func (s *Server) startRecurringJobs(ctx context.Context) {
 				return
 			case <-ticker.C:
 				s.enqueueProjectQuotaSweep(context.Background(), 0)
+				s.enqueueProjectDeletionSweep(context.Background(), 0)
 			}
 		}
 	}()
@@ -202,7 +219,7 @@ func (s *Server) handleProvisionProjectTask(ctx context.Context, task *asynq.Tas
 		return err
 	}
 	if err := s.provisionProject(ctx, payload.UserID, payload.UserEmail, project, payload.Prompt); err != nil {
-		_ = s.store.UpdateProjectError(ctx, project.ID, payload.UserID, err.Error())
+		s.recordProjectProvisionFailure(ctx, payload.UserID, project, err)
 		return err
 	}
 	return nil
@@ -221,17 +238,7 @@ func (s *Server) handleRecoverProjectTask(ctx context.Context, task *asynq.Task)
 	if err != nil {
 		return err
 	}
-	ready, status, err := fibe.PlaygroundReady(ctx, project.PlaygroundID)
-	if err != nil {
-		return err
-	}
-	if !ready {
-		if status == "error" || status == "failed" {
-			_ = s.store.UpdateProjectError(ctx, project.ID, payload.UserID, fmt.Sprintf("workspace is %s", status))
-		}
-		return fmt.Errorf("playground %s is not ready: %s", project.PlaygroundID, status)
-	}
-	return s.store.UpdateProjectProvisioning(ctx, project.ID, payload.UserID, project.PlaygroundID, project.PlayspecID, project.PropID, project.RepoURL, project.PreviewURL, "ready")
+	return s.recoverProjectReadiness(ctx, payload.UserID, project, fibe)
 }
 
 func (s *Server) handleDeleteProjectResourcesTask(ctx context.Context, task *asynq.Task) error {
@@ -260,6 +267,27 @@ func (s *Server) handleDeleteProjectResourcesTask(ctx context.Context, task *asy
 	}
 	if err := s.store.DeleteProject(ctx, project.ID, payload.UserID); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
+	}
+	return nil
+}
+
+func (s *Server) handleProjectDeletionSweepTask(ctx context.Context, _ *asynq.Task) error {
+	projects, err := s.store.DeletingProjects(ctx, 100)
+	if err != nil {
+		return err
+	}
+	for i := range projects {
+		project := &projects[i]
+		user, err := s.store.UserByID(ctx, project.UserID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				continue
+			}
+			return err
+		}
+		if err := s.enqueueProjectJob(ctx, taskDeleteProjectResources, projectJobPayload{UserID: user.ID, UserEmail: user.Email, ProjectID: project.ID}, asynq.Queue("critical"), asynq.MaxRetry(10), asynq.Timeout(10*time.Minute), asynq.Unique(time.Minute)); err != nil {
+			return err
+		}
 	}
 	return nil
 }

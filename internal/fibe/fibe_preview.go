@@ -40,7 +40,7 @@ func (c *Client) WaitPreviewReachable(ctx context.Context, previewURL string) er
 	if previewURL == "" {
 		return errors.New("workspace creation did not return a preview URL")
 	}
-	deadline := time.Now().Add(4 * time.Minute)
+	deadline := time.Now().Add(6 * time.Minute)
 	var lastStatus string
 	for time.Now().Before(deadline) {
 		ready, currentStatus, err := c.PreviewReachable(ctx, previewURL)

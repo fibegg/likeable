@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	projecttext "github.com/fibegg/likeable/internal/project"
 )
@@ -259,6 +260,63 @@ func TestDeleteProjectResourcesDeletesFibeAndGiteaResources(t *testing.T) {
 		if !strings.Contains(log, want) {
 			t.Fatalf("missing CLI command %q; log=%s", want, log)
 		}
+	}
+}
+
+func TestDeleteProjectResourcesTreatsMissingRemoteResourcesAsDeleted(t *testing.T) {
+	dir := t.TempDir()
+	cliPath := filepath.Join(dir, "fibe")
+	logPath := filepath.Join(dir, "commands.log")
+	script := `#!/bin/sh
+printf '%s\n' "$*" >> "` + logPath + `"
+case "$*" in
+  *"playgrounds delete"*|*"agents delete-conversation"*)
+    echo "404 Not Found" >&2
+    exit 1
+    ;;
+  *)
+    echo '{"ok":true}'
+    ;;
+esac
+`
+	if err := os.WriteFile(cliPath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	client := &Client{
+		apiKey:    "test",
+		agentID:   "agent",
+		cliPath:   cliPath,
+		cliDomain: testFibeCLIDomain(),
+		http:      http.DefaultClient,
+	}
+	if err := client.DeleteProjectResources(t.Context(), &Project{PlaygroundID: "missing", ConversationID: "conv-missing"}); err != nil {
+		t.Fatal(err)
+	}
+	log := readFile(t, logPath)
+	for _, want := range []string{
+		"playgrounds delete missing",
+		"agents delete-conversation agent --conversation-id conv-missing",
+	} {
+		if !strings.Contains(log, want) {
+			t.Fatalf("missing CLI command %q; log=%s", want, log)
+		}
+	}
+}
+
+func TestDeleteProjectResourcesDoesNotRetryPermanentCommandFailures(t *testing.T) {
+	client := &Client{
+		apiKey:    "test",
+		agentID:   "agent",
+		cliPath:   filepath.Join(t.TempDir(), "missing-fibe"),
+		cliDomain: testFibeCLIDomain(),
+		http:      http.DefaultClient,
+	}
+	start := time.Now()
+	if err := client.DeleteProjectResources(t.Context(), &Project{PlaygroundID: "123"}); err == nil {
+		t.Fatal("expected missing CLI path to fail")
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("permanent command failure took %s; want no long retry", elapsed)
 	}
 }
 

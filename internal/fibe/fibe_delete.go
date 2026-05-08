@@ -30,7 +30,7 @@ func (c *Client) DeleteProjectResources(ctx context.Context, project *Project) e
 		}
 	}
 	if project.PlaygroundID != "" {
-		if err := c.deleteFibeResource(ctx, "playgrounds", project.PlaygroundID); err != nil {
+		if err := c.deleteFibeResourceWithRetry(ctx, "playgrounds", project.PlaygroundID); err != nil {
 			errs = append(errs, fmt.Errorf("delete playground: %w", err))
 		}
 	}
@@ -57,6 +57,9 @@ func (c *Client) deleteFibeResourceWithRetry(ctx context.Context, resource, id s
 	for attempt := 0; attempt < 18; attempt++ {
 		if err := c.deleteFibeResource(ctx, resource, id); err != nil {
 			lastErr = err
+			if !resourceDeleteRetryable(err) {
+				return err
+			}
 		} else {
 			return nil
 		}
@@ -70,7 +73,59 @@ func (c *Client) deleteFibeResourceWithRetry(ctx context.Context, resource, id s
 }
 
 func (c *Client) deleteFibeResource(ctx context.Context, resource, id string) error {
-	return c.runCLI(ctx, []string{resource, "delete", id}, nil, nil)
+	err := c.runCLI(ctx, []string{resource, "delete", id}, nil, nil)
+	if resourceAlreadyDeleted(err) {
+		return nil
+	}
+	return err
+}
+
+func resourceAlreadyDeleted(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "not found") || strings.Contains(message, "404") || strings.Contains(message, "gone")
+}
+
+func resourceDeleteRetryable(err error) bool {
+	if err == nil || resourceAlreadyDeleted(err) {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	permanentTokens := []string{
+		"executable file not found",
+		"forbidden",
+		"invalid",
+		"no such file or directory",
+		"no such host",
+		"not configured",
+		"unauthorized",
+	}
+	for _, token := range permanentTokens {
+		if strings.Contains(message, token) {
+			return false
+		}
+	}
+	retryableTokens := []string{
+		"409",
+		"423",
+		"425",
+		"429",
+		"500",
+		"502",
+		"503",
+		"504",
+		"conflict",
+		"locked",
+		"still in use",
+	}
+	for _, token := range retryableTokens {
+		if strings.Contains(message, token) {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *Client) DeleteGiteaRepo(ctx context.Context, repoURL string) error {
@@ -102,7 +157,11 @@ func (c *Client) DeleteGiteaRepo(ctx context.Context, repoURL string) error {
 }
 
 func (c *Client) DeleteConversation(ctx context.Context, conversationID string) error {
-	return c.runCLI(ctx, []string{"agents", "delete-conversation", c.agentID, "--conversation-id", conversationID}, nil, nil)
+	err := c.runCLI(ctx, []string{"agents", "delete-conversation", c.agentID, "--conversation-id", conversationID}, nil, nil)
+	if resourceAlreadyDeleted(err) {
+		return nil
+	}
+	return err
 }
 
 func giteaRepoDeleteTarget(raw string) (string, string, string, error) {
