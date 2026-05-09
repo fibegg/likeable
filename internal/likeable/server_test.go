@@ -1,12 +1,14 @@
 package likeable
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -960,6 +962,93 @@ esac
 	}
 	if !strings.Contains(readFile(t, stdinPath), "change the heading") {
 		t.Fatalf("agent prompt was not sent: %s", readFile(t, stdinPath))
+	}
+}
+
+func TestProjectMessageAttachmentFailureIsHumanReadable(t *testing.T) {
+	dir := t.TempDir()
+	cliPath := filepath.Join(dir, "fibe")
+	script := `#!/bin/sh
+case "$*" in
+  *"agents send-message"*)
+    cat >/dev/null
+    printf '%s\n' '{"error":{"message":"Unsupported or blocked file type","code":"BAD_REQUEST","status":400}}' >&2
+    exit 1
+    ;;
+  *)
+    echo "unexpected command: $*" >&2
+    exit 64
+    ;;
+esac
+`
+	if err := os.WriteFile(cliPath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url": "server.test:3000",
+		"fibe_api_key":  "test-key",
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	user, _ := store.UpsertUser(t.Context(), "a@example.com", "A", "")
+	if err := store.CreateSession(t.Context(), user.ID, "token-a", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{
+		ID:             "project-message-webp",
+		UserID:         user.ID,
+		Title:          "Attachment",
+		ConversationID: "conv-webp",
+		AgentID:        "agent-1",
+		PreviewURL:     "http://preview.example.test",
+		Status:         "ready",
+	}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if err := writer.WriteField("text", "use this image"); err != nil {
+		t.Fatal(err)
+	}
+	part, err := writer.CreateFormFile("attachments", "mock.webp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write([]byte("webp")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/projects/project-message-webp/messages", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "token-a"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("message returned %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "workspace rejected this WEBP attachment") {
+		t.Fatalf("body=%s, want human-readable WEBP message", rec.Body.String())
+	}
+	messages, err := store.MessagesForProject(t.Context(), project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(messages) != 0 {
+		t.Fatalf("messages=%+v, want failed optimistic message removed", messages)
 	}
 }
 

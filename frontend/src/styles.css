@@ -493,8 +493,9 @@ html[data-builder-mode="split"] .account {
   min-height: 0;
   overflow: visible;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
   grid-template-areas:
+    "powered"
     "chrome"
     "projects"
     "messages"
@@ -504,6 +505,22 @@ html[data-builder-mode="split"] .account {
   box-shadow: 0 24px 90px rgba(0, 0, 0, .44);
   backdrop-filter: blur(16px);
 }
+.poweredBy {
+  grid-area: powered;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 18px;
+  padding: 3px 10px;
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: rgba(216, 228, 231, .38);
+  text-decoration: none;
+  border-bottom: 1px solid rgba(199, 137, 45, .14);
+}
+.poweredBy:hover { color: rgba(216, 228, 231, .72); }
+.poweredBy span { color: rgba(213, 141, 45, .72); margin-left: 4px; font-weight: 700; }
 .basicChatChrome {
   grid-area: chrome;
   min-width: 0;
@@ -2645,6 +2662,35 @@ html.resizingChat * {
     bottom: calc(12px + env(safe-area-inset-bottom));
     max-height: calc(100dvh - 20px);
   }
+  .overlayChat:not(.collapsed):not(.minimized) {
+    inset: 0;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 100%;
+    height: 100dvh;
+    max-height: none;
+    transform: none;
+  }
+  .overlayChat:not(.collapsed):not(.minimized) .chatPane {
+    width: 100%;
+    height: 100dvh;
+    max-height: none;
+    border-radius: 0;
+    border-width: 0;
+  }
+  .overlayChat:not(.collapsed):not(.minimized) .poweredBy {
+    padding-top: calc(3px + env(safe-area-inset-top));
+  }
+  .overlayChat:not(.collapsed):not(.minimized) .composer {
+    padding-bottom: calc(9px + env(safe-area-inset-bottom));
+  }
+  .overlayChat:not(.collapsed):not(.minimized) .chatResizeHandle {
+    display: none;
+  }
+  .projectTitleButton .projectTitleMain { display: none; }
+  .projectTitleButton { flex: 0 0 auto; gap: 0; }
   .overlayChat .chatPane { max-height: inherit; }
   .overlayChat .messages {
     max-height: none;
@@ -2661,7 +2707,7 @@ html.resizingChat * {
   .attachButton { width: 36px; height: 46px; min-height: 0; }
   .sendButton,
   .composer .sendButton { width: 42px; height: 46px; min-height: 0; }
-  .composer textarea { min-height: 46px; padding: 12px 13px; font-size: 14px; }
+  .composer textarea { min-height: 46px; padding: 13px 13px; font-size: 14px; }
   .messageCard {
     gap: 6px;
     padding: 9px 10px;

@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	fibegateway "github.com/fibegg/likeable/internal/fibe"
 	projecttext "github.com/fibegg/likeable/internal/project"
 	"github.com/google/uuid"
 )
@@ -116,7 +117,8 @@ func (s *Server) handleProjectMessages(w http.ResponseWriter, r *http.Request, u
 		cleanupLocalAttachments()
 		_ = s.store.DeleteMessage(context.Background(), project.ID, messageID)
 		log.Printf("send workspace message for project %s: %v", project.ID, err)
-		writeError(w, http.StatusBadGateway, "could not send the request to the workspace")
+		status, message := workspaceSendFailureResponse(localAttachments, err)
+		writeError(w, status, message)
 		return
 	}
 	if usesPaidCredit {
@@ -161,6 +163,50 @@ func normalizeBusyPolicy(raw string) string {
 	default:
 		return "queue"
 	}
+}
+
+func workspaceSendFailureResponse(attachments []MessageAttachment, err error) (int, string) {
+	if len(attachments) > 0 && workspaceAttachmentFailure(err) {
+		return http.StatusBadRequest, unsupportedAttachmentMessage(attachments)
+	}
+	return http.StatusBadGateway, "could not send the request to the workspace"
+}
+
+func workspaceAttachmentFailure(err error) bool {
+	if err == nil {
+		return false
+	}
+	text := strings.ToLower(err.Error())
+	var platformErr *fibegateway.PlatformError
+	if errors.As(err, &platformErr) {
+		text = strings.ToLower(strings.Join([]string{
+			platformErr.Code,
+			platformErr.Message,
+			platformErr.Stderr,
+			err.Error(),
+		}, " "))
+	}
+	for _, needle := range []string{
+		"unsupported or blocked file type",
+		"unsupported file type",
+		"blocked file type",
+		"upload attachment",
+		"/uploads",
+	} {
+		if strings.Contains(text, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func unsupportedAttachmentMessage(attachments []MessageAttachment) string {
+	for _, attachment := range attachments {
+		if strings.EqualFold(cleanAttachmentExtension(attachment.Filename), ".webp") {
+			return "The workspace rejected this WEBP attachment. Convert the image to PNG or JPG and try again."
+		}
+	}
+	return "One of the attached files is not supported by this workspace. Try PNG, JPG, GIF, PDF, ZIP, text, CSV, Markdown, JSON, Word, or Excel."
 }
 
 func messageAttachmentPaths(dataDir string, attachments []MessageAttachment) ([]string, error) {

@@ -181,7 +181,9 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     ? 'Canvas is starting...'
     : activeProject?.status === 'error'
       ? 'Project needs attention...'
-      : 'Describe what should appear on the canvas...';
+      : singleView
+        ? 'Describe the canvas...'
+        : 'Describe what should appear on the canvas...';
 
   const loadProjects = () => api<ProjectListResponse>('/api/projects').then((r) => {
     const nextProjects = Array.isArray(r.projects) ? r.projects : [];
@@ -470,6 +472,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     }
   };
   const handleComposerKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (singleView) return;
     if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return;
     event.preventDefault();
     if (canSend) void createOrSend();
@@ -645,6 +648,9 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
 
   const chat = (
     <section className={`chatPane ${draggingFiles ? 'dragActive' : ''} ${utilityScreenOpen ? 'screenOpen' : ''}`} {...chatDragHandlers}>
+      <a className="poweredBy" href="https://fibe.gg" target="_blank" rel="noopener noreferrer">
+        Powered by <span>fibe.gg</span>
+      </a>
       {builderChrome}
       {showProjects && <ProjectList projects={projects} activeID={activeID} projectCap={projectCap} busy={busy} onSelect={(id) => { setActiveID(id); setShowProjects(false); }} onNew={() => setConfirmNewProject(true)} onRename={renameProject} onDelete={setDeleteTarget} onClose={() => setShowProjects(false)} />}
       {showProfile && <ProfilePanel me={me} onClose={closeProfilePanel} />}
@@ -688,8 +694,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   );
   const minimizedChatBar = (
     <button className={`minimizedChatBar ${agentWorking ? 'working' : ''}`} onClick={expandBasicChat} aria-label="Expand chat" {...chatDragHandlers}>
-      <span className="statusDot" />
-      <MessageSquare size={17} />
+      <span className="mark small statusMark">L<span className="brandStatusDot" /></span>
     </button>
   );
 
