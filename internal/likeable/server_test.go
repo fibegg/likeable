@@ -63,6 +63,59 @@ func TestHealthzChecksSQLite(t *testing.T) {
 	}
 }
 
+func TestStaticPWAHeaders(t *testing.T) {
+	webDir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(webDir, "assets"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range map[string]string{
+		"index.html":                 "<!doctype html><div id=\"root\"></div>",
+		"service-worker.js":          "self.addEventListener('fetch', () => {})",
+		"manifest.webmanifest":       `{"name":"Likeable"}`,
+		"offline.html":               "<!doctype html><h1>Offline</h1>",
+		"icon.svg":                   "<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>",
+		"assets/index-AbCdEf1234.js": "console.log('ok')",
+	} {
+		if err := os.WriteFile(filepath.Join(webDir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	server := &Server{config: RuntimeConfig{WebDir: webDir}}
+
+	for _, tc := range []struct {
+		path         string
+		cacheControl string
+		contentType  string
+		swAllowed    string
+	}{
+		{path: "/service-worker.js", cacheControl: "no-cache", contentType: "application/javascript", swAllowed: "/"},
+		{path: "/manifest.webmanifest", cacheControl: "no-cache", contentType: "application/manifest+json"},
+		{path: "/offline.html", cacheControl: "no-cache", contentType: "text/html"},
+		{path: "/assets/index-AbCdEf1234.js", cacheControl: "public, max-age=31536000, immutable", contentType: "application/javascript"},
+		{path: "/profile", cacheControl: "no-cache", contentType: "text/html"},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+			rec := httptest.NewRecorder()
+
+			server.handleStatic(rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("static returned %d for %s: %s", rec.Code, tc.path, rec.Body.String())
+			}
+			if got := rec.Header().Get("Cache-Control"); got != tc.cacheControl {
+				t.Fatalf("Cache-Control=%q, want %q", got, tc.cacheControl)
+			}
+			if got := rec.Header().Get("Content-Type"); !strings.Contains(got, tc.contentType) {
+				t.Fatalf("Content-Type=%q, want to contain %q", got, tc.contentType)
+			}
+			if got := rec.Header().Get("Service-Worker-Allowed"); got != tc.swAllowed {
+				t.Fatalf("Service-Worker-Allowed=%q, want %q", got, tc.swAllowed)
+			}
+		})
+	}
+}
+
 func TestBootstrapConfigRejectsMissingOrWrongToken(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {
@@ -408,7 +461,7 @@ func TestDeletingProjectFreesProjectQuota(t *testing.T) {
 	if len(deleting) != 1 || deleting[0].ID != project.ID {
 		t.Fatalf("deleting projects=%+v, want hidden deletion row", deleting)
 	}
-	if err := store.UpdateProjectProvisioning(t.Context(), project.ID, user.ID, "playground", "playspec", "prop", "repo", "preview", "ready"); err == nil {
+	if err := store.UpdateProjectProvisioning(t.Context(), project.ID, user.ID, "playground", "playspec", "prop", "repo", "preview", "", "ready"); err == nil {
 		t.Fatal("provisioning update should not resurrect a deleting project")
 	}
 	if err := store.UpdateProjectStatus(t.Context(), project.ID, user.ID, "launching"); err == nil {
@@ -813,6 +866,103 @@ func TestProjectMessagePromotesLaunchingReadyWorkspace(t *testing.T) {
 	}
 }
 
+func TestProjectMessageIsStoredBeforeForwardingToAgent(t *testing.T) {
+	dir := t.TempDir()
+	cliPath := filepath.Join(dir, "fibe")
+	markerPath := filepath.Join(dir, "send.started")
+	releasePath := filepath.Join(dir, "send.release")
+	stdinPath := filepath.Join(dir, "stdin.json")
+	script := `#!/bin/sh
+case "$*" in
+  *"agents send-message"*)
+    printf started > "` + markerPath + `"
+    cat > "` + stdinPath + `"
+    while [ ! -f "` + releasePath + `" ]; do sleep 0.05; done
+    echo '{"ok":true}'
+    ;;
+  *)
+    echo "unexpected command: $*" >&2
+    exit 64
+    ;;
+esac
+`
+	if err := os.WriteFile(cliPath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Cleanup(func() { _ = os.WriteFile(releasePath, []byte("release"), 0o644) })
+
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url": "server.test:3000",
+		"fibe_api_key":  "test-key",
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	user, _ := store.UpsertUser(t.Context(), "a@example.com", "A", "")
+	if err := store.CreateSession(t.Context(), user.ID, "token-a", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{
+		ID:             "project-message-order",
+		UserID:         user.ID,
+		Title:          "Order",
+		ConversationID: "conv-order",
+		AgentID:        "agent-1",
+		PreviewURL:     "http://preview.example.test",
+		Status:         "ready",
+	}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/projects/project-message-order/messages", strings.NewReader(`{"text":"change the heading"}`))
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "token-a"})
+	rec := httptest.NewRecorder()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		server.routes().ServeHTTP(rec, req)
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if _, err := os.Stat(markerPath); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("send command did not start")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	messages, err := store.MessagesForProject(t.Context(), project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(messages) != 1 || messages[0].Body != "change the heading" {
+		t.Fatalf("messages=%+v, want local message committed before agent send finishes", messages)
+	}
+	if err := os.WriteFile(releasePath, []byte("release"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("message handler did not finish")
+	}
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("message returned %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(readFile(t, stdinPath), "change the heading") {
+		t.Fatalf("agent prompt was not sent: %s", readFile(t, stdinPath))
+	}
+}
+
 func TestProjectFeedTriggersReadinessRecovery(t *testing.T) {
 	previewServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
@@ -872,6 +1022,154 @@ func TestProjectFeedTriggersReadinessRecovery(t *testing.T) {
 	}
 	updated, _ := store.ProjectForUser(t.Context(), user.ID, project.ID)
 	t.Fatalf("project status=%q, want recovered ready", updated.Status)
+}
+
+func TestProjectFeedRefreshesRetemplatedServiceLayout(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	cliPath, _ := fakeRetemplatedFibeCLI(t)
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url": "server.test:3000",
+		"fibe_api_key":  "test-key",
+		"fibe_cli_path": cliPath,
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	user, _ := store.UpsertUser(t.Context(), "a@example.com", "A", "")
+	if err := store.CreateSession(t.Context(), user.ID, "token-a", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{
+		ID:              "project-retemplate-feed",
+		UserID:          user.ID,
+		Title:           "Retemplate",
+		ConversationID:  "conv-retpl",
+		AgentID:         "agent-1",
+		PlaygroundID:    "321",
+		PlayspecID:      "123",
+		PropID:          "old-prop",
+		RepoURL:         "http://gitea.test/owner/old.git",
+		PreviewURL:      "http://old-app.example.test",
+		SelectedService: "app",
+		Status:          "ready",
+	}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ReplaceProjectResources(t.Context(), project.ID, []ProjectRepository{
+		{ProjectID: project.ID, Role: "app", PropID: "old-prop", RepoURL: "http://gitea.test/owner/old.git", ServiceNames: []string{"app"}},
+	}, []ProjectService{
+		{ProjectID: project.ID, Name: "app", URL: "http://old-app.example.test", Type: "dynamic", Visibility: "external"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/projects/project-retemplate-feed/feed", nil)
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "token-a"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("feed returned %d: %s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Project Project `json:"project"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Project.SelectedService != "frontend" || body.Project.PreviewURL != "http://frontend.example.test" {
+		t.Fatalf("project selected=%q preview=%q, want refreshed frontend", body.Project.SelectedService, body.Project.PreviewURL)
+	}
+	if len(body.Project.Services) != 2 || body.Project.Services[0].Name != "frontend" || body.Project.Services[1].Name != "api" {
+		t.Fatalf("services=%+v, want frontend/api", body.Project.Services)
+	}
+	repositoryRoles := make([]string, 0, len(body.Project.Repositories))
+	for _, repository := range body.Project.Repositories {
+		repositoryRoles = append(repositoryRoles, repository.Role)
+	}
+	if len(body.Project.Repositories) != 2 || !stringSliceContains(repositoryRoles, "frontend") || !stringSliceContains(repositoryRoles, "api") {
+		t.Fatalf("repositories=%+v, want refreshed frontend/api public metadata", body.Project.Repositories)
+	}
+	stored, err := store.ProjectForUser(t.Context(), user.ID, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.SelectedService != "frontend" || stored.PreviewURL != "http://frontend.example.test" {
+		t.Fatalf("stored selected=%q preview=%q, want refreshed frontend", stored.SelectedService, stored.PreviewURL)
+	}
+	if stored.RepoURL != "http://gitea.test/owner/frontend.git" || len(stored.Repositories) != 2 {
+		t.Fatalf("stored repoURL=%q repositories=%+v, want refreshed frontend/api repos", stored.RepoURL, stored.Repositories)
+	}
+}
+
+func TestProjectMessageRefreshesServiceContextBeforeSending(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	cliPath, stdinPath := fakeRetemplatedFibeCLI(t)
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url": "server.test:3000",
+		"fibe_api_key":  "test-key",
+		"fibe_cli_path": cliPath,
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	user, _ := store.UpsertUser(t.Context(), "a@example.com", "A", "")
+	if err := store.CreateSession(t.Context(), user.ID, "token-a", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{
+		ID:              "project-retemplate-message",
+		UserID:          user.ID,
+		Title:           "Retemplate",
+		ConversationID:  "conv-retpl",
+		AgentID:         "agent-1",
+		PlaygroundID:    "321",
+		PlayspecID:      "123",
+		PropID:          "old-prop",
+		RepoURL:         "http://gitea.test/owner/old.git",
+		PreviewURL:      "http://old-app.example.test",
+		SelectedService: "app",
+		Status:          "ready",
+	}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ReplaceProjectResources(t.Context(), project.ID, []ProjectRepository{
+		{ProjectID: project.ID, Role: "app", PropID: "old-prop", RepoURL: "http://gitea.test/owner/old.git", ServiceNames: []string{"app"}},
+	}, []ProjectService{
+		{ProjectID: project.ID, Name: "app", URL: "http://old-app.example.test", Type: "dynamic", Visibility: "external"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/projects/project-retemplate-message/messages", strings.NewReader(`{"text":"change the admin background"}`))
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "token-a"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("message returned %d: %s", rec.Code, rec.Body.String())
+	}
+	prompt := readFile(t, stdinPath)
+	for _, want := range []string{
+		"selected service: frontend http://frontend.example.test",
+		"- frontend: http://frontend.example.test",
+		"- api: http://api.example.test",
+		"- frontend [frontend]: http://gitea.test/owner/frontend.git",
+		"fibe_playgrounds_retemplate",
+		"change the admin background",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
 }
 
 func TestProfileDeleteAllDeletesFibeResourcesAndLocalData(t *testing.T) {
@@ -1009,12 +1307,22 @@ func TestProfileDeleteAllKeepsLocalDataWhenFibeCleanupFails(t *testing.T) {
 
 func TestAgentProjectPromptIncludesTargetContext(t *testing.T) {
 	project := &Project{
-		ID:             "project-1",
-		Title:          "Starter",
-		ConversationID: "likeable-project-1",
-		PlaygroundID:   "10",
-		RepoURL:        "http://gitea.test/owner/repo",
-		PreviewURL:     "http://starter.test",
+		ID:              "project-1",
+		Title:           "Starter",
+		ConversationID:  "likeable-project-1",
+		PlaygroundID:    "10",
+		RepoURL:         "http://gitea.test/owner/repo",
+		PreviewURL:      "http://starter.test",
+		SelectedService: "admin",
+		Services: []ProjectService{
+			{Name: "app", URL: "http://starter.test", Type: "dynamic", Visibility: "external"},
+			{Name: "admin", URL: "http://starter-admin.test", Type: "dynamic", Visibility: "external"},
+		},
+		Repositories: []ProjectRepository{
+			{Role: "backend", RepoURL: "http://gitea.test/owner/backend", ServiceNames: []string{"api", "worker"}},
+			{Role: "app", RepoURL: "http://gitea.test/owner/app", ServiceNames: []string{"app"}},
+			{Role: "admin", RepoURL: "http://gitea.test/owner/admin", ServiceNames: []string{"admin"}},
+		},
 	}
 	prompt := projecttext.AgentPrompt(project, "Change the heading")
 	for _, want := range []string{
@@ -1022,11 +1330,19 @@ func TestAgentProjectPromptIncludesTargetContext(t *testing.T) {
 		"target private source repo: http://gitea.test/owner/repo",
 		"target preview_url: http://starter.test",
 		"target app subdomain: lk-a33e35d302125bbd",
+		"selected service: admin http://starter-admin.test",
+		"- app: http://starter.test",
+		"- admin: http://starter-admin.test",
+		"- backend [api,worker]: http://gitea.test/owner/backend",
+		"- app [app]: http://gitea.test/owner/app",
+		"- admin [admin]: http://gitea.test/owner/admin",
 		"Target playground_id 10 only",
 		"fibe_templates_develop with target_type=\"playground\", mode=\"apply\", post_apply=\"rollout_target\", and wait=true",
 		"prefer direct Brownfield changes on the live playground workspace for playground_id 10",
 		"Do not use rollout_all, do not update default/global Import Templates",
+		"[[LIKEABLE_USER_CONTEXT_START]]",
 		"User request:\nChange the heading",
+		"[[LIKEABLE_USER_CONTEXT_END]]",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)

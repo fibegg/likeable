@@ -6,14 +6,14 @@ import { Admin } from './admin';
 import { api } from './api';
 import { AgentNotificationRow, AppDialog, CanvasLoader, ConfirmDeleteProject, ConfirmNewProject, DeleteAllAccountDialog, EmptyCanvas, ProjectList, UserMessageRow } from './builder_components';
 import { BASIC_CHAT_COLLAPSED_KEY, BASIC_CHAT_HEIGHT_KEY, BUILDER_MODE_KEY, MAX_ATTACHMENTS, SINGLE_VIEW_QUERY } from './config';
-import type { AppDialogConfig, BuilderMode, BusyPolicy, Feed, MessageQuota, Me, PendingAttachment, PreviewStatus, Project, ProjectListResponse, UserNotice } from './domain';
+import type { AppDialogConfig, BuilderMode, BusyPolicy, Feed, Message, MessageQuota, Me, PendingAttachment, PreviewStatus, Project, ProjectListResponse, ProjectService, UserNotice } from './domain';
 import { feedAwaitingAgent, feedRows } from './feed';
 import { formatResetCountdown, projectLaunchErrorMessage } from './format';
+import { installPwa } from './pwa';
 import { ProfilePanel } from './profile_panel';
 import { clampBasicChatHeight, defaultBasicChatHeight, singleViewScreen } from './viewport';
 
-
-
+installPwa();
 
 
 function App() {
@@ -43,6 +43,7 @@ function App() {
 
 function Shell({ me, nav, children }: { me: Me; nav: (to: string) => void; children: React.ReactNode }) {
   const [notices, setNotices] = useState<UserNotice[]>(me.notices ?? []);
+  const online = useOnlineStatus();
   const googleReady = me.auth?.googleConfigured !== false;
   useEffect(() => setNotices(me.notices ?? []), [me.notices]);
   const notice = notices[0];
@@ -79,16 +80,43 @@ function Shell({ me, nav, children }: { me: Me; nav: (to: string) => void; child
           )}
         </div>
       </header>
-      {notice && (
-        <div className={`systemNotice ${notice.severity}`}>
-          <strong>System</strong>
-          <span>{notice.body}</span>
-          <button onClick={() => void dismissNotice(notice.id)} aria-label="Dismiss notice"><X size={14} /></button>
+      {(!online || notice) && (
+        <div className="noticeStack">
+          {!online && (
+            <div className="systemNotice warning">
+              <strong>Offline</strong>
+              <span>Cached app shell is available; live projects and messages need the network.</span>
+            </div>
+          )}
+          {notice && (
+            <div className={`systemNotice ${notice.severity}`}>
+              <strong>System</strong>
+              <span>{notice.body}</span>
+              <button onClick={() => void dismissNotice(notice.id)} aria-label="Dismiss notice"><X size={14} /></button>
+            </div>
+          )}
         </div>
       )}
       <main className="workspace">{children}</main>
     </div>
   );
+}
+
+function useOnlineStatus() {
+  const [online, setOnline] = useState(() => navigator.onLine);
+
+  useEffect(() => {
+    const handleOnline = () => setOnline(true);
+    const handleOffline = () => setOnline(false);
+    addEventListener('online', handleOnline);
+    addEventListener('offline', handleOffline);
+    return () => {
+      removeEventListener('online', handleOnline);
+      removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  return online;
 }
 
 function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void; me: Me; profileRoute?: boolean }) {
@@ -129,8 +157,10 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const viewMode: BuilderMode = singleView ? 'overlay' : mode;
   const active = useMemo(() => projects.find((p) => p.id === activeID), [projects, activeID]);
   const activeProject = feed?.project?.id === activeID ? feed.project : active;
+  const selectedService = useMemo(() => selectedProjectService(activeProject), [activeProject]);
+  const activePreviewURL = selectedService?.url ?? activeProject?.previewUrl ?? '';
   const rows = useMemo(() => feedRows(feed), [feed]);
-  const agentWorking = Boolean(signedIn && activeProject?.status === 'ready' && activeProject?.previewUrl && (messageSubmitting || feed?.live?.isProcessing || feedAwaitingAgent(feed)));
+  const agentWorking = Boolean(signedIn && activeProject?.status === 'ready' && activePreviewURL && (messageSubmitting || feed?.live?.isProcessing || feedAwaitingAgent(feed)));
   const agentWorkingLabel = messageSubmitting ? 'Transmitting request' : 'Synthesizing canvas';
   const lastRow = rows.at(-1);
   const lastRowSignature = lastRow ? `${lastRow.id}:${lastRow.body}` : '';
@@ -139,10 +169,10 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const messageQuotaLabel = messageQuota ? `${messageQuota.remaining}/${messageQuota.limit}` : '';
   const messageQuotaTooltip = messageQuota ? `${messageQuota.paidRemaining ?? 0} paid credits · resets in ${formatResetCountdown(messageQuota.resetsAt, quotaNow)}` : '';
   const isProjectStarting = activeProject?.status === 'creating' || activeProject?.status === 'launching';
-  const previewReady = Boolean(activeProject?.previewUrl && previewStatus?.ready);
+  const previewReady = Boolean(activePreviewURL && previewStatus?.ready);
   const canvasStatusLabel = agentWorking ? 'Agent working' : activeProject?.status === 'ready' ? (previewReady ? 'Canvas live' : 'Canvas starting') : isProjectStarting ? 'Canvas starting' : activeProject?.status === 'error' ? 'Canvas error' : 'Canvas idle';
   const hasDraft = Boolean(prompt.trim()) || attachments.length > 0;
-  const canSend = signedIn && hasDraft && !busy && !messageSubmitting && Boolean(activeProject?.previewUrl) && (activeProject?.status === 'ready' || previewReady);
+  const canSend = signedIn && hasDraft && !busy && !messageSubmitting && Boolean(activePreviewURL) && (activeProject?.status === 'ready' || previewReady);
   const hasActiveNotification = rows.some((row) => row.kind === 'notification' && row.active);
   const utilityScreenOpen = showProjects || showProfile;
   const inputPlaceholder = !signedIn
@@ -252,9 +282,9 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   useEffect(() => {
     setIframeLoaded(false);
     setPreviewStatus(null);
-  }, [activeProject?.id, activeProject?.previewUrl, activeProject?.status]);
+  }, [activeProject?.id, activePreviewURL, activeProject?.status]);
   useEffect(() => {
-    if (!activeProject?.id || !activeProject.previewUrl || activeProject.status === 'error' || activeProject.status === 'deleting') {
+    if (!activeProject?.id || !activePreviewURL || activeProject.status === 'error' || activeProject.status === 'deleting') {
       setPreviewStatus(null);
       return;
     }
@@ -280,7 +310,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       cancelled = true;
       clearInterval(timer);
     };
-  }, [activeProject?.id, activeProject?.previewUrl, activeProject?.status, agentWorking, previewStatus?.ready]);
+  }, [activeProject?.id, activePreviewURL, activeProject?.status, agentWorking, previewStatus?.ready]);
   useEffect(() => {
     setAttachments([]);
     dragDepthRef.current = 0;
@@ -297,8 +327,30 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     const text = prompt.trim();
     const files = attachments;
     if (!text && files.length === 0) return;
+    const optimisticID = `optimistic-${crypto.randomUUID()}`;
+    const optimisticMessage: Message = {
+      id: optimisticID,
+      role: 'user',
+      body: text,
+      createdAt: new Date().toISOString(),
+      attachments: files.map((attachment) => ({
+        id: attachment.id,
+        filename: attachment.file.name,
+        contentType: attachment.file.type,
+        size: attachment.file.size
+      }))
+    };
+    if (activeProject) {
+      setFeed((current) => {
+        if (current?.project.id === activeProject.id) {
+          return { ...current, localMessages: [...(current.localMessages ?? []), optimisticMessage] };
+        }
+        return { project: activeProject, localMessages: [optimisticMessage], messages: [], activity: [], live: null };
+      });
+    }
     setBusy(true);
     setMessageSubmitting(true);
+    let requestAccepted = false;
     try {
       if (activeProject) {
         if (files.length > 0) {
@@ -310,12 +362,23 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
         } else {
           await api(`/api/projects/${activeProject.id}/messages`, { method: 'POST', body: JSON.stringify({ text, busy_policy: busyPolicy }) });
         }
+        requestAccepted = true;
         setPrompt('');
         setAttachments([]);
-        setFeed(await api<Feed>(`/api/projects/${activeProject.id}/feed`));
+        try {
+          setFeed(await api<Feed>(`/api/projects/${activeProject.id}/feed`));
+        } catch (err) {
+          console.error(err);
+        }
         void refreshQuota();
       }
     } catch (err) {
+      if (!requestAccepted) {
+        setFeed((current) => {
+          if (!current || current.project.id !== activeProject?.id) return current;
+          return { ...current, localMessages: (current.localMessages ?? []).filter((message) => message.id !== optimisticID) };
+        });
+      }
       setDialog({ title: 'Request failed', body: err instanceof Error ? err.message : 'Request failed', confirmLabel: 'Close' });
     } finally {
       setMessageSubmitting(false);
@@ -366,6 +429,21 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       setFeed((current) => current?.project.id === project.id ? { ...current, project: res.project } : current);
     } catch (err) {
       setDialog({ title: 'Rename failed', body: err instanceof Error ? err.message : 'Request failed', tone: 'warning', confirmLabel: 'Close' });
+    } finally {
+      setBusy(false);
+    }
+  };
+  const selectService = async (service: ProjectService) => {
+    if (!signedIn || !activeProject || service.name === activeProject.selectedServiceName) return;
+    setBusy(true);
+    try {
+      const res = await api<{ project: Project }>(`/api/projects/${activeProject.id}`, { method: 'PATCH', body: JSON.stringify({ selectedServiceName: service.name }) });
+      setPreviewStatus(null);
+      setIframeLoaded(false);
+      setProjects((current) => current.map((item) => item.id === res.project.id ? res.project : item));
+      setFeed((current) => current?.project.id === res.project.id ? { ...current, project: res.project } : current);
+    } catch (err) {
+      setDialog({ title: 'Service switch failed', body: err instanceof Error ? err.message : 'Request failed', tone: 'warning', confirmLabel: 'Close' });
     } finally {
       setBusy(false);
     }
@@ -472,8 +550,8 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       <LayoutPanelLeft size={16} />
     </button>
   );
-  const topOpenLink = activeProject?.status === 'ready' && activeProject?.previewUrl
-    ? <a className="chromeIconButton topOpenLink tooltip tooltipBottom" href={activeProject.previewUrl} target="_blank" aria-label="Open preview" data-tip="Open preview"><ExternalLink size={16} /></a>
+  const topOpenLink = activeProject?.status === 'ready' && activePreviewURL
+    ? <a className="chromeIconButton topOpenLink tooltip tooltipBottom" href={activePreviewURL} target="_blank" aria-label="Open preview" data-tip="Open preview"><ExternalLink size={16} /></a>
     : null;
   const expandBasicChat = () => {
     setBasicChatCollapsed(false);
@@ -506,6 +584,22 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
         <span className="projectTitleCount"><FolderOpen size={15} /><span>{signedIn ? projectCapLabel : '-'}</span></span>
       </button>
       <nav className="chatNav">
+        {activeProject?.services && activeProject.services.length > 1 && (
+          <div className="chromePill serviceSelector" aria-label="Preview service">
+            {activeProject.services.map((service) => (
+              <button
+                key={service.name}
+                className={selectedService?.name === service.name ? 'chromeIconButton selected serviceButton tooltip tooltipBottom' : 'chromeIconButton serviceButton tooltip tooltipBottom'}
+                onClick={() => void selectService(service)}
+                disabled={!signedIn || busy}
+                aria-label={`Show ${service.name}`}
+                data-tip={`Show ${service.name}`}
+              >
+                {service.name.slice(0, 2).toUpperCase()}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="chromePill identityPill">
           {agentWorking && (
             <>
@@ -610,11 +704,11 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     <section className="previewPane">
       {activeProject?.status === 'error' ? (
         <CanvasLoader title="Canvas launch failed" body={projectLaunchErrorMessage(activeProject.errorMessage)} tone="error" />
-      ) : activeProject?.previewUrl && previewReady ? (
+      ) : activePreviewURL && previewReady ? (
         <>
           <iframe
             title="preview"
-            src={activeProject.previewUrl}
+            src={activePreviewURL}
             className={previewReady && iframeLoaded ? 'loaded' : ''}
             onLoad={() => {
               if (previewReady) setIframeLoaded(true);
@@ -624,7 +718,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
         </>
       ) : isProjectStarting ? (
         <CanvasLoader title={previewTitle} body={previewBody} />
-      ) : activeProject?.status === 'ready' && activeProject?.previewUrl ? (
+      ) : activeProject?.status === 'ready' && activePreviewURL ? (
         <>
           <iframe
             title="preview"
@@ -657,6 +751,14 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       {preview}
     </div>
   );
+}
+
+function selectedProjectService(project?: Project): ProjectService | undefined {
+  if (!project?.services?.length) return undefined;
+  const selected = project.selectedServiceName;
+  return project.services.find((service) => service.name === selected)
+    ?? project.services.find((service) => service.name === 'app')
+    ?? project.services[0];
 }
 
 createRoot(document.getElementById('root')!).render(<App />);

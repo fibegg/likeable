@@ -70,5 +70,5 @@ func (s *Server) deleteProjectLocally(ctx context.Context, project *Project, use
 }
 
 func projectHasProvisionedResources(project *Project) bool {
-	return project != nil && (project.PlaygroundID != "" || project.PlayspecID != "" || project.PropID != "" || project.RepoURL != "" || project.PreviewURL != "")
+	return project != nil && (project.PlaygroundID != "" || project.PlayspecID != "" || project.PropID != "" || project.RepoURL != "" || project.PreviewURL != "" || len(project.Repositories) > 0 || len(project.Services) > 0)
 }

@@ -60,6 +60,15 @@ func (s *Server) handleProjectMessages(w http.ResponseWriter, r *http.Request, u
 		writeError(w, http.StatusConflict, "canvas is still starting")
 		return
 	}
+	if strings.TrimSpace(project.PlaygroundID) != "" {
+		ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+		if updated, err := s.refreshProjectResourcesNow(ctx, user, project); err == nil && updated != nil {
+			project = updated
+		} else if err != nil {
+			log.Printf("refresh project resources before message %s: %v", project.ID, err)
+		}
+		cancel()
+	}
 	allowed, usesPaidCredit, err := s.messageAllowance(r.Context(), user)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -91,12 +100,6 @@ func (s *Server) handleProjectMessages(w http.ResponseWriter, r *http.Request, u
 	if agentText == "" {
 		agentText = "Review the attached file(s) and update the playground accordingly."
 	}
-	if err := fibe.SendMessage(r.Context(), project.ConversationID, projecttext.AgentPrompt(project, agentText), attachmentPaths, busyPolicy); err != nil {
-		cleanupLocalAttachments()
-		log.Printf("send workspace message for project %s: %v", project.ID, err)
-		writeError(w, http.StatusBadGateway, "could not send the request to the workspace")
-		return
-	}
 	msg, err := s.store.AddMessageWithAttachments(r.Context(), &Message{
 		ID:        messageID,
 		ProjectID: project.ID,
@@ -107,6 +110,13 @@ func (s *Server) handleProjectMessages(w http.ResponseWriter, r *http.Request, u
 	if err != nil {
 		cleanupLocalAttachments()
 		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := fibe.SendMessage(r.Context(), project.ConversationID, projecttext.AgentPrompt(project, agentText), attachmentPaths, busyPolicy); err != nil {
+		cleanupLocalAttachments()
+		_ = s.store.DeleteMessage(context.Background(), project.ID, messageID)
+		log.Printf("send workspace message for project %s: %v", project.ID, err)
+		writeError(w, http.StatusBadGateway, "could not send the request to the workspace")
 		return
 	}
 	if usesPaidCredit {

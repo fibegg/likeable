@@ -36,6 +36,7 @@ function notificationFeedRows(feed: Feed): NotificationFeedRow[] {
     .map((msg) => Date.parse(msg.createdAt))
     .filter((value) => !Number.isNaN(value))
     .sort((a, b) => a - b);
+  const latestUserTime = userTimes.length > 0 ? userTimes[userTimes.length - 1] : null;
   const latestTurnKey = userTimes.length > 0 ? `turn-${userTimes[userTimes.length - 1]}` : '';
   const assistantRows: NotificationFeedRow[] = [];
   const assistantCounters = new Map<string, number>();
@@ -64,7 +65,7 @@ function notificationFeedRows(feed: Feed): NotificationFeedRow[] {
         id: `${turnKey}-notification-${segmentIndex}`,
         body: segment.body,
         time: source.time,
-        active: segment.streaming,
+        active: false,
         fallback: segment.fallback
       });
     }
@@ -80,28 +81,67 @@ function notificationFeedRows(feed: Feed): NotificationFeedRow[] {
         id: `activity-${sourceID}-notification-${segmentIndex}`,
         body: segment.body,
         time: activity.occurred_at,
-        active: segment.streaming,
+        active: false,
         fallback: segment.fallback
       });
     }
   }
 
-  const rows = assistantRows.length > 0 ? [...assistantRows] : [...activityRows];
-  const latestTurnAlreadyPersisted = latestTurnKey !== '' && rows.some((row) => row.id.startsWith(`${latestTurnKey}-notification-`));
-  if (feed.live?.streamText && !latestTurnAlreadyPersisted) {
+  const rows = dedupeNotifications([...assistantRows, ...activityRows]);
+  if (feed.live?.streamText) {
     const liveTurnKey = latestTurnKey || 'live';
+    const liveTime = liveNotificationTime(feed.live.startedAt, latestUserTime);
     for (const [segmentIndex, segment] of parseLikeableNotificationSegments(feed.live.streamText).entries()) {
+      if (!segment.streaming && durableNotificationCovers(rows, segment.body, liveTime)) continue;
       rows.push({
         kind: 'notification',
         id: `${liveTurnKey}-notification-${segmentIndex}`,
         body: segment.body,
-        time: feed.live.startedAt,
+        time: liveTime,
         active: Boolean(feed.live.isProcessing || segment.streaming),
         fallback: segment.fallback
       });
     }
   }
   return rows;
+}
+
+function dedupeNotifications(rows: NotificationFeedRow[]): NotificationFeedRow[] {
+  const seen = new Set<string>();
+  const out: NotificationFeedRow[] = [];
+  for (const row of rows) {
+    const body = normalizeBody(row.body);
+    if (!body) continue;
+    const time = Date.parse(row.time ?? '');
+    const timeBucket = Number.isNaN(time) ? '' : String(Math.floor(time / 2000));
+    const key = `${body}:${timeBucket}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(row);
+  }
+  return out;
+}
+
+function durableNotificationCovers(rows: NotificationFeedRow[], body: string, time?: string): boolean {
+  const normalized = normalizeBody(body);
+  if (!normalized) return false;
+  const targetTime = Date.parse(time ?? '');
+  return rows.some((row) => {
+    if (row.active) return false;
+    const rowTime = Date.parse(row.time ?? '');
+    if (!Number.isNaN(targetTime) && !Number.isNaN(rowTime) && Math.abs(rowTime - targetTime) > 60_000) return false;
+    const candidate = normalizeBody(row.body);
+    return candidate === normalized || candidate.startsWith(normalized) || normalized.startsWith(candidate);
+  });
+}
+
+function liveNotificationTime(startedAt: string | undefined, latestUserTime: number | null): string | undefined {
+  const startedTime = Date.parse(startedAt ?? '');
+  if (latestUserTime == null) return startedAt;
+  if (Number.isNaN(startedTime) || startedTime <= latestUserTime) {
+    return new Date(latestUserTime + 1).toISOString();
+  }
+  return startedAt;
 }
 
 function turnKeyForTime(userTimes: number[], sourceTime: number | null): string | null {
@@ -159,9 +199,9 @@ export function feedAwaitingAgent(feed: Feed | null): boolean {
     ...(feed.messages ?? []).filter((msg) => msg.role !== 'user').map((msg) => msg.created_at),
     ...(feed.activity ?? []).map((activity) => activity.occurred_at)
   ]);
-  if (latestAgent != null) return latestAgent < latestUser;
+  if (latestAgent != null && latestAgent >= latestUser - 5000) return false;
 
-  return true;
+  return Date.now() - latestUser < 20_000;
 }
 
 function latestTimestamp(values: Array<string | undefined>): number | null {
@@ -172,4 +212,8 @@ function latestTimestamp(values: Array<string | undefined>): number | null {
     latest = latest == null ? timestamp : Math.max(latest, timestamp);
   }
   return latest;
+}
+
+function normalizeBody(body: string): string {
+  return body.trim().replace(/\s+/g, ' ');
 }

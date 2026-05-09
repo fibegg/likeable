@@ -1,5 +1,7 @@
 export type User = { id: string; email: string; name: string; avatarUrl: string; accessStatus?: string; accessNote?: string };
-export type Project = { id: string; title: string; previewUrl?: string; status: string; errorMessage?: string; createdAt: string; updatedAt: string };
+export type ProjectRepository = { id: string; role: string; sourceRepoUrl?: string; provider?: string; serviceNames?: string[]; createdAt?: string };
+export type ProjectService = { id: string; name: string; url: string; type?: string; visibility?: string; authRequired?: boolean; createdAt?: string };
+export type Project = { id: string; title: string; previewUrl?: string; selectedServiceName?: string; repositories?: ProjectRepository[]; services?: ProjectService[]; status: string; errorMessage?: string; createdAt: string; updatedAt: string };
 export type MessageQuota = { used: number; limit: number; remaining: number; paidRemaining?: number; lifetimeUsed?: number; resetsAt?: string };
 export type ProjectQuota = { used: number; limit: number; remaining: number; baseLimit: number; paidSlots: number; nextExpiresAt?: string };
 export type UserNotice = { id: string; userId?: string; sender: 'admin' | 'system' | 'user'; severity: string; body: string; readAt?: string; dismissedAt?: string; unsentAt?: string; createdAt: string };

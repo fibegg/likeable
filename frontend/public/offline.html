@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#061014" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <title>Likeable Offline</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        -webkit-text-size-adjust: 100%;
+        text-size-adjust: 100%;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        min-height: 100%;
+        margin: 0;
+        background: #061014;
+      }
+
+      body {
+        min-height: 100dvh;
+        display: grid;
+        place-items: center;
+        padding: calc(24px + env(safe-area-inset-top)) calc(18px + env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) calc(18px + env(safe-area-inset-left));
+        color: #d8e4e7;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        letter-spacing: 0;
+        overscroll-behavior: none;
+      }
+
+      main {
+        width: min(420px, 100%);
+        border: 1px solid rgba(223, 154, 47, .5);
+        border-radius: 12px;
+        background: rgba(7, 14, 17, .86);
+        box-shadow: 0 24px 90px rgba(0, 0, 0, .44);
+        padding: 24px;
+      }
+
+      .mark {
+        width: 42px;
+        height: 42px;
+        border: 1px solid rgba(223, 154, 47, .72);
+        border-radius: 10px;
+        display: grid;
+        place-items: center;
+        color: #d58d2d;
+        font-weight: 900;
+        background: rgba(213, 141, 45, .08);
+      }
+
+      h1 {
+        margin: 18px 0 10px;
+        color: #aef4ff;
+        font-size: 28px;
+        font-weight: 520;
+        line-height: 1.08;
+      }
+
+      p {
+        margin: 0;
+        color: rgba(216, 228, 231, .72);
+        font-size: 16px;
+        font-weight: 650;
+        line-height: 1.42;
+      }
+
+      button {
+        width: 100%;
+        min-height: 46px;
+        margin-top: 22px;
+        border: 1px solid rgba(223, 154, 47, .72);
+        border-radius: 12px;
+        background: rgba(213, 141, 45, .14);
+        color: #d58d2d;
+        cursor: pointer;
+        font: inherit;
+        font-weight: 850;
+        touch-action: manipulation;
+        -webkit-tap-highlight-color: transparent;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="mark">L</div>
+      <h1>Likeable is offline</h1>
+      <p>The app shell is cached. Reconnect to load live projects, send messages, and refresh the canvas.</p>
+      <button type="button" onclick="location.reload()">Retry</button>
+    </main>
+  </body>
+</html>

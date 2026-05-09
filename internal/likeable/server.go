@@ -22,6 +22,7 @@ type Server struct {
 	config      RuntimeConfig
 	http        *http.Client
 	recovering  sync.Map
+	refreshing  sync.Map
 	email       emailSender
 	jobs        *JobSystem
 	limiter     *RateLimiter

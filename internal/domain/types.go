@@ -16,21 +16,47 @@ type User struct {
 }
 
 type Project struct {
-	ID             string `json:"id"`
-	UserID         string `json:"-"`
-	Title          string `json:"title"`
-	ConversationID string `json:"-"`
-	AgentID        string `json:"-"`
-	MarqueeID      string `json:"-"`
-	PlaygroundID   string `json:"-"`
-	PlayspecID     string `json:"-"`
-	PropID         string `json:"-"`
-	RepoURL        string `json:"-"`
-	PreviewURL     string `json:"previewUrl,omitempty"`
-	Status         string `json:"status"`
-	ErrorMessage   string `json:"errorMessage,omitempty"`
-	CreatedAt      string `json:"createdAt"`
-	UpdatedAt      string `json:"updatedAt"`
+	ID              string              `json:"id"`
+	UserID          string              `json:"-"`
+	Title           string              `json:"title"`
+	ConversationID  string              `json:"-"`
+	AgentID         string              `json:"-"`
+	MarqueeID       string              `json:"-"`
+	PlaygroundID    string              `json:"-"`
+	PlayspecID      string              `json:"-"`
+	PropID          string              `json:"-"`
+	RepoURL         string              `json:"-"`
+	PreviewURL      string              `json:"previewUrl,omitempty"`
+	SelectedService string              `json:"selectedServiceName,omitempty"`
+	Repositories    []ProjectRepository `json:"repositories,omitempty"`
+	Services        []ProjectService    `json:"services,omitempty"`
+	Status          string              `json:"status"`
+	ErrorMessage    string              `json:"errorMessage,omitempty"`
+	CreatedAt       string              `json:"createdAt"`
+	UpdatedAt       string              `json:"updatedAt"`
+}
+
+type ProjectRepository struct {
+	ID            string   `json:"id"`
+	ProjectID     string   `json:"projectId,omitempty"`
+	Role          string   `json:"role"`
+	PropID        string   `json:"-"`
+	RepoURL       string   `json:"-"`
+	SourceRepoURL string   `json:"sourceRepoUrl,omitempty"`
+	Provider      string   `json:"provider,omitempty"`
+	ServiceNames  []string `json:"serviceNames,omitempty"`
+	CreatedAt     string   `json:"createdAt,omitempty"`
+}
+
+type ProjectService struct {
+	ID           string `json:"id"`
+	ProjectID    string `json:"projectId,omitempty"`
+	Name         string `json:"name"`
+	URL          string `json:"url"`
+	Type         string `json:"type,omitempty"`
+	Visibility   string `json:"visibility,omitempty"`
+	AuthRequired bool   `json:"authRequired"`
+	CreatedAt    string `json:"createdAt,omitempty"`
 }
 
 type Message struct {

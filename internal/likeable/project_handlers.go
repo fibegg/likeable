@@ -153,24 +153,38 @@ func (s *Server) handleProjectRoute(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleProjectUpdate(w http.ResponseWriter, r *http.Request, user *User, project *Project) {
 	var body struct {
-		Title string `json:"title"`
+		Title               string `json:"title"`
+		SelectedServiceName string `json:"selectedServiceName"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
 	title := projecttext.CleanTitle(body.Title)
-	if title == "" {
-		writeError(w, http.StatusBadRequest, "project title required")
+	selectedService := strings.TrimSpace(body.SelectedServiceName)
+	if title == "" && selectedService == "" {
+		writeError(w, http.StatusBadRequest, "project title or service required")
 		return
 	}
-	if err := s.store.UpdateProjectTitle(r.Context(), project.ID, user.ID, title); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			writeError(w, http.StatusNotFound, "project not found")
+	if title != "" {
+		if err := s.store.UpdateProjectTitle(r.Context(), project.ID, user.ID, title); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				writeError(w, http.StatusNotFound, "project not found")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
+	}
+	if selectedService != "" {
+		if err := s.store.UpdateProjectSelectedService(r.Context(), project.ID, user.ID, selectedService); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				writeError(w, http.StatusNotFound, "project service not found")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 	}
 	updated, err := s.store.ProjectForUser(r.Context(), user.ID, project.ID)
 	if err != nil {
@@ -221,6 +235,15 @@ func (s *Server) handleProjectFeed(w http.ResponseWriter, r *http.Request, user 
 		return
 	}
 	s.recoverProjectAsync(user.ID, user.Email, project)
+	if project.Status == "ready" {
+		ctx, cancel := context.WithTimeout(r.Context(), 6*time.Second)
+		if updated, err := s.refreshProjectResourcesIfDue(ctx, user, project); err == nil && updated != nil {
+			project = updated
+		} else if err != nil {
+			log.Printf("refresh project resources for feed %s: %v", project.ID, err)
+		}
+		cancel()
+	}
 	local, _ := s.store.MessagesForProject(r.Context(), project.ID)
 	fibe, err := s.fibeClientForProject(r.Context(), project, user.Email)
 	if err != nil {

@@ -73,15 +73,40 @@ func (s *Store) migrate(ctx context.Context) error {
 			marquee_id TEXT NOT NULL DEFAULT '',
 			playground_id TEXT NOT NULL DEFAULT '',
 			playspec_id TEXT NOT NULL DEFAULT '',
-				prop_id TEXT NOT NULL DEFAULT '',
-				repo_url TEXT NOT NULL DEFAULT '',
-				preview_url TEXT NOT NULL DEFAULT '',
-				status TEXT NOT NULL DEFAULT 'creating',
-				error_message TEXT NOT NULL DEFAULT '',
-				created_at TEXT NOT NULL,
-				updated_at TEXT NOT NULL
-			)`,
+			prop_id TEXT NOT NULL DEFAULT '',
+			repo_url TEXT NOT NULL DEFAULT '',
+			preview_url TEXT NOT NULL DEFAULT '',
+			selected_service_name TEXT NOT NULL DEFAULT '',
+			status TEXT NOT NULL DEFAULT 'creating',
+			error_message TEXT NOT NULL DEFAULT '',
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		)`,
 		`CREATE INDEX IF NOT EXISTS idx_projects_user_updated ON projects(user_id, updated_at DESC)`,
+		`CREATE TABLE IF NOT EXISTS project_repositories (
+			id TEXT PRIMARY KEY,
+			project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+			role TEXT NOT NULL DEFAULT '',
+			prop_id TEXT NOT NULL DEFAULT '',
+			repo_url TEXT NOT NULL DEFAULT '',
+			source_repo_url TEXT NOT NULL DEFAULT '',
+			provider TEXT NOT NULL DEFAULT '',
+			service_names TEXT NOT NULL DEFAULT '[]',
+			created_at TEXT NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_project_repositories_project ON project_repositories(project_id)`,
+		`CREATE TABLE IF NOT EXISTS project_services (
+			id TEXT PRIMARY KEY,
+			project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+			name TEXT NOT NULL,
+			url TEXT NOT NULL DEFAULT '',
+			type TEXT NOT NULL DEFAULT '',
+			visibility TEXT NOT NULL DEFAULT '',
+			auth_required INTEGER NOT NULL DEFAULT 0,
+			created_at TEXT NOT NULL,
+			UNIQUE(project_id, name)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_project_services_project ON project_services(project_id)`,
 		`CREATE TABLE IF NOT EXISTS messages (
 			id TEXT PRIMARY KEY,
 			project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -206,6 +231,9 @@ func (s *Store) migrate(ctx context.Context) error {
 		return err
 	}
 	if err := s.ensureColumn(ctx, "projects", "error_message", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := s.ensureColumn(ctx, "projects", "selected_service_name", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
 	if err := s.ensureColumn(ctx, "users", "access_status", "TEXT NOT NULL DEFAULT 'active'"); err != nil {

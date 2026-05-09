@@ -3,6 +3,7 @@
 @tailwind utilities;
 
 :root {
+  color-scheme: dark;
   --bg: #061014;
   --bg-2: #0a171b;
   --panel: rgba(6, 12, 15, .86);
@@ -18,6 +19,13 @@
 }
 
 * { box-sizing: border-box; }
+html {
+  background: var(--bg);
+  color-scheme: dark;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  overscroll-behavior: none;
+}
 html, body, #root { min-height: 100%; height: 100%; }
 body {
   margin: 0;
@@ -25,9 +33,13 @@ body {
   color: var(--text);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   letter-spacing: 0;
+  overscroll-behavior: none;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: geometricPrecision;
 }
-button, input, textarea { font: inherit; }
+button, input, textarea, select { font: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; }
+button, a, input, select, [role="button"] { touch-action: manipulation; }
 
 .loading, .login { min-height: 100vh; display: grid; place-items: center; }
 .login {
@@ -76,7 +88,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 
 .topbar {
   position: fixed;
-  inset: 8px 10px auto 10px;
+  inset: calc(8px + env(safe-area-inset-top)) calc(10px + env(safe-area-inset-right)) auto calc(10px + env(safe-area-inset-left));
   min-height: 36px;
   z-index: 20;
   display: grid;
@@ -278,12 +290,18 @@ html[data-builder-mode="split"] .account {
 }
 .account span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .account button { display: grid; place-items: center; padding: 4px; border-radius: 999px; }
-.systemNotice {
+.noticeStack {
   position: fixed;
   z-index: 31;
   left: 50%;
-  top: 14px;
+  top: calc(14px + env(safe-area-inset-top));
   width: min(680px, calc(100vw - 28px));
+  display: grid;
+  gap: 8px;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+.systemNotice {
   min-height: 38px;
   border: 1px solid rgba(174, 244, 255, .28);
   border-radius: 999px;
@@ -295,8 +313,8 @@ html[data-builder-mode="split"] .account {
   align-items: center;
   gap: 10px;
   padding: 7px 10px 7px 14px;
-  transform: translateX(-50%);
   backdrop-filter: blur(18px);
+  pointer-events: auto;
 }
 .systemNotice.warning { border-color: rgba(223, 154, 47, .5); }
 .systemNotice.danger { border-color: rgba(255, 105, 93, .56); }
@@ -642,6 +660,24 @@ html[data-builder-mode="split"] .account {
 }
 .identityPill {
   gap: 3px;
+}
+.serviceSelector {
+  gap: 3px;
+}
+.chromePill .serviceButton {
+  width: auto;
+  min-width: 32px;
+  padding: 0 8px;
+  color: rgba(216, 228, 231, .66);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .6px;
+}
+.chromePill .serviceButton.selected {
+  color: rgba(174, 244, 255, .92);
+  border-color: rgba(174, 244, 255, .3);
+  background: rgba(174, 244, 255, .075);
 }
 .chromeIconButton.projectCountButton {
   width: auto;
@@ -1665,8 +1701,8 @@ html.resizingChat * {
 
 .canvasStatus {
   position: absolute;
-  left: 22px;
-  bottom: 16px;
+  left: calc(22px + env(safe-area-inset-left));
+  bottom: calc(16px + env(safe-area-inset-bottom));
   z-index: 9;
   display: inline-flex;
   align-items: center;
@@ -1690,8 +1726,8 @@ html.resizingChat * {
 }
 .openPreview {
   position: absolute;
-  right: 22px;
-  top: 66px;
+  right: calc(22px + env(safe-area-inset-right));
+  top: calc(66px + env(safe-area-inset-top));
   z-index: 9;
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -1752,7 +1788,7 @@ html.resizingChat * {
   z-index: 40;
   display: grid;
   place-items: center;
-  padding: 24px;
+  padding: calc(24px + env(safe-area-inset-top)) calc(24px + env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) calc(24px + env(safe-area-inset-left));
   background: rgba(0, 0, 0, .48);
   backdrop-filter: blur(8px);
 }
@@ -1880,7 +1916,7 @@ html.resizingChat * {
   min-height: 100vh;
   min-width: 0;
   overflow-x: hidden;
-  padding: 82px 24px 24px;
+  padding: calc(82px + env(safe-area-inset-top)) calc(24px + env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) calc(24px + env(safe-area-inset-left));
   background:
     radial-gradient(circle at 50% 0, rgba(174, 244, 255, .08), transparent 38%),
     var(--bg);
@@ -2542,7 +2578,10 @@ html.resizingChat * {
 }
 
 @media (max-width: 560px) {
-  .topbar { inset: 8px; grid-template-columns: 1fr auto; }
+  .topbar {
+    inset: calc(8px + env(safe-area-inset-top)) calc(8px + env(safe-area-inset-right)) auto calc(8px + env(safe-area-inset-left));
+    grid-template-columns: 1fr auto;
+  }
   .topbar nav { display: none; }
   .brand { letter-spacing: 2px; }
   .basicChatChrome .linkStatus { display: inline-flex; }
@@ -2695,5 +2734,13 @@ html.resizingChat * {
   .notificationBubble {
     max-width: 100%;
     border-radius: 11px;
+  }
+}
+
+@supports (-webkit-touch-callout: none) {
+  input,
+  textarea,
+  select {
+    font-size: 16px !important;
   }
 }

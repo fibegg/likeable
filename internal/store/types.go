@@ -4,6 +4,8 @@ import "github.com/fibegg/likeable/internal/domain"
 
 type User = domain.User
 type Project = domain.Project
+type ProjectRepository = domain.ProjectRepository
+type ProjectService = domain.ProjectService
 type Message = domain.Message
 type MessageAttachment = domain.MessageAttachment
 type SocialConnection = domain.SocialConnection

@@ -220,7 +220,7 @@ func (s *Store) AdminUserDetail(ctx context.Context, userID string, freeLimit in
 
 func (s *Store) AdminProjectsForUser(ctx context.Context, userID string) ([]AdminProjectSummary, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT projects.id, projects.user_id, projects.title, projects.conversation_id, projects.agent_id, projects.marquee_id, projects.playground_id, projects.playspec_id, projects.prop_id, projects.repo_url, projects.preview_url, projects.status, projects.error_message, projects.created_at, projects.updated_at,
+		SELECT projects.id, projects.user_id, projects.title, projects.conversation_id, projects.agent_id, projects.marquee_id, projects.playground_id, projects.playspec_id, projects.prop_id, projects.repo_url, projects.preview_url, projects.selected_service_name, projects.status, projects.error_message, projects.created_at, projects.updated_at,
 			COUNT(messages.id) AS message_count
 		FROM projects
 		LEFT JOIN messages ON messages.project_id = projects.id AND messages.role = 'user'
@@ -231,17 +231,29 @@ func (s *Store) AdminProjectsForUser(ctx context.Context, userID string) ([]Admi
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	var out []AdminProjectSummary
 	for rows.Next() {
 		var summary AdminProjectSummary
-		if err := rows.Scan(&summary.Project.ID, &summary.Project.UserID, &summary.Project.Title, &summary.Project.ConversationID, &summary.Project.AgentID, &summary.Project.MarqueeID, &summary.Project.PlaygroundID, &summary.Project.PlayspecID, &summary.Project.PropID, &summary.Project.RepoURL, &summary.Project.PreviewURL, &summary.Project.Status, &summary.Project.ErrorMessage, &summary.Project.CreatedAt, &summary.Project.UpdatedAt, &summary.MessageCount); err != nil {
+		if err := rows.Scan(&summary.Project.ID, &summary.Project.UserID, &summary.Project.Title, &summary.Project.ConversationID, &summary.Project.AgentID, &summary.Project.MarqueeID, &summary.Project.PlaygroundID, &summary.Project.PlayspecID, &summary.Project.PropID, &summary.Project.RepoURL, &summary.Project.PreviewURL, &summary.Project.SelectedService, &summary.Project.Status, &summary.Project.ErrorMessage, &summary.Project.CreatedAt, &summary.Project.UpdatedAt, &summary.MessageCount); err != nil {
+			_ = rows.Close()
 			return nil, err
 		}
 		out = append(out, summary)
 	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	for i := range out {
+		if err := s.attachProjectResources(ctx, &out[i].Project); err != nil {
+			return nil, err
+		}
+	}
 	if out == nil {
 		out = []AdminProjectSummary{}
 	}
-	return out, rows.Err()
+	return out, nil
 }

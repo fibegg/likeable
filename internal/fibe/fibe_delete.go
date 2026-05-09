@@ -64,14 +64,14 @@ func (c *Client) DeleteProjectResources(ctx context.Context, project *Project) e
 			}
 		}
 	}
-	if project.PropID != "" {
-		if err := c.deleteFibeResourceWithRetry(ctx, "props", project.PropID); err != nil {
-			errs = append(errs, fmt.Errorf("delete prop: %w", err))
+	for _, propID := range projectPropIDs(project) {
+		if err := c.deleteFibeResourceWithRetry(ctx, "props", propID); err != nil {
+			errs = append(errs, fmt.Errorf("delete prop %s: %w", propID, err))
 		}
 	}
-	if project.RepoURL != "" {
-		if err := c.DeleteGiteaRepo(ctx, project.RepoURL); err != nil {
-			errs = append(errs, fmt.Errorf("delete gitea repo: %w", err))
+	for _, repoURL := range projectRepoURLs(project) {
+		if err := c.DeleteGiteaRepo(ctx, repoURL); err != nil {
+			errs = append(errs, fmt.Errorf("delete gitea repo %s: %w", repoURL, err))
 		}
 	}
 	if project.ConversationID != "" {
@@ -135,14 +135,60 @@ func (c *Client) projectTemplateVersionOwnedBySource(ctx context.Context, source
 		versionSource := anyMap(item["source"])
 		propID := numberString(firstAny(versionSource["prop_id"], versionSource["propID"]))
 		repoURL := firstNonEmpty(fmt.Sprint(versionSource["prop_repository_url"]), fmt.Sprint(versionSource["repository_url"]), fmt.Sprint(versionSource["repo_url"]))
-		if propID != "" && propID == project.PropID {
-			return true, nil
+		for _, projectPropID := range projectPropIDs(project) {
+			if propID != "" && propID == projectPropID {
+				return true, nil
+			}
 		}
-		if sameNormalizedURL(repoURL, project.RepoURL) {
-			return true, nil
+		for _, projectRepoURL := range projectRepoURLs(project) {
+			if sameNormalizedURL(repoURL, projectRepoURL) {
+				return true, nil
+			}
 		}
 	}
 	return false, nil
+}
+
+func projectPropIDs(project *Project) []string {
+	if project == nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	add := func(value string) {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			return
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	add(project.PropID)
+	for _, repository := range project.Repositories {
+		add(repository.PropID)
+	}
+	return out
+}
+
+func projectRepoURLs(project *Project) []string {
+	if project == nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	add := func(value string) {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[strings.ToLower(value)] {
+			return
+		}
+		seen[strings.ToLower(value)] = true
+		out = append(out, value)
+	}
+	add(project.RepoURL)
+	for _, repository := range project.Repositories {
+		add(repository.RepoURL)
+	}
+	return out
 }
 
 func projectOwnedTemplateName(project *Project, templateName string) bool {

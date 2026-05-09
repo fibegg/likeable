@@ -98,6 +98,11 @@ func (s *Store) MessagesForProject(ctx context.Context, projectID string) ([]Mes
 	return out, nil
 }
 
+func (s *Store) DeleteMessage(ctx context.Context, projectID, messageID string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM messages WHERE project_id = ? AND id = ?`, projectID, messageID)
+	return err
+}
+
 func (s *Store) attachmentsForProject(ctx context.Context, projectID string) ([]MessageAttachment, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, message_id, project_id, filename, content_type, size, storage_path, created_at

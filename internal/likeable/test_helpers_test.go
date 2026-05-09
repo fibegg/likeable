@@ -21,8 +21,11 @@ case "$*" in
   *"playgrounds get"*)
     echo '{"id":123,"status":"running"}'
     ;;
+  *"playgrounds debug"*)
+    echo '{"diagnostics":{"playground":{"id":123,"playspec_id":456,"status":"running"},"routes":[{"service":"app","type":"dynamic","visibility":"external","url":"http://lk-test.phoenix.test"}]}}'
+    ;;
   *"playspecs get"*)
-    echo '{"id":456,"source_template":{"id":321,"name":"delete-all-abc12345"},"source_template_version_id":654,"services":[{"prop_id":789}]}'
+    echo '{"id":456,"source_template":{"id":321,"name":"delete-all-abc12345"},"source_template_version_id":654,"services":[{"name":"app","prop_id":789,"repo_url":"http://gitea.test/owner/repo.git","source_repo_url":"https://github.com/fibegg/go-fibe-app"}]}'
     ;;
   *"templates versions list"*)
     echo '{"Data":[{"id":654,"source":{"prop_id":789,"prop_repository_url":"http://gitea.test/owner/repo.git"}}]}'
@@ -54,6 +57,42 @@ esac
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	return path, logPath, stdinPath
+}
+
+func fakeRetemplatedFibeCLI(t *testing.T) (string, string) {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "fibe")
+	stdinPath := filepath.Join(dir, "stdin.json")
+	script := `#!/bin/sh
+case "$*" in
+  *"playgrounds debug 321"*)
+    echo '{"diagnostics":{"playground":{"id":321,"playspec_id":654,"status":"running"},"routes":[{"service":"frontend","type":"dynamic","visibility":"external","url":"http://frontend.example.test"},{"service":"api","type":"dynamic","visibility":"external","url":"http://api.example.test"}]}}'
+    ;;
+  *"playspecs get 654"*)
+    echo '{"id":654,"source_template":{"id":900,"name":"project-retemplate"},"source_template_version_id":901,"services":[{"name":"frontend","prop_id":81,"propID":81,"repo_url":"http://gitea.test/owner/frontend.git","repository_url":"http://gitea.test/owner/frontend.git","source_repo_url":"https://github.com/fibegg/custom-frontend"},{"name":"api","prop_id":82,"propID":82,"repo_url":"http://gitea.test/owner/api.git","repository_url":"http://gitea.test/owner/api.git","source_repo_url":"https://github.com/fibegg/custom-api"}]}'
+    ;;
+  *"agents messages"*|*"agents activity"*)
+    echo '{"content":[]}'
+    ;;
+  *"agents live-state"*)
+    echo '{"conversationId":"conv-retpl","isProcessing":false,"streamText":"","queuedTurns":0}'
+    ;;
+  *"agents send-message"*)
+    cat > "` + stdinPath + `"
+    echo '{"ok":true}'
+    ;;
+  *)
+    echo "unexpected command: $*" >&2
+    exit 64
+    ;;
+esac
+`
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return path, stdinPath
 }
 
 func readFile(t *testing.T, path string) string {

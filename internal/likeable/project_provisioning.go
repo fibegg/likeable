@@ -15,6 +15,8 @@ import (
 	"github.com/hibiken/asynq"
 )
 
+const projectResourceRefreshInterval = 10 * time.Second
+
 func (s *Server) ensureDefaultProject(ctx context.Context, user *User) {
 	if user == nil {
 		return
@@ -100,8 +102,15 @@ func (s *Server) provisionProject(ctx context.Context, userID, userEmail string,
 		project.PreviewURL = result.PreviewURL
 		project.PlayspecID = result.PlayspecID
 		project.PropID = result.PropID
+		project.SelectedService = result.SelectedServiceName
+		project.Repositories = projectRepositoriesFromGreenfield(project.ID, result)
+		project.Services = projectServicesFromGreenfield(project.ID, result)
 		project.Status = "launching"
-		if err := s.store.UpdateProjectProvisioning(ctx, project.ID, userID, project.PlaygroundID, project.PlayspecID, project.PropID, project.RepoURL, project.PreviewURL, project.Status); err != nil {
+		if err := s.store.ReplaceProjectResources(ctx, project.ID, project.Repositories, project.Services); err != nil {
+			_ = fibe.DeleteProjectResources(ctx, project)
+			return err
+		}
+		if err := s.store.UpdateProjectProvisioning(ctx, project.ID, userID, project.PlaygroundID, project.PlayspecID, project.PropID, project.RepoURL, project.PreviewURL, project.SelectedService, project.Status); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				_ = fibe.DeleteProjectResources(ctx, project)
 			}
@@ -120,7 +129,7 @@ func (s *Server) provisionProject(ctx context.Context, userID, userEmail string,
 		return err
 	}
 	project.Status = "ready"
-	if err := s.store.UpdateProjectProvisioning(ctx, project.ID, userID, project.PlaygroundID, project.PlayspecID, project.PropID, project.RepoURL, project.PreviewURL, project.Status); err != nil {
+	if err := s.store.UpdateProjectProvisioning(ctx, project.ID, userID, project.PlaygroundID, project.PlayspecID, project.PropID, project.RepoURL, project.PreviewURL, project.SelectedService, project.Status); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			_ = fibe.DeleteProjectResources(ctx, project)
 		}
@@ -211,7 +220,10 @@ func (s *Server) recoverProjectReadiness(ctx context.Context, userID string, pro
 	if strings.TrimSpace(project.PreviewURL) == "" {
 		if recovered, err := fibe.GreenfieldByPlaygroundID(ctx, project.PlaygroundID); err == nil {
 			mergeProjectGreenfieldResult(project, recovered)
-			if err := s.store.UpdateProjectProvisioning(ctx, project.ID, userID, project.PlaygroundID, project.PlayspecID, project.PropID, project.RepoURL, project.PreviewURL, "launching"); err != nil {
+			if err := s.store.ReplaceProjectResources(ctx, project.ID, project.Repositories, project.Services); err != nil {
+				return err
+			}
+			if err := s.store.UpdateProjectProvisioning(ctx, project.ID, userID, project.PlaygroundID, project.PlayspecID, project.PropID, project.RepoURL, project.PreviewURL, project.SelectedService, "launching"); err != nil {
 				return err
 			}
 		}
@@ -234,6 +246,58 @@ func (s *Server) refreshProjectReadiness(ctx context.Context, user *User, projec
 		return project, err
 	}
 	if err := s.recoverProjectReadiness(ctx, user.ID, project, fibe); err != nil {
+		return project, err
+	}
+	updated, err := s.store.ProjectForUser(ctx, user.ID, project.ID)
+	if err != nil {
+		return project, err
+	}
+	return updated, nil
+}
+
+func (s *Server) refreshProjectResourcesIfDue(ctx context.Context, user *User, project *Project) (*Project, error) {
+	return s.refreshProjectResources(ctx, user, project, false)
+}
+
+func (s *Server) refreshProjectResourcesNow(ctx context.Context, user *User, project *Project) (*Project, error) {
+	return s.refreshProjectResources(ctx, user, project, true)
+}
+
+func (s *Server) refreshProjectResources(ctx context.Context, user *User, project *Project, force bool) (*Project, error) {
+	if user == nil || project == nil || strings.TrimSpace(project.PlaygroundID) == "" || project.Status == "deleting" {
+		return project, nil
+	}
+	if !force {
+		key := user.ID + ":" + project.ID + ":resources"
+		if last, ok := s.refreshing.Load(key); ok {
+			if lastRefresh, ok := last.(time.Time); ok && time.Since(lastRefresh) < projectResourceRefreshInterval {
+				return project, nil
+			}
+		}
+		s.refreshing.Store(key, time.Now())
+	}
+	client, err := s.fibeClientForProject(ctx, project, user.Email)
+	if err != nil {
+		return project, err
+	}
+	result, err := client.GreenfieldByPlaygroundID(ctx, project.PlaygroundID)
+	if err != nil {
+		return project, err
+	}
+	if !greenfieldHasResourceSnapshot(result) {
+		return project, nil
+	}
+	applyProjectGreenfieldSnapshot(project, result)
+	if len(project.Repositories) > 0 || len(project.Services) > 0 {
+		if err := s.store.ReplaceProjectResources(ctx, project.ID, project.Repositories, project.Services); err != nil {
+			return project, err
+		}
+	}
+	status := project.Status
+	if status == "" {
+		status = "ready"
+	}
+	if err := s.store.UpdateProjectProvisioning(ctx, project.ID, user.ID, project.PlaygroundID, project.PlayspecID, project.PropID, project.RepoURL, project.PreviewURL, project.SelectedService, status); err != nil {
 		return project, err
 	}
 	updated, err := s.store.ProjectForUser(ctx, user.ID, project.ID)
@@ -278,7 +342,7 @@ func (s *Server) promoteProjectFromReachablePreview(ctx context.Context, userID 
 		return project, false, status, nil
 	}
 	if userID != "" && project.Status != "ready" {
-		if err := s.store.UpdateProjectProvisioning(ctx, project.ID, userID, project.PlaygroundID, project.PlayspecID, project.PropID, project.RepoURL, project.PreviewURL, "ready"); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		if err := s.store.UpdateProjectProvisioning(ctx, project.ID, userID, project.PlaygroundID, project.PlayspecID, project.PropID, project.RepoURL, project.PreviewURL, project.SelectedService, "ready"); err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return project, false, status, err
 		}
 	}
@@ -311,4 +375,142 @@ func mergeProjectGreenfieldResult(project *Project, result *fibe.GreenfieldResul
 	if strings.TrimSpace(project.PreviewURL) == "" {
 		project.PreviewURL = result.PreviewURL
 	}
+	if strings.TrimSpace(project.SelectedService) == "" {
+		project.SelectedService = result.SelectedServiceName
+	}
+	if len(project.Repositories) == 0 {
+		project.Repositories = projectRepositoriesFromGreenfield(project.ID, result)
+	}
+	if len(project.Services) == 0 {
+		project.Services = projectServicesFromGreenfield(project.ID, result)
+	}
+}
+
+func greenfieldHasResourceSnapshot(result *fibe.GreenfieldResult) bool {
+	return result != nil && (len(result.Repositories) > 0 || len(result.Services) > 0 || strings.TrimSpace(result.PreviewURL) != "" || strings.TrimSpace(result.PlayspecID) != "")
+}
+
+func applyProjectGreenfieldSnapshot(project *Project, result *fibe.GreenfieldResult) {
+	if project == nil || result == nil {
+		return
+	}
+	if strings.TrimSpace(result.PlaygroundID) != "" {
+		project.PlaygroundID = result.PlaygroundID
+	}
+	if strings.TrimSpace(result.PlayspecID) != "" {
+		project.PlayspecID = result.PlayspecID
+	}
+	if len(result.Repositories) > 0 {
+		project.Repositories = projectRepositoriesFromGreenfield(project.ID, result)
+	}
+	if len(result.Services) > 0 {
+		project.Services = projectServicesFromGreenfield(project.ID, result)
+	}
+	project.SelectedService = selectProjectServiceName(project.SelectedService, result.SelectedServiceName, project.Services)
+	if serviceURL := projectServiceURL(project.Services, project.SelectedService); serviceURL != "" {
+		project.PreviewURL = serviceURL
+	} else if strings.TrimSpace(result.PreviewURL) != "" {
+		project.PreviewURL = result.PreviewURL
+	}
+	if repository := projectRepositoryForService(project.Repositories, project.SelectedService); repository != nil {
+		project.PropID = firstNonEmpty(repository.PropID, project.PropID, result.PropID)
+		project.RepoURL = firstNonEmpty(repository.RepoURL, project.RepoURL, result.RepoURL)
+	} else {
+		project.PropID = firstNonEmpty(result.PropID, project.PropID)
+		project.RepoURL = firstNonEmpty(result.RepoURL, project.RepoURL)
+	}
+}
+
+func selectProjectServiceName(current, preferred string, services []ProjectService) string {
+	current = strings.TrimSpace(current)
+	preferred = strings.TrimSpace(preferred)
+	if serviceNameExists(services, current) {
+		return current
+	}
+	if serviceNameExists(services, preferred) {
+		return preferred
+	}
+	for _, service := range services {
+		if strings.TrimSpace(service.Name) != "" {
+			return service.Name
+		}
+	}
+	return preferred
+}
+
+func serviceNameExists(services []ProjectService, name string) bool {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return false
+	}
+	for _, service := range services {
+		if strings.EqualFold(service.Name, name) {
+			return true
+		}
+	}
+	return false
+}
+
+func projectServiceURL(services []ProjectService, name string) string {
+	name = strings.TrimSpace(name)
+	for _, service := range services {
+		if strings.EqualFold(service.Name, name) && strings.TrimSpace(service.URL) != "" {
+			return service.URL
+		}
+	}
+	return ""
+}
+
+func projectRepositoryForService(repositories []ProjectRepository, serviceName string) *ProjectRepository {
+	serviceName = strings.TrimSpace(serviceName)
+	if serviceName == "" {
+		return nil
+	}
+	for i := range repositories {
+		for _, candidate := range repositories[i].ServiceNames {
+			if strings.EqualFold(candidate, serviceName) {
+				return &repositories[i]
+			}
+		}
+	}
+	return nil
+}
+
+func projectRepositoriesFromGreenfield(projectID string, result *fibe.GreenfieldResult) []ProjectRepository {
+	if result == nil {
+		return nil
+	}
+	out := make([]ProjectRepository, 0, len(result.Repositories))
+	for _, repository := range result.Repositories {
+		out = append(out, ProjectRepository{
+			ID:            uuid.NewString(),
+			ProjectID:     projectID,
+			Role:          repository.Role,
+			PropID:        repository.PropID,
+			RepoURL:       repository.RepoURL,
+			SourceRepoURL: repository.SourceRepoURL,
+			Provider:      repository.Provider,
+			ServiceNames:  append([]string(nil), repository.ServiceNames...),
+		})
+	}
+	return out
+}
+
+func projectServicesFromGreenfield(projectID string, result *fibe.GreenfieldResult) []ProjectService {
+	if result == nil {
+		return nil
+	}
+	out := make([]ProjectService, 0, len(result.Services))
+	for _, service := range result.Services {
+		out = append(out, ProjectService{
+			ID:           uuid.NewString(),
+			ProjectID:    projectID,
+			Name:         service.Name,
+			URL:          service.URL,
+			Type:         service.Type,
+			Visibility:   service.Visibility,
+			AuthRequired: service.AuthRequired,
+		})
+	}
+	return out
 }

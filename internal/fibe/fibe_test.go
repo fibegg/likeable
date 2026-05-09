@@ -72,11 +72,17 @@ func TestCreateGreenfieldUsesTemplateVersionIDOnlyWhenConfigured(t *testing.T) {
 			if !strings.Contains(log, "--private") {
 				t.Fatalf("log=%s, want private greenfield", log)
 			}
-			if !strings.Contains(log, "--var subdomain=lk-0123456789abcdef") {
-				t.Fatalf("log=%s, want subdomain variable", log)
+			if !strings.Contains(log, "--service-subdomain app=lk-0123456789abcdef") {
+				t.Fatalf("log=%s, want app service subdomain", log)
 			}
-			if !strings.Contains(log, "--var ws_subdomain=ws-lk-0123456789abcdef") {
-				t.Fatalf("log=%s, want websocket subdomain variable", log)
+			if !strings.Contains(log, "--service-subdomain admin=lk-0123456789abcdef-admin") {
+				t.Fatalf("log=%s, want admin service subdomain", log)
+			}
+			if !strings.Contains(log, "--var app_subdomain=lk-0123456789abcdef") {
+				t.Fatalf("log=%s, want app subdomain variable", log)
+			}
+			if !strings.Contains(log, "--var admin_subdomain=lk-0123456789abcdef-admin") {
+				t.Fatalf("log=%s, want admin subdomain variable", log)
 			}
 		})
 	}
@@ -146,6 +152,37 @@ func TestParseGreenfieldStatusPrefersAppPreviewURL(t *testing.T) {
 	})
 	if result.PreviewURL != "http://starter.phoenix.test" {
 		t.Fatalf("PreviewURL=%q, want app URL", result.PreviewURL)
+	}
+}
+
+func TestParseGreenfieldStatusReturnsAllServicesAndRepos(t *testing.T) {
+	result := parseGreenfieldStatus(map[string]any{
+		"status": "success",
+		"props": []any{
+			map[string]any{"id": float64(11), "repository_url": "http://gitea.test/owner/app.git", "service_names": []any{"app"}},
+			map[string]any{"id": float64(12), "repository_url": "http://gitea.test/owner/admin.git", "service_names": []any{"admin"}},
+		},
+		"repos": []any{
+			map[string]any{"repository_url": "http://gitea.test/owner/app", "source_repo_url": "https://github.com/fibegg/go-fibe-app", "service_names": []any{"app"}},
+			map[string]any{"repository_url": "http://gitea.test/owner/backend.git", "source_repo_url": "https://github.com/fibegg/go-fibe", "service_names": []any{"web", "worker"}},
+		},
+		"service_urls": []any{
+			map[string]any{"name": "admin", "type": "dynamic", "url": "http://admin.phoenix.test", "visibility": "external"},
+			map[string]any{"name": "app", "type": "dynamic", "url": "http://app.phoenix.test", "visibility": "external"},
+		},
+	})
+
+	if result.PreviewURL != "http://app.phoenix.test" || result.SelectedServiceName != "app" {
+		t.Fatalf("selected service=%q url=%q", result.SelectedServiceName, result.PreviewURL)
+	}
+	if len(result.Services) != 2 {
+		t.Fatalf("services=%+v, want 2", result.Services)
+	}
+	if len(result.Repositories) != 3 {
+		t.Fatalf("repositories=%+v, want 3", result.Repositories)
+	}
+	if result.repositoryForService("app").SourceRepoURL != "https://github.com/fibegg/go-fibe-app" {
+		t.Fatalf("app repo did not merge source metadata: %+v", result.repositoryForService("app"))
 	}
 }
 
@@ -276,6 +313,8 @@ func TestDeleteProjectResourcesDeletesFibeAndGiteaResources(t *testing.T) {
 				t.Fatalf("Authorization=%q, want token gitea-token", got)
 			}
 			w.WriteHeader(http.StatusNoContent)
+		case http.MethodDelete + " /api/v1/repos/owner/admin":
+			w.WriteHeader(http.StatusNoContent)
 		default:
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
@@ -291,10 +330,14 @@ func TestDeleteProjectResourcesDeletesFibeAndGiteaResources(t *testing.T) {
 		http:      server.Client(),
 	}
 	err := client.DeleteProjectResources(t.Context(), &Project{
-		PlaygroundID:   "123",
-		PlayspecID:     "456",
-		PropID:         "789",
-		RepoURL:        server.URL + "/owner/repo.git",
+		PlaygroundID: "123",
+		PlayspecID:   "456",
+		PropID:       "789",
+		RepoURL:      server.URL + "/owner/repo.git",
+		Repositories: []ProjectRepository{
+			{PropID: "789", RepoURL: server.URL + "/owner/repo.git", ServiceNames: []string{"app"}},
+			{PropID: "790", RepoURL: server.URL + "/owner/admin.git", ServiceNames: []string{"admin"}},
+		},
 		ConversationID: "likeable-123",
 		Title:          "Renamed project",
 	})
@@ -303,6 +346,7 @@ func TestDeleteProjectResourcesDeletesFibeAndGiteaResources(t *testing.T) {
 	}
 	for _, path := range []string{
 		"DELETE /api/v1/repos/owner/repo",
+		"DELETE /api/v1/repos/owner/admin",
 	} {
 		if !containsString(paths, path) {
 			t.Fatalf("missing request %s; got %v", path, paths)
@@ -318,6 +362,7 @@ func TestDeleteProjectResourcesDeletesFibeAndGiteaResources(t *testing.T) {
 		"templates versions destroy 321 654",
 		"templates delete 321",
 		"props delete 789",
+		"props delete 790",
 		"agents delete-conversation agent --conversation-id likeable-123",
 	} {
 		if !strings.Contains(log, want) {
