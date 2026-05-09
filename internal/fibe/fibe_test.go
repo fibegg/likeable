@@ -296,6 +296,7 @@ func TestDeleteProjectResourcesDeletesFibeAndGiteaResources(t *testing.T) {
 		PropID:         "789",
 		RepoURL:        server.URL + "/owner/repo.git",
 		ConversationID: "likeable-123",
+		Title:          "Renamed project",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -310,8 +311,12 @@ func TestDeleteProjectResourcesDeletesFibeAndGiteaResources(t *testing.T) {
 	log := readFile(t, logPath)
 	for _, want := range []string{
 		"agents gitea-token agent",
+		"playspecs get 456",
+		"templates versions list 321",
 		"playgrounds delete 123",
 		"playspecs delete 456",
+		"templates versions destroy 321 654",
+		"templates delete 321",
 		"props delete 789",
 		"agents delete-conversation agent --conversation-id likeable-123",
 	} {
@@ -454,6 +459,12 @@ case "$*" in
   *"playgrounds get"*)
     echo '{"id":123,"status":"running"}'
     ;;
+  *"playspecs get"*)
+    echo '{"id":456,"source_template":{"id":321,"name":"test-app-abc12345"},"source_template_version_id":654,"services":[{"prop_id":789}]}'
+    ;;
+  *"templates versions list"*)
+    echo '{"Data":[{"id":654,"source":{"prop_id":789,"prop_repository_url":"http://gitea.test/owner/repo.git"}}]}'
+    ;;
   *"wait playground"*)
     echo '{"status":"running"}'
     ;;
@@ -467,7 +478,7 @@ case "$*" in
   *"agents gitea-token"*)
     echo '{"token":"gitea-token","username":"agent"}'
     ;;
-  *"agents create-conversation"*|*"agents delete-conversation"*|*"agents interrupt"*|*"agents messages"*|*"agents activity"*|*"playgrounds delete"*|*"playspecs delete"*|*"props delete"*)
+  *"agents create-conversation"*|*"agents delete-conversation"*|*"agents interrupt"*|*"agents messages"*|*"agents activity"*|*"playgrounds delete"*|*"playspecs delete"*|*"templates versions destroy"*|*"templates delete"*|*"props delete"*)
     echo '{"ok":true,"content":[]}'
     ;;
   *)

@@ -21,6 +21,12 @@ case "$*" in
   *"playgrounds get"*)
     echo '{"id":123,"status":"running"}'
     ;;
+  *"playspecs get"*)
+    echo '{"id":456,"source_template":{"id":321,"name":"delete-all-abc12345"},"source_template_version_id":654,"services":[{"prop_id":789}]}'
+    ;;
+  *"templates versions list"*)
+    echo '{"Data":[{"id":654,"source":{"prop_id":789,"prop_repository_url":"http://gitea.test/owner/repo.git"}}]}'
+    ;;
   *"wait playground"*)
     echo '{"status":"running"}'
     ;;
@@ -34,7 +40,7 @@ case "$*" in
   *"agents gitea-token"*)
     echo '{"token":"gitea-token","username":"agent"}'
     ;;
-  *"agents create-conversation"*|*"agents delete-conversation"*|*"agents interrupt"*|*"agents messages"*|*"agents activity"*|*"playgrounds delete"*|*"playspecs delete"*|*"props delete"*)
+  *"agents create-conversation"*|*"agents delete-conversation"*|*"agents interrupt"*|*"agents messages"*|*"agents activity"*|*"playgrounds delete"*|*"playspecs delete"*|*"templates versions destroy"*|*"templates delete"*|*"props delete"*)
     echo '{"ok":true,"content":[]}'
     ;;
   *)

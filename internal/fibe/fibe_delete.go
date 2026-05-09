@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	projecttext "github.com/fibegg/likeable/internal/project"
 )
 
 const (
@@ -36,10 +38,9 @@ func (c *Client) GiteaToken(ctx context.Context) (map[string]string, error) {
 
 func (c *Client) DeleteProjectResources(ctx context.Context, project *Project) error {
 	var errs []error
-	if project.RepoURL != "" {
-		if err := c.DeleteGiteaRepo(ctx, project.RepoURL); err != nil {
-			errs = append(errs, fmt.Errorf("delete gitea repo: %w", err))
-		}
+	source, sourceErr := c.projectTemplateSource(ctx, project)
+	if sourceErr != nil {
+		errs = append(errs, fmt.Errorf("inspect project template source: %w", sourceErr))
 	}
 	if project.PlaygroundID != "" {
 		if err := c.deleteFibeResourceWithRetry(ctx, "playgrounds", project.PlaygroundID); err != nil {
@@ -51,9 +52,26 @@ func (c *Client) DeleteProjectResources(ctx context.Context, project *Project) e
 			errs = append(errs, fmt.Errorf("delete playspec: %w", err))
 		}
 	}
+	if source.ProjectOwned {
+		if source.TemplateID != "" && source.TemplateVersionID != "" {
+			if err := c.deleteTemplateVersionWithRetry(ctx, source.TemplateID, source.TemplateVersionID); err != nil {
+				errs = append(errs, fmt.Errorf("delete template version: %w", err))
+			}
+		}
+		if source.TemplateID != "" {
+			if err := c.deleteFibeResourceWithRetry(ctx, "templates", source.TemplateID); err != nil {
+				errs = append(errs, fmt.Errorf("delete template: %w", err))
+			}
+		}
+	}
 	if project.PropID != "" {
 		if err := c.deleteFibeResourceWithRetry(ctx, "props", project.PropID); err != nil {
 			errs = append(errs, fmt.Errorf("delete prop: %w", err))
+		}
+	}
+	if project.RepoURL != "" {
+		if err := c.DeleteGiteaRepo(ctx, project.RepoURL); err != nil {
+			errs = append(errs, fmt.Errorf("delete gitea repo: %w", err))
 		}
 	}
 	if project.ConversationID != "" {
@@ -62,6 +80,107 @@ func (c *Client) DeleteProjectResources(ctx context.Context, project *Project) e
 		}
 	}
 	return errors.Join(errs...)
+}
+
+type projectTemplateSource struct {
+	TemplateID        string
+	TemplateVersionID string
+	TemplateName      string
+	ProjectOwned      bool
+}
+
+func (c *Client) projectTemplateSource(ctx context.Context, project *Project) (projectTemplateSource, error) {
+	var out projectTemplateSource
+	if project == nil || strings.TrimSpace(project.PlayspecID) == "" {
+		return out, nil
+	}
+	var playspec map[string]any
+	if err := c.runCLI(ctx, []string{"playspecs", "get", project.PlayspecID}, nil, &playspec); err != nil {
+		if resourceAlreadyDeleted(err) {
+			return out, nil
+		}
+		return out, err
+	}
+	sourceTemplate := anyMap(firstAny(playspec["source_template"], playspec["sourceTemplate"]))
+	sourceVersion := anyMap(firstAny(playspec["source_template_version"], playspec["sourceTemplateVersion"]))
+	out.TemplateID = numberString(firstAny(sourceTemplate["id"], playspec["source_template_id"], playspec["sourceTemplateID"]))
+	out.TemplateVersionID = numberString(firstAny(sourceVersion["id"], playspec["source_template_version_id"], playspec["sourceTemplateVersionID"]))
+	out.TemplateName = firstNonEmpty(fmt.Sprint(sourceTemplate["name"]))
+	out.ProjectOwned = projectOwnedTemplateName(project, out.TemplateName)
+	if !out.ProjectOwned && out.TemplateID != "" && out.TemplateVersionID != "" {
+		owned, err := c.projectTemplateVersionOwnedBySource(ctx, out, project)
+		if err != nil {
+			return out, err
+		}
+		out.ProjectOwned = owned
+	}
+	return out, nil
+}
+
+func (c *Client) projectTemplateVersionOwnedBySource(ctx context.Context, source projectTemplateSource, project *Project) (bool, error) {
+	if project == nil || strings.TrimSpace(source.TemplateID) == "" || strings.TrimSpace(source.TemplateVersionID) == "" {
+		return false, nil
+	}
+	var raw map[string]any
+	if err := c.runCLI(ctx, []string{"templates", "versions", "list", source.TemplateID}, nil, &raw); err != nil {
+		if resourceAlreadyDeleted(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	for _, item := range objectSlice(firstAny(raw["Data"], raw["data"], raw["items"], raw["template_versions"], raw["templateVersions"])) {
+		if numberString(item["id"]) != source.TemplateVersionID {
+			continue
+		}
+		versionSource := anyMap(item["source"])
+		propID := numberString(firstAny(versionSource["prop_id"], versionSource["propID"]))
+		repoURL := firstNonEmpty(fmt.Sprint(versionSource["prop_repository_url"]), fmt.Sprint(versionSource["repository_url"]), fmt.Sprint(versionSource["repo_url"]))
+		if propID != "" && propID == project.PropID {
+			return true, nil
+		}
+		if sameNormalizedURL(repoURL, project.RepoURL) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func projectOwnedTemplateName(project *Project, templateName string) bool {
+	if project == nil {
+		return false
+	}
+	prefix := projecttext.SourceNamePrefix(project.Title)
+	templateName = strings.TrimSpace(templateName)
+	return prefix != "" && strings.HasPrefix(templateName, prefix+"-")
+}
+
+func sameNormalizedURL(a, b string) bool {
+	a = strings.TrimSuffix(strings.TrimSpace(a), ".git")
+	b = strings.TrimSuffix(strings.TrimSpace(b), ".git")
+	return a != "" && strings.EqualFold(a, b)
+}
+
+func (c *Client) deleteTemplateVersionWithRetry(ctx context.Context, templateID, versionID string) error {
+	var lastErr error
+	for attempt := 0; attempt < resourceDeleteMaxAttempts; attempt++ {
+		err := c.runCLI(ctx, []string{"templates", "versions", "destroy", templateID, versionID}, nil, nil)
+		if resourceAlreadyDeleted(err) {
+			return nil
+		}
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		if !resourceDeleteRetryable(err) {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(resourceDeleteRetryDelay):
+		}
+	}
+	return lastErr
 }
 
 func (c *Client) deleteFibeResourceWithRetry(ctx context.Context, resource, id string) error {

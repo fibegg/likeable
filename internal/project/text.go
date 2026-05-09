@@ -40,6 +40,10 @@ func DefaultTitle(existing int) string {
 }
 
 func SourceName(title string) string {
+	return SourceNamePrefix(title) + "-" + uuidTail()
+}
+
+func SourceNamePrefix(title string) string {
 	var b strings.Builder
 	for _, r := range strings.ToLower(title) {
 		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
@@ -55,7 +59,7 @@ func SourceName(title string) string {
 	if len(name) > 40 {
 		name = name[:40]
 	}
-	return name + "-" + uuidTail()
+	return name
 }
 
 func PreviewSubdomain(project *domain.Project) string {
