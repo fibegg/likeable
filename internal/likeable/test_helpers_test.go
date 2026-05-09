@@ -82,6 +82,9 @@ case "$*" in
     cat > "` + stdinPath + `"
     echo '{"ok":true}'
     ;;
+  *"agents create-conversation"*)
+    echo '{"ok":true}'
+    ;;
   *)
     echo "unexpected command: $*" >&2
     exit 64

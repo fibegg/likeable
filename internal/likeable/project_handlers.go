@@ -85,6 +85,12 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request, use
 		writeError(w, http.StatusInternalServerError, "workspace configuration needs attention")
 		return
 	}
+	if err := s.provisionProjectAsync(user.ID, user.Email, project.ID, body.Prompt); err != nil {
+		log.Printf("schedule project provisioning for user %s project %s: %v", user.ID, project.ID, err)
+		_ = s.store.DeleteProject(r.Context(), project.ID, user.ID)
+		writeError(w, http.StatusInternalServerError, "could not schedule workspace provisioning")
+		return
+	}
 	if body.Prompt != "" {
 		msg, _ := s.store.AddMessage(r.Context(), project.ID, "user", body.Prompt)
 		if usesPaidCredit && msg != nil {
@@ -92,7 +98,6 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request, use
 		}
 		s.notifyMessageQuotaIfNeeded(r.Context(), user)
 	}
-	s.provisionProjectAsync(user.ID, user.Email, project.ID, body.Prompt)
 	s.notifyProjectQuotaIfNeeded(r.Context(), user)
 	created, _ := s.store.ProjectForUser(r.Context(), user.ID, project.ID)
 	writeJSON(w, http.StatusCreated, map[string]any{"project": created})

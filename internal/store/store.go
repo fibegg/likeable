@@ -72,6 +72,7 @@ func (s *Store) migrate(ctx context.Context) error {
 			agent_id TEXT NOT NULL DEFAULT '',
 			marquee_id TEXT NOT NULL DEFAULT '',
 			playground_id TEXT NOT NULL DEFAULT '',
+			playground_name TEXT NOT NULL DEFAULT '',
 			playspec_id TEXT NOT NULL DEFAULT '',
 			prop_id TEXT NOT NULL DEFAULT '',
 			repo_url TEXT NOT NULL DEFAULT '',
@@ -79,6 +80,8 @@ func (s *Store) migrate(ctx context.Context) error {
 			selected_service_name TEXT NOT NULL DEFAULT '',
 			status TEXT NOT NULL DEFAULT 'creating',
 			error_message TEXT NOT NULL DEFAULT '',
+			provisioning_lock_until TEXT NOT NULL DEFAULT '',
+			cleanup_last_error TEXT NOT NULL DEFAULT '',
 			created_at TEXT NOT NULL,
 			updated_at TEXT NOT NULL
 		)`,
@@ -221,6 +224,9 @@ func (s *Store) migrate(ctx context.Context) error {
 	if err := s.ensureColumn(ctx, "projects", "playspec_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
+	if err := s.ensureColumn(ctx, "projects", "playground_name", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
 	if err := s.ensureColumn(ctx, "projects", "agent_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
@@ -234,6 +240,12 @@ func (s *Store) migrate(ctx context.Context) error {
 		return err
 	}
 	if err := s.ensureColumn(ctx, "projects", "selected_service_name", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := s.ensureColumn(ctx, "projects", "provisioning_lock_until", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := s.ensureColumn(ctx, "projects", "cleanup_last_error", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
 	if err := s.ensureColumn(ctx, "users", "access_status", "TEXT NOT NULL DEFAULT 'active'"); err != nil {

@@ -26,6 +26,63 @@ func testFibeCLIDomain() string {
 	return fibeCLIDomain(testFibeNormalizedBaseURL())
 }
 
+func TestIsRetryableProvisioningError(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{
+			name: "internal error wrapped in validation status",
+			err:  &PlatformError{Code: "INTERNAL_ERROR", Status: 422, Message: "unexpected status 422"},
+			want: true,
+		},
+		{
+			name: "server error",
+			err:  &PlatformError{Code: "UNKNOWN_ERROR", Status: 502, Message: "bad gateway"},
+			want: true,
+		},
+		{
+			name: "locked conflict",
+			err:  &PlatformError{Code: "CONFLICT", Status: 409, Message: "resource is locked, try again"},
+			want: true,
+		},
+		{
+			name: "validation failure",
+			err:  &PlatformError{Code: "VALIDATION_FAILED", Status: 422, Message: "name is invalid"},
+			want: false,
+		},
+		{
+			name: "configuration failure",
+			err:  &PlatformError{Code: platformCodeCLINotConfigured, Message: "Fibe CLI path is not configured"},
+			want: false,
+		},
+		{
+			name: "plain error",
+			err:  errors.New("greenfield failed"),
+			want: false,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := IsRetryableProvisioningError(tc.err); got != tc.want {
+				t.Fatalf("IsRetryableProvisioningError()=%v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestIsIdempotentConversationCreateError(t *testing.T) {
+	if !IsIdempotentConversationCreateError(&PlatformError{Code: "INTERNAL_ERROR", Status: 422, Message: "conversation already exists"}) {
+		t.Fatal("duplicate/upsert conversation failure should be treated as idempotent")
+	}
+	if IsIdempotentConversationCreateError(&PlatformError{Code: "INTERNAL_ERROR", Status: 422, Message: "fibe: INTERNAL_ERROR (422): unexpected status 422"}) {
+		t.Fatal("generic 422 failure must not be treated as an idempotent duplicate")
+	}
+	if IsIdempotentConversationCreateError(&PlatformError{Code: platformCodeCLINotConfigured, Message: "Fibe CLI path is not configured"}) {
+		t.Fatal("configuration failure must remain fatal")
+	}
+}
+
 func TestCreateGreenfieldUsesTemplateVersionIDOnlyWhenConfigured(t *testing.T) {
 	for _, tc := range []struct {
 		name              string
@@ -58,7 +115,13 @@ func TestCreateGreenfieldUsesTemplateVersionIDOnlyWhenConfigured(t *testing.T) {
 			if result.PlaygroundID != "123" || result.PlayspecID != "456" || result.PropID != "789" {
 				t.Fatalf("parsed ids=%+v, want playground=123 playspec=456 prop=789", result)
 			}
+			if result.PlaygroundName != "test-app-0123456789abcdef" {
+				t.Fatalf("playground name=%q, want deterministic fallback", result.PlaygroundName)
+			}
 			log := readFile(t, logPath)
+			if !strings.Contains(log, "--name test-app-0123456789abcdef") {
+				t.Fatalf("log=%s, want deterministic --name", log)
+			}
 			if strings.Contains(log, "--template-id") {
 				t.Fatal("greenfield CLI must not include --template-id")
 			}
@@ -183,6 +246,58 @@ func TestParseGreenfieldStatusReturnsAllServicesAndRepos(t *testing.T) {
 	}
 	if result.repositoryForService("app").SourceRepoURL != "https://github.com/fibegg/go-fibe-app" {
 		t.Fatalf("app repo did not merge source metadata: %+v", result.repositoryForService("app"))
+	}
+}
+
+func TestCreateGreenfieldRecoversFailureByPlaygroundName(t *testing.T) {
+	dir := t.TempDir()
+	cliPath := filepath.Join(dir, "fibe")
+	logPath := filepath.Join(dir, "commands.log")
+	script := `#!/bin/sh
+printf '%s\n' "$*" >> "` + logPath + `"
+case "$*" in
+  *"greenfield"*)
+    printf '%s\n' '{"error":{"code":"INTERNAL_ERROR","message":"unexpected status 422","status":422}}' >&2
+    exit 1
+    ;;
+  *"playgrounds get hope-1111111122223333"*)
+    echo '{"id":41,"name":"hope-1111111122223333","status":"in_progress","playspec_id":44}'
+    ;;
+  *"playgrounds debug 41"*)
+    echo '{"diagnostics":{"playground":{"id":41,"name":"hope-1111111122223333","playspec_id":44,"status":"running"},"routes":[{"service":"app","playground_subdomain":"lk-1111111122223333","traefik_host":"lk-1111111122223333.troll-wish-copper.fibe.work"}]}}'
+    ;;
+  *"playspecs get 44"*)
+    echo '{"id":44,"services":[{"name":"app","type":"dynamic","prop_id":24,"repo_url":"https://git.example.test/owner/hope"}]}'
+    ;;
+  *)
+    echo "unexpected command: $*" >&2
+    exit 64
+    ;;
+esac
+`
+	if err := os.WriteFile(cliPath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	client := &Client{
+		apiKey:    "test",
+		agentID:   "agent",
+		marqueeID: "21",
+		cliPath:   cliPath,
+		cliDomain: testFibeCLIDomain(),
+		http:      http.DefaultClient,
+	}
+	result, err := client.CreateGreenfield(t.Context(), &Project{
+		ID:    "11111111-2222-3333-4444-555555555555",
+		Title: "Hope",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.PlaygroundID != "41" || result.PlaygroundName != "hope-1111111122223333" {
+		t.Fatalf("result=%+v, want recovered playground 41 by name", result)
+	}
+	if result.PreviewURL != "https://lk-1111111122223333.troll-wish-copper.fibe.work" {
+		t.Fatalf("PreviewURL=%q", result.PreviewURL)
 	}
 }
 

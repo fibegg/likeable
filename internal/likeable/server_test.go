@@ -882,6 +882,9 @@ case "$*" in
     while [ ! -f "` + releasePath + `" ]; do sleep 0.05; done
     echo '{"ok":true}'
     ;;
+  *"agents create-conversation"*)
+    echo '{"ok":true}'
+    ;;
   *)
     echo "unexpected command: $*" >&2
     exit 64
@@ -974,6 +977,9 @@ case "$*" in
     cat >/dev/null
     printf '%s\n' '{"error":{"message":"Unsupported or blocked file type","code":"BAD_REQUEST","status":400}}' >&2
     exit 1
+    ;;
+  *"agents create-conversation"*)
+    echo '{"ok":true}'
     ;;
   *)
     echo "unexpected command: $*" >&2
@@ -1252,7 +1258,7 @@ func TestProjectMessageRefreshesServiceContextBeforeSending(t *testing.T) {
 		"- frontend: http://frontend.example.test",
 		"- api: http://api.example.test",
 		"- frontend [frontend]: http://gitea.test/owner/frontend.git",
-		"fibe_playgrounds_retemplate",
+		"fibe_playgrounds_transform",
 		"change the admin background",
 	} {
 		if !strings.Contains(prompt, want) {
@@ -1284,6 +1290,19 @@ func TestProfileDeleteAllDeletesFibeResourcesAndLocalData(t *testing.T) {
 	if err := store.CreateSession(t.Context(), user.ID, "delete-token", time.Hour); err != nil {
 		t.Fatal(err)
 	}
+	repoDeleted := false
+	gitea := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete || r.URL.Path != "/api/v1/repos/owner/repo" {
+			t.Fatalf("unexpected Gitea request %s %s", r.Method, r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "token gitea-token" {
+			t.Fatalf("Authorization=%q, want gitea token", got)
+		}
+		repoDeleted = true
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer gitea.Close()
+	repoURL := gitea.URL + "/owner/repo.git"
 	project := &Project{
 		ID:             "project-delete-all",
 		UserID:         user.ID,
@@ -1293,9 +1312,16 @@ func TestProfileDeleteAllDeletesFibeResourcesAndLocalData(t *testing.T) {
 		PlaygroundID:   "playground-1",
 		PlayspecID:     "playspec-1",
 		PropID:         "prop-1",
+		RepoURL:        repoURL,
 		Status:         "ready",
+		Repositories: []ProjectRepository{
+			{ProjectID: "project-delete-all", Role: "app", PropID: "prop-1", RepoURL: repoURL, ServiceNames: []string{"app"}},
+		},
 	}
 	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ReplaceProjectResources(t.Context(), project.ID, project.Repositories, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.AddMessage(t.Context(), project.ID, "user", "hello"); err != nil {
@@ -1327,6 +1353,9 @@ func TestProfileDeleteAllDeletesFibeResourcesAndLocalData(t *testing.T) {
 		if !strings.Contains(log, want) {
 			t.Fatalf("missing CLI command %q; log=%s", want, log)
 		}
+	}
+	if !repoDeleted {
+		t.Fatal("Gitea repository was not deleted")
 	}
 	if _, err := store.UserByID(t.Context(), user.ID); err == nil {
 		t.Fatal("user still exists after delete-all")
@@ -1394,12 +1423,82 @@ func TestProfileDeleteAllKeepsLocalDataWhenFibeCleanupFails(t *testing.T) {
 	}
 }
 
+func TestProjectDeleteHydrationFailureLeavesDeletingProject(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	dir := t.TempDir()
+	cliPath := filepath.Join(dir, "fibe")
+	script := `#!/bin/sh
+case "$*" in
+  *"playgrounds debug"*)
+    echo "debug failed" >&2
+    exit 64
+    ;;
+  *)
+    echo '{"ok":true}'
+    ;;
+esac
+`
+	if err := os.WriteFile(cliPath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url": "server.test:3000",
+		"fibe_api_key":  "test-key",
+		"fibe_cli_path": cliPath,
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	user, err := store.UpsertUser(t.Context(), "pilot@example.com", "Pilot", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{
+		ID:             "project-delete-hydration-fails",
+		UserID:         user.ID,
+		Title:          "Hydration fails",
+		ConversationID: "conv-delete-hydration-fails",
+		PlaygroundID:   "playground-bad",
+		Status:         "deleting",
+	}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+
+	server.deleteProjectResourcesAsync(user.ID, user.Email, project)
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		stored, err := store.ProjectForUser(t.Context(), user.ID, project.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if stored.CleanupLastError != "" {
+			if stored.Status != "deleting" {
+				t.Fatalf("status=%q, want deleting", stored.Status)
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	stored, err := store.ProjectForUser(t.Context(), user.ID, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Fatalf("cleanup_last_error=%q, want hydration error recorded", stored.CleanupLastError)
+}
+
 func TestAgentProjectPromptIncludesTargetContext(t *testing.T) {
 	project := &Project{
 		ID:              "project-1",
 		Title:           "Starter",
 		ConversationID:  "likeable-project-1",
 		PlaygroundID:    "10",
+		PlaygroundName:  "starter-10",
 		RepoURL:         "http://gitea.test/owner/repo",
 		PreviewURL:      "http://starter.test",
 		SelectedService: "admin",
@@ -1416,6 +1515,7 @@ func TestAgentProjectPromptIncludesTargetContext(t *testing.T) {
 	prompt := projecttext.AgentPrompt(project, "Change the heading")
 	for _, want := range []string{
 		"target Fibe playground_id: 10",
+		"target Fibe playground_name: starter-10",
 		"target private source repo: http://gitea.test/owner/repo",
 		"target preview_url: http://starter.test",
 		"target app subdomain: lk-a33e35d302125bbd",
@@ -1426,7 +1526,7 @@ func TestAgentProjectPromptIncludesTargetContext(t *testing.T) {
 		"- app [app]: http://gitea.test/owner/app",
 		"- admin [admin]: http://gitea.test/owner/admin",
 		"Target playground_id 10 only",
-		"fibe_templates_develop with target_type=\"playground\", mode=\"apply\", post_apply=\"rollout_target\", and wait=true",
+		"fibe_playgrounds_transform for playground_id 10",
 		"prefer direct Brownfield changes on the live playground workspace for playground_id 10",
 		"Do not use rollout_all, do not update default/global Import Templates",
 		"[[LIKEABLE_USER_CONTEXT_START]]",
@@ -1583,12 +1683,59 @@ func TestCreateProjectRecordStoresAssignedFibePair(t *testing.T) {
 	if project.AgentID != want.AgentID || project.MarqueeID != want.MarqueeID {
 		t.Fatalf("project assignment=%s/%s, want %s/%s", project.AgentID, project.MarqueeID, want.AgentID, want.MarqueeID)
 	}
+	if project.PlaygroundName != projecttext.SourceNameForProject(project) {
+		t.Fatalf("playground name=%q, want deterministic project source name", project.PlaygroundName)
+	}
 	stored, err := store.ProjectForUser(t.Context(), user.ID, project.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if stored.AgentID != want.AgentID || stored.MarqueeID != want.MarqueeID {
 		t.Fatalf("stored assignment=%s/%s, want %s/%s", stored.AgentID, stored.MarqueeID, want.AgentID, want.MarqueeID)
+	}
+	if stored.PlaygroundName != project.PlaygroundName {
+		t.Fatalf("stored playground name=%q, want %q", stored.PlaygroundName, project.PlaygroundName)
+	}
+}
+
+func TestProvisionProjectLeaseSkipsDuplicateGreenfield(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	_, logPath, _ := fakeFibeCLI(t)
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	user, err := store.UpsertUser(t.Context(), "pilot@example.com", "Pilot", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{
+		ID:             "project-lease",
+		UserID:         user.ID,
+		Title:          "Lease",
+		ConversationID: "conv-lease",
+		AgentID:        "agent-1",
+		Status:         "creating",
+	}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+	acquired, err := store.TryAcquireProjectProvisioning(t.Context(), project.ID, user.ID, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !acquired {
+		t.Fatal("setup lease was not acquired")
+	}
+
+	if err := server.provisionProject(t.Context(), user.ID, user.Email, project, ""); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := os.ReadFile(logPath); err == nil && strings.Contains(string(data), "greenfield") {
+		t.Fatalf("duplicate provisioning issued Greenfield command: %s", string(data))
+	} else if err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
 	}
 }
 

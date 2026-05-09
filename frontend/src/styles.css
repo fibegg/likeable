@@ -730,8 +730,9 @@ html[data-builder-mode="split"] .account {
   box-shadow: none;
 }
 .chatPane.screenOpen {
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   grid-template-areas:
+    "powered"
     "chrome"
     "projects";
 }
@@ -1640,6 +1641,9 @@ html[data-builder-mode="split"] .account {
   background: rgba(6, 12, 15, .74);
   backdrop-filter: blur(18px);
 }
+.overlayChat .composer {
+  border-radius: 0 0 12px 12px;
+}
 .overlayChat .paneHeader {
   min-height: 36px;
   padding: 7px 9px;
@@ -2517,6 +2521,63 @@ html.resizingChat * {
     width: min(720px, calc(100vw - 22px));
     max-height: calc(100dvh - 24px);
   }
+  .overlayChat:not(.collapsed):not(.minimized) {
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    transform: none;
+    max-height: calc(100dvh - 50px - env(safe-area-inset-top));
+  }
+  .overlayChat:not(.collapsed):not(.minimized) .chatPane {
+    width: 100%;
+    border-radius: 12px 12px 0 0;
+    border-width: 1px 0 0 0;
+    backdrop-filter: none;
+    background: rgba(6, 12, 15, .92);
+  }
+  .overlayChat:not(.collapsed):not(.minimized) .composer {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .overlayChat:not(.collapsed):not(.minimized) .basicChatChrome {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    padding-top: calc(7px + env(safe-area-inset-top));
+    background: linear-gradient(180deg, rgba(5, 11, 14, .96), rgba(5, 11, 14, .78));
+    backdrop-filter: blur(18px);
+    border-bottom: 1px solid rgba(199, 137, 45, .22);
+  }
+  .overlayChat .composer {
+    padding: 0;
+    gap: 0;
+    border-top: 1px solid rgba(199, 137, 45, .28);
+    border-radius: 0;
+  }
+  .overlayChat .composer textarea {
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    background: transparent;
+  }
+  .overlayChat .composer textarea:focus {
+    box-shadow: inset 0 1px 0 rgba(245, 169, 57, .42);
+  }
+  .overlayChat .composer .sendButton,
+  .overlayChat .composer .attachButton {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+  }
+  .overlayChat .composer .sendButton:hover,
+  .overlayChat .composer .attachButton:hover {
+    background: rgba(213, 141, 45, .12);
+  }
+  .overlayChat .composer .sendButton.working {
+    background: rgba(174, 244, 255, .08);
+  }
   .canvasStatus { display: none; }
   .basicChatChrome { gap: 7px; padding: 7px 8px; }
   .basicChatChrome .linkStatus { display: inline-flex; }
@@ -2662,35 +2723,6 @@ html.resizingChat * {
     bottom: calc(12px + env(safe-area-inset-bottom));
     max-height: calc(100dvh - 20px);
   }
-  .overlayChat:not(.collapsed):not(.minimized) {
-    inset: 0;
-    left: 0;
-    right: 0;
-    top: 0;
-    bottom: 0;
-    width: 100%;
-    height: 100dvh;
-    max-height: none;
-    transform: none;
-  }
-  .overlayChat:not(.collapsed):not(.minimized) .chatPane {
-    width: 100%;
-    height: 100dvh;
-    max-height: none;
-    border-radius: 0;
-    border-width: 0;
-  }
-  .overlayChat:not(.collapsed):not(.minimized) .poweredBy {
-    padding-top: calc(3px + env(safe-area-inset-top));
-  }
-  .overlayChat:not(.collapsed):not(.minimized) .composer {
-    padding-bottom: calc(9px + env(safe-area-inset-bottom));
-  }
-  .overlayChat:not(.collapsed):not(.minimized) .chatResizeHandle {
-    display: none;
-  }
-  .projectTitleButton .projectTitleMain { display: none; }
-  .projectTitleButton { flex: 0 0 auto; gap: 0; }
   .overlayChat .chatPane { max-height: inherit; }
   .overlayChat .messages {
     max-height: none;
@@ -2703,6 +2735,9 @@ html.resizingChat * {
     gap: 7px;
   }
   .chatHeaderActions { gap: 4px; }
+  .basicChatChrome { gap: 6px; padding: 7px 6px; }
+  .basicChatChrome .topOpenLink,
+  .basicChatChrome .messageQuotaBadge { display: none; }
   .composer { grid-template-columns: 36px minmax(0, 1fr) 42px; padding: 8px; gap: 7px; }
   .attachButton { width: 36px; height: 46px; min-height: 0; }
   .sendButton,

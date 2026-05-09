@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ExternalLink, FolderOpen, GitBranch, Loader2, Send, Trash2, Wallet, X } from 'lucide-react';
+import { ExternalLink, FolderOpen, GitBranch, Loader2, LogOut, Send, Trash2, Wallet, X } from 'lucide-react';
 import { api } from './api';
 import { DeleteAllAccountDialog } from './builder_components';
 import type { Me, ProjectArchive, UserNotice } from './domain';
@@ -163,6 +163,16 @@ export function ProfilePanel({ me, onClose }: { me: Me; onClose: () => void }) {
           </div>
           <button className="primaryButton" disabled={busyPack != null} onClick={() => void checkoutProjectSlot()}>
             {busyPack === -1 ? <Loader2 size={16} className="spin" /> : <FolderOpen size={16} />} +1 slot
+          </button>
+        </div>
+        <div className="profileCard profileActionCard">
+          <div>
+            <span className="profileLabel">Session</span>
+            <strong>Signed in</strong>
+            <em>End your current session on this device.</em>
+          </div>
+          <button className="ghostButton" onClick={() => fetch('/api/auth/logout', { method: 'POST' }).then(() => location.reload())}>
+            <LogOut size={16} /> Sign out
           </button>
         </div>
         <div className="profileCard profileActionCard profileDangerCard">

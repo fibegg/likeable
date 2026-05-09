@@ -34,7 +34,10 @@ func (s *Server) ensureDefaultProject(ctx context.Context, user *User) {
 		log.Printf("create starter project: %v", err)
 		return
 	}
-	s.provisionProjectAsync(user.ID, user.Email, project.ID, "")
+	if err := s.provisionProjectAsync(user.ID, user.Email, project.ID, ""); err != nil {
+		log.Printf("schedule starter project provisioning: %v", err)
+		_ = s.store.DeleteProject(ctx, project.ID, user.ID)
+	}
 }
 
 func (s *Server) createProjectRecord(ctx context.Context, user *User, title string) (*Project, error) {
@@ -54,6 +57,7 @@ func (s *Server) createProjectRecord(ctx context.Context, user *User, title stri
 		ConversationID: "likeable-" + strings.ReplaceAll(projectID, "-", ""),
 		AgentID:        assignment.AgentID,
 		MarqueeID:      assignment.MarqueeID,
+		PlaygroundName: projecttext.SourceNameForProject(&Project{ID: projectID, Title: title}),
 		Status:         "creating",
 	}
 	if err := s.store.CreateProject(ctx, project); err != nil {
@@ -62,12 +66,13 @@ func (s *Server) createProjectRecord(ctx context.Context, user *User, title stri
 	return project, nil
 }
 
-func (s *Server) provisionProjectAsync(userID, userEmail, projectID, prompt string) {
+func (s *Server) provisionProjectAsync(userID, userEmail, projectID, prompt string) error {
 	if s.jobs != nil {
 		if err := s.enqueueProjectJob(context.Background(), taskProvisionProject, projectJobPayload{UserID: userID, UserEmail: userEmail, ProjectID: projectID, Prompt: prompt}, asynq.Queue("critical"), asynq.MaxRetry(6), asynq.Timeout(15*time.Minute), asynq.Unique(30*time.Second)); err != nil {
 			log.Printf("enqueue project provisioning %s: %v", projectID, err)
+			return err
 		}
-		return
+		return nil
 	}
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
@@ -79,25 +84,45 @@ func (s *Server) provisionProjectAsync(userID, userEmail, projectID, prompt stri
 		}
 		if err := s.provisionProject(ctx, userID, userEmail, project, prompt); err != nil {
 			log.Printf("provision project %s: %v", project.ID, err)
-			s.recordProjectProvisionFailure(ctx, userID, project, err)
+			s.recordProjectProvisionFailure(ctx, userID, project, err, true)
 		}
 	}()
+	return nil
 }
 
 func (s *Server) provisionProject(ctx context.Context, userID, userEmail string, project *Project, prompt string) error {
-	fibe, err := s.fibeClientForProject(ctx, project, userEmail)
+	acquired, err := s.store.TryAcquireProjectProvisioning(ctx, project.ID, userID, 15*time.Minute)
+	if err != nil {
+		return err
+	}
+	if !acquired {
+		return nil
+	}
+	defer func() {
+		if err := s.store.ClearProjectProvisioningLease(context.Background(), project.ID, userID); err != nil {
+			log.Printf("clear project provisioning lease %s: %v", project.ID, err)
+		}
+	}()
+	if current, err := s.store.ProjectForUser(ctx, userID, project.ID); err == nil {
+		project = current
+	} else if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if project.Status == "ready" && strings.TrimSpace(project.PlaygroundID) != "" {
+		return nil
+	}
+	ensureProjectPlaygroundName(project)
+	fibeClient, err := s.fibeClientForProject(ctx, project, userEmail)
 	if err != nil {
 		return err
 	}
 	if strings.TrimSpace(project.PlaygroundID) == "" {
-		if err := fibe.CreateConversation(ctx, project.ConversationID, project.Title); err != nil {
-			return err
-		}
-		result, err := fibe.CreateGreenfield(ctx, project)
+		result, err := fibeClient.CreateGreenfield(ctx, project)
 		if err != nil {
 			return err
 		}
 		project.PlaygroundID = result.PlaygroundID
+		project.PlaygroundName = firstNonEmpty(result.PlaygroundName, project.PlaygroundName, projecttext.SourceNameForProject(project))
 		project.RepoURL = result.RepoURL
 		project.PreviewURL = result.PreviewURL
 		project.PlayspecID = result.PlayspecID
@@ -106,13 +131,9 @@ func (s *Server) provisionProject(ctx context.Context, userID, userEmail string,
 		project.Repositories = projectRepositoriesFromGreenfield(project.ID, result)
 		project.Services = projectServicesFromGreenfield(project.ID, result)
 		project.Status = "launching"
-		if err := s.store.ReplaceProjectResources(ctx, project.ID, project.Repositories, project.Services); err != nil {
-			_ = fibe.DeleteProjectResources(ctx, project)
-			return err
-		}
-		if err := s.store.UpdateProjectProvisioning(ctx, project.ID, userID, project.PlaygroundID, project.PlayspecID, project.PropID, project.RepoURL, project.PreviewURL, project.SelectedService, project.Status); err != nil {
+		if err := s.store.SaveProjectProvisioningSnapshot(ctx, project, project.Status); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
-				_ = fibe.DeleteProjectResources(ctx, project)
+				_ = fibeClient.DeleteProjectResources(ctx, project)
 			}
 			return err
 		}
@@ -122,40 +143,62 @@ func (s *Server) provisionProject(ctx context.Context, userID, userEmail string,
 			return err
 		}
 	}
-	if err := fibe.WaitPlaygroundReady(ctx, project.PlaygroundID); err != nil {
+	if err := fibeClient.WaitPlaygroundReady(ctx, project.PlaygroundID); err != nil {
 		return err
 	}
-	if err := fibe.WaitPreviewReachable(ctx, project.PreviewURL); err != nil {
+	if project.PreviewURL == "" || len(project.Repositories) == 0 || len(project.Services) == 0 {
+		if recovered, err := fibeClient.GreenfieldByPlaygroundID(ctx, project.PlaygroundID); err == nil {
+			mergeProjectGreenfieldResult(project, recovered)
+			if err := s.store.SaveProjectProvisioningSnapshot(ctx, project, "launching"); err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					_ = fibeClient.DeleteProjectResources(ctx, project)
+				}
+				return err
+			}
+		}
+	}
+	if err := fibeClient.WaitPreviewReachable(ctx, project.PreviewURL); err != nil {
 		return err
 	}
 	project.Status = "ready"
-	if err := s.store.UpdateProjectProvisioning(ctx, project.ID, userID, project.PlaygroundID, project.PlayspecID, project.PropID, project.RepoURL, project.PreviewURL, project.SelectedService, project.Status); err != nil {
+	if err := s.store.SaveProjectProvisioningSnapshot(ctx, project, project.Status); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			_ = fibe.DeleteProjectResources(ctx, project)
+			_ = fibeClient.DeleteProjectResources(ctx, project)
 		}
 		return err
 	}
 	if strings.TrimSpace(prompt) != "" {
-		if err := fibe.SendMessage(ctx, project.ConversationID, projecttext.AgentPrompt(project, prompt), nil, "queue"); err != nil {
+		if err := fibeClient.EnsureConversation(ctx, project.ConversationID, project.Title); err != nil {
+			log.Printf("create initial conversation for project %s: %v", project.ID, err)
+			return nil
+		}
+		if err := fibeClient.SendMessage(ctx, project.ConversationID, projecttext.AgentPrompt(project, prompt), nil, "queue"); err != nil {
 			log.Printf("send initial prompt for project %s: %v", project.ID, err)
 		}
 	}
 	return nil
 }
 
-func (s *Server) recordProjectProvisionFailure(ctx context.Context, userID string, project *Project, err error) {
-	if retryProjectProvisionLater(project, err) {
-		_ = s.store.UpdateProjectStatus(ctx, project.ID, userID, "launching")
+func (s *Server) recordProjectProvisionFailure(ctx context.Context, userID string, project *Project, err error, retriesRemaining bool) {
+	if retriesRemaining && retryProjectProvisionLater(project, err) {
+		status := "creating"
+		if projectHasProvisionedResources(project) {
+			status = "launching"
+		}
+		_ = s.store.UpdateProjectStatus(ctx, project.ID, userID, status)
 		return
 	}
 	_ = s.store.UpdateProjectErrorFromError(ctx, project.ID, userID, err)
 }
 
 func retryProjectProvisionLater(project *Project, err error) bool {
-	if !projectHasFibeResources(project) {
+	if previewEmbeddingBlocked(err) {
 		return false
 	}
-	return !previewEmbeddingBlocked(err)
+	if projectHasProvisionedResources(project) {
+		return true
+	}
+	return fibe.IsRetryableProvisioningError(err)
 }
 
 func (s *Server) recoverProjectsAsync(userID, userEmail string, projects []Project) {
@@ -167,7 +210,9 @@ func (s *Server) recoverProjectsAsync(userID, userEmail string, projects []Proje
 func (s *Server) recoverProjectAsync(userID, userEmail string, project *Project) {
 	if projectNeedsProvisioningRecovery(project) {
 		log.Printf("recover project %s by retrying provisioning", project.ID)
-		s.provisionProjectAsync(userID, userEmail, project.ID, "")
+		if err := s.provisionProjectAsync(userID, userEmail, project.ID, ""); err != nil {
+			log.Printf("schedule project provisioning recovery %s: %v", project.ID, err)
+		}
 		return
 	}
 	if !projectNeedsReadinessRecovery(project) {
@@ -220,10 +265,7 @@ func (s *Server) recoverProjectReadiness(ctx context.Context, userID string, pro
 	if strings.TrimSpace(project.PreviewURL) == "" {
 		if recovered, err := fibe.GreenfieldByPlaygroundID(ctx, project.PlaygroundID); err == nil {
 			mergeProjectGreenfieldResult(project, recovered)
-			if err := s.store.ReplaceProjectResources(ctx, project.ID, project.Repositories, project.Services); err != nil {
-				return err
-			}
-			if err := s.store.UpdateProjectProvisioning(ctx, project.ID, userID, project.PlaygroundID, project.PlayspecID, project.PropID, project.RepoURL, project.PreviewURL, project.SelectedService, "launching"); err != nil {
+			if err := s.store.SaveProjectProvisioningSnapshot(ctx, project, "launching"); err != nil {
 				return err
 			}
 		}
@@ -288,16 +330,11 @@ func (s *Server) refreshProjectResources(ctx context.Context, user *User, projec
 		return project, nil
 	}
 	applyProjectGreenfieldSnapshot(project, result)
-	if len(project.Repositories) > 0 || len(project.Services) > 0 {
-		if err := s.store.ReplaceProjectResources(ctx, project.ID, project.Repositories, project.Services); err != nil {
-			return project, err
-		}
-	}
 	status := project.Status
 	if status == "" {
 		status = "ready"
 	}
-	if err := s.store.UpdateProjectProvisioning(ctx, project.ID, user.ID, project.PlaygroundID, project.PlayspecID, project.PropID, project.RepoURL, project.PreviewURL, project.SelectedService, status); err != nil {
+	if err := s.store.SaveProjectProvisioningSnapshot(ctx, project, status); err != nil {
 		return project, err
 	}
 	updated, err := s.store.ProjectForUser(ctx, user.ID, project.ID)
@@ -330,6 +367,16 @@ func projectNeedsProvisioningRecovery(project *Project) bool {
 	}
 }
 
+func ensureProjectPlaygroundName(project *Project) string {
+	if project == nil {
+		return ""
+	}
+	if strings.TrimSpace(project.PlaygroundName) == "" {
+		project.PlaygroundName = projecttext.SourceNameForProject(project)
+	}
+	return project.PlaygroundName
+}
+
 func (s *Server) promoteProjectFromReachablePreview(ctx context.Context, userID string, project *Project) (*Project, bool, string, error) {
 	if project == nil || strings.TrimSpace(project.PreviewURL) == "" {
 		return project, false, "starting", nil
@@ -342,7 +389,7 @@ func (s *Server) promoteProjectFromReachablePreview(ctx context.Context, userID 
 		return project, false, status, nil
 	}
 	if userID != "" && project.Status != "ready" {
-		if err := s.store.UpdateProjectProvisioning(ctx, project.ID, userID, project.PlaygroundID, project.PlayspecID, project.PropID, project.RepoURL, project.PreviewURL, project.SelectedService, "ready"); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		if err := s.store.SaveProjectProvisioningSnapshot(ctx, project, "ready"); err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return project, false, status, err
 		}
 	}
@@ -362,6 +409,12 @@ func mergeProjectGreenfieldResult(project *Project, result *fibe.GreenfieldResul
 	}
 	if strings.TrimSpace(project.PlaygroundID) == "" {
 		project.PlaygroundID = result.PlaygroundID
+	}
+	if strings.TrimSpace(project.PlaygroundName) == "" {
+		project.PlaygroundName = result.PlaygroundName
+	}
+	if strings.TrimSpace(project.PlaygroundName) == "" {
+		project.PlaygroundName = projecttext.SourceNameForProject(project)
 	}
 	if strings.TrimSpace(project.PlayspecID) == "" {
 		project.PlayspecID = result.PlayspecID
@@ -397,6 +450,10 @@ func applyProjectGreenfieldSnapshot(project *Project, result *fibe.GreenfieldRes
 	if strings.TrimSpace(result.PlaygroundID) != "" {
 		project.PlaygroundID = result.PlaygroundID
 	}
+	if strings.TrimSpace(result.PlaygroundName) != "" {
+		project.PlaygroundName = result.PlaygroundName
+	}
+	ensureProjectPlaygroundName(project)
 	if strings.TrimSpace(result.PlayspecID) != "" {
 		project.PlayspecID = result.PlayspecID
 	}

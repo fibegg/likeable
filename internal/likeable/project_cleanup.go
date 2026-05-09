@@ -5,11 +5,13 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
+	"strings"
+	"time"
+
 	"github.com/fibegg/likeable/internal/fibe"
 	projecttext "github.com/fibegg/likeable/internal/project"
 	"github.com/hibiken/asynq"
-	"log"
-	"time"
 )
 
 func (s *Server) deleteProjectResourcesAsync(userID, userEmail string, project *Project) {
@@ -27,11 +29,13 @@ func (s *Server) deleteProjectResourcesAsync(userID, userEmail string, project *
 		fibeClient, err := s.completeProjectResourceSnapshot(ctx, userEmail, &snapshot)
 		if err != nil {
 			log.Printf("delete project %s resources: %v", snapshot.ID, err)
+			_ = s.store.UpdateProjectCleanupError(ctx, snapshot.ID, userID, err.Error())
 			return
 		}
 		if projectHasFibeResources(&snapshot) {
 			if err := fibeClient.DeleteProjectResources(ctx, &snapshot); err != nil {
 				log.Printf("delete project %s resources: %v", snapshot.ID, err)
+				_ = s.store.UpdateProjectCleanupError(ctx, snapshot.ID, userID, err.Error())
 				return
 			}
 		} else {
@@ -48,7 +52,15 @@ func (s *Server) completeProjectResourceSnapshot(ctx context.Context, userEmail 
 	if err != nil {
 		return nil, err
 	}
-	if projectHasProvisionedResources(project) {
+	if strings.TrimSpace(project.PlaygroundName) == "" {
+		project.PlaygroundName = projecttext.SourceNameForProject(project)
+	}
+	if strings.TrimSpace(project.PlaygroundID) != "" {
+		recovered, err := fibeClient.GreenfieldByPlaygroundID(ctx, project.PlaygroundID)
+		if err != nil {
+			return fibeClient, err
+		}
+		mergeProjectGreenfieldResult(project, recovered)
 		return fibeClient, nil
 	}
 	recovered, err := fibeClient.FindGreenfieldBySubdomain(ctx, projecttext.PreviewSubdomain(project))

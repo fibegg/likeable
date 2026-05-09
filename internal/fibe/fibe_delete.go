@@ -195,8 +195,12 @@ func projectOwnedTemplateName(project *Project, templateName string) bool {
 	if project == nil {
 		return false
 	}
-	prefix := projecttext.SourceNamePrefix(project.Title)
 	templateName = strings.TrimSpace(templateName)
+	playgroundName := strings.TrimSpace(project.PlaygroundName)
+	if playgroundName != "" && (templateName == playgroundName || strings.HasPrefix(templateName, playgroundName+"-")) {
+		return true
+	}
+	prefix := projecttext.SourceNamePrefix(project.Title)
 	return prefix != "" && strings.HasPrefix(templateName, prefix+"-")
 }
 

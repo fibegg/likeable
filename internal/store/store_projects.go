@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -15,9 +16,9 @@ func (s *Store) CreateProject(ctx context.Context, project *Project) error {
 	project.CreatedAt = now
 	project.UpdatedAt = now
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO projects(id, user_id, title, conversation_id, agent_id, marquee_id, playground_id, playspec_id, prop_id, repo_url, preview_url, selected_service_name, status, error_message, created_at, updated_at)
-		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, project.ID, project.UserID, project.Title, project.ConversationID, project.AgentID, project.MarqueeID, project.PlaygroundID, project.PlayspecID, project.PropID, project.RepoURL, project.PreviewURL, project.SelectedService, project.Status, project.ErrorMessage, project.CreatedAt, project.UpdatedAt)
+		INSERT INTO projects(id, user_id, title, conversation_id, agent_id, marquee_id, playground_id, playground_name, playspec_id, prop_id, repo_url, preview_url, selected_service_name, status, error_message, provisioning_lock_until, cleanup_last_error, created_at, updated_at)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, project.ID, project.UserID, project.Title, project.ConversationID, project.AgentID, project.MarqueeID, project.PlaygroundID, project.PlaygroundName, project.PlayspecID, project.PropID, project.RepoURL, project.PreviewURL, project.SelectedService, project.Status, project.ErrorMessage, project.ProvisioningLockUntil, project.CleanupLastError, project.CreatedAt, project.UpdatedAt)
 	return err
 }
 
@@ -41,6 +42,42 @@ func (s *Store) UpdateProjectProvisioning(ctx context.Context, projectID, userID
 		return sql.ErrNoRows
 	}
 	return nil
+}
+
+func (s *Store) TryAcquireProjectProvisioning(ctx context.Context, projectID, userID string, ttl time.Duration) (bool, error) {
+	if ttl <= 0 {
+		ttl = 15 * time.Minute
+	}
+	now := nowString()
+	lockUntil := time.Now().UTC().Add(ttl).Format(time.RFC3339Nano)
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE projects
+		SET provisioning_lock_until = ?, updated_at = ?
+		WHERE id = ? AND user_id = ? AND status != 'deleting' AND (provisioning_lock_until = '' OR provisioning_lock_until <= ?)
+	`, lockUntil, now, projectID, userID, now)
+	if err != nil {
+		return false, err
+	}
+	rows, _ := result.RowsAffected()
+	return rows > 0, nil
+}
+
+func (s *Store) ClearProjectProvisioningLease(ctx context.Context, projectID, userID string) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE projects
+		SET provisioning_lock_until = '', updated_at = ?
+		WHERE id = ? AND user_id = ?
+	`, nowString(), projectID, userID)
+	return err
+}
+
+func (s *Store) UpdateProjectCleanupError(ctx context.Context, projectID, userID, message string) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE projects
+		SET cleanup_last_error = ?, updated_at = ?
+		WHERE id = ? AND user_id = ?
+	`, message, nowString(), projectID, userID)
+	return err
 }
 
 func (s *Store) UpdateProjectError(ctx context.Context, projectID, userID, message string) error {
@@ -175,9 +212,40 @@ func (s *Store) DeleteProject(ctx context.Context, projectID, userID string) err
 	return nil
 }
 
+func (s *Store) SaveProjectProvisioningSnapshot(ctx context.Context, project *Project, status string) error {
+	if project == nil {
+		return errors.New("project is required")
+	}
+	if status == "" {
+		status = project.Status
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	result, err := tx.ExecContext(ctx, `
+		UPDATE projects
+		SET playground_id = ?, playground_name = ?, playspec_id = ?, prop_id = ?, repo_url = ?, preview_url = ?, selected_service_name = ?, status = ?, error_message = '', cleanup_last_error = '', updated_at = ?
+		WHERE id = ? AND user_id = ? AND status != 'deleting'
+	`, project.PlaygroundID, project.PlaygroundName, project.PlayspecID, project.PropID, project.RepoURL, project.PreviewURL, project.SelectedService, status, nowString(), project.ID, project.UserID)
+	if err != nil {
+		return err
+	}
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	if err := replaceProjectResourcesTx(ctx, tx, project.ID, project.Repositories, project.Services); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func (s *Store) ProjectForUser(ctx context.Context, userID, projectID string) (*Project, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, user_id, title, conversation_id, agent_id, marquee_id, playground_id, playspec_id, prop_id, repo_url, preview_url, selected_service_name, status, error_message, created_at, updated_at
+		SELECT id, user_id, title, conversation_id, agent_id, marquee_id, playground_id, playground_name, playspec_id, prop_id, repo_url, preview_url, selected_service_name, status, error_message, provisioning_lock_until, cleanup_last_error, created_at, updated_at
 		FROM projects
 		WHERE id = ? AND user_id = ?
 	`, projectID, userID)
@@ -190,7 +258,7 @@ func (s *Store) ProjectForUser(ctx context.Context, userID, projectID string) (*
 
 func (s *Store) AllProjectsForUser(ctx context.Context, userID string) ([]Project, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, user_id, title, conversation_id, agent_id, marquee_id, playground_id, playspec_id, prop_id, repo_url, preview_url, selected_service_name, status, error_message, created_at, updated_at
+		SELECT id, user_id, title, conversation_id, agent_id, marquee_id, playground_id, playground_name, playspec_id, prop_id, repo_url, preview_url, selected_service_name, status, error_message, provisioning_lock_until, cleanup_last_error, created_at, updated_at
 		FROM projects
 		WHERE user_id = ?
 		ORDER BY updated_at DESC
@@ -225,7 +293,7 @@ func (s *Store) AllProjectsForUser(ctx context.Context, userID string) ([]Projec
 
 func (s *Store) ProjectsForUser(ctx context.Context, userID string) ([]Project, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, user_id, title, conversation_id, agent_id, marquee_id, playground_id, playspec_id, prop_id, repo_url, preview_url, selected_service_name, status, error_message, created_at, updated_at
+		SELECT id, user_id, title, conversation_id, agent_id, marquee_id, playground_id, playground_name, playspec_id, prop_id, repo_url, preview_url, selected_service_name, status, error_message, provisioning_lock_until, cleanup_last_error, created_at, updated_at
 		FROM projects
 		WHERE user_id = ? AND status != 'deleting'
 		ORDER BY updated_at DESC
@@ -263,7 +331,7 @@ func (s *Store) DeletingProjects(ctx context.Context, limit int) ([]Project, err
 		limit = 100
 	}
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, user_id, title, conversation_id, agent_id, marquee_id, playground_id, playspec_id, prop_id, repo_url, preview_url, selected_service_name, status, error_message, created_at, updated_at
+		SELECT id, user_id, title, conversation_id, agent_id, marquee_id, playground_id, playground_name, playspec_id, prop_id, repo_url, preview_url, selected_service_name, status, error_message, provisioning_lock_until, cleanup_last_error, created_at, updated_at
 		FROM projects
 		WHERE status = 'deleting'
 		ORDER BY updated_at ASC
@@ -299,7 +367,7 @@ func (s *Store) DeletingProjects(ctx context.Context, limit int) ([]Project, err
 
 func scanProject(scanner interface{ Scan(...any) error }) (*Project, error) {
 	var project Project
-	if err := scanner.Scan(&project.ID, &project.UserID, &project.Title, &project.ConversationID, &project.AgentID, &project.MarqueeID, &project.PlaygroundID, &project.PlayspecID, &project.PropID, &project.RepoURL, &project.PreviewURL, &project.SelectedService, &project.Status, &project.ErrorMessage, &project.CreatedAt, &project.UpdatedAt); err != nil {
+	if err := scanner.Scan(&project.ID, &project.UserID, &project.Title, &project.ConversationID, &project.AgentID, &project.MarqueeID, &project.PlaygroundID, &project.PlaygroundName, &project.PlayspecID, &project.PropID, &project.RepoURL, &project.PreviewURL, &project.SelectedService, &project.Status, &project.ErrorMessage, &project.ProvisioningLockUntil, &project.CleanupLastError, &project.CreatedAt, &project.UpdatedAt); err != nil {
 		return nil, err
 	}
 	return &project, nil
@@ -311,6 +379,13 @@ func (s *Store) ReplaceProjectResources(ctx context.Context, projectID string, r
 		return err
 	}
 	defer tx.Rollback()
+	if err := replaceProjectResourcesTx(ctx, tx, projectID, repositories, services); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func replaceProjectResourcesTx(ctx context.Context, tx *sql.Tx, projectID string, repositories []ProjectRepository, services []ProjectService) error {
 	if _, err := tx.ExecContext(ctx, `DELETE FROM project_repositories WHERE project_id = ?`, projectID); err != nil {
 		return err
 	}
@@ -354,7 +429,7 @@ func (s *Store) ReplaceProjectResources(ctx context.Context, projectID string, r
 			return err
 		}
 	}
-	return tx.Commit()
+	return nil
 }
 
 func (s *Store) attachProjectResources(ctx context.Context, project *Project) error {
@@ -471,8 +546,8 @@ func (s *Store) ProjectsExceedingQuota(ctx context.Context, userID string, limit
 	}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT projects.id, projects.user_id, projects.title, projects.conversation_id, projects.agent_id, projects.marquee_id,
-			projects.playground_id, projects.playspec_id, projects.prop_id, projects.repo_url, projects.preview_url,
-			projects.selected_service_name, projects.status, projects.error_message, projects.created_at, projects.updated_at,
+			projects.playground_id, projects.playground_name, projects.playspec_id, projects.prop_id, projects.repo_url, projects.preview_url,
+			projects.selected_service_name, projects.status, projects.error_message, projects.provisioning_lock_until, projects.cleanup_last_error, projects.created_at, projects.updated_at,
 			COALESCE(MAX(messages.created_at), projects.updated_at) AS last_activity_at
 		FROM projects
 		LEFT JOIN messages ON messages.project_id = projects.id AND messages.role = 'user'
@@ -487,7 +562,7 @@ func (s *Store) ProjectsExceedingQuota(ctx context.Context, userID string, limit
 	for rows.Next() {
 		var project Project
 		var lastActivity string
-		if err := rows.Scan(&project.ID, &project.UserID, &project.Title, &project.ConversationID, &project.AgentID, &project.MarqueeID, &project.PlaygroundID, &project.PlayspecID, &project.PropID, &project.RepoURL, &project.PreviewURL, &project.SelectedService, &project.Status, &project.ErrorMessage, &project.CreatedAt, &project.UpdatedAt, &lastActivity); err != nil {
+		if err := rows.Scan(&project.ID, &project.UserID, &project.Title, &project.ConversationID, &project.AgentID, &project.MarqueeID, &project.PlaygroundID, &project.PlaygroundName, &project.PlayspecID, &project.PropID, &project.RepoURL, &project.PreviewURL, &project.SelectedService, &project.Status, &project.ErrorMessage, &project.ProvisioningLockUntil, &project.CleanupLastError, &project.CreatedAt, &project.UpdatedAt, &lastActivity); err != nil {
 			_ = rows.Close()
 			return nil, err
 		}

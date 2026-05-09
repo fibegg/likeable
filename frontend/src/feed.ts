@@ -91,14 +91,17 @@ function notificationFeedRows(feed: Feed): NotificationFeedRow[] {
   if (feed.live?.streamText) {
     const liveTurnKey = latestTurnKey || 'live';
     const liveTime = liveNotificationTime(feed.live.startedAt, latestUserTime);
-    for (const [segmentIndex, segment] of parseLikeableNotificationSegments(feed.live.streamText).entries()) {
+    const liveSegments = parseLikeableNotificationSegments(feed.live.streamText);
+    const lastLiveIndex = liveSegments.length - 1;
+    for (const [segmentIndex, segment] of liveSegments.entries()) {
       if (!segment.streaming && durableNotificationCovers(rows, segment.body, liveTime)) continue;
+      const isLast = segmentIndex === lastLiveIndex;
       rows.push({
         kind: 'notification',
         id: `${liveTurnKey}-notification-${segmentIndex}`,
         body: segment.body,
         time: liveTime,
-        active: Boolean(feed.live.isProcessing || segment.streaming),
+        active: isLast && Boolean(feed.live.isProcessing || segment.streaming),
         fallback: segment.fallback
       });
     }

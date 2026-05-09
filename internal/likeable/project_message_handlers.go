@@ -85,6 +85,12 @@ func (s *Server) handleProjectMessages(w http.ResponseWriter, r *http.Request, u
 		writeError(w, http.StatusServiceUnavailable, "workspace messaging is not configured")
 		return
 	}
+	if err := fibe.EnsureConversation(r.Context(), project.ConversationID, project.Title); err != nil {
+		log.Printf("create workspace conversation for project %s: %v", project.ID, err)
+		status, message := workspaceSendFailureResponse(nil, err)
+		writeError(w, status, message)
+		return
+	}
 	messageID := uuid.NewString()
 	localAttachments, cleanupLocalAttachments, err := saveLocalMessageAttachments(s.store.DataDir(), project.ID, messageID, attachmentHeaders)
 	if err != nil {

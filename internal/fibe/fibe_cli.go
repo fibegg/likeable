@@ -55,6 +55,59 @@ func (e *PlatformError) PublicProjectErrorKind() string {
 	}
 }
 
+func IsRetryableProvisioningError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+
+	var platform *PlatformError
+	if !errors.As(err, &platform) {
+		return false
+	}
+	code := strings.ToUpper(strings.TrimSpace(platform.Code))
+	message := strings.ToLower(strings.TrimSpace(platform.Message + "\n" + platform.Stderr))
+	switch code {
+	case platformCodeCLINotConfigured, platformCodeCLINotFound:
+		return false
+	case "UNAUTHORIZED", "FORBIDDEN", "VALIDATION_FAILED", "BAD_REQUEST", "INVALID_ARGUMENT", "NOT_FOUND":
+		return false
+	case "INTERNAL_ERROR", "SERVICE_UNAVAILABLE", "TIMEOUT", "RATE_LIMITED", "TOO_MANY_REQUESTS":
+		return true
+	}
+	if platform.Status == 408 || platform.Status == 425 || platform.Status == 429 || platform.Status >= 500 {
+		return true
+	}
+	if platform.Status == 409 {
+		return containsAny(message, "locked", "busy", "in progress", "try again")
+	}
+	if platform.Status == 422 && containsAny(message, "internal_error", "internal error", "unexpected status", "temporarily", "unavailable") {
+		return true
+	}
+	return containsAny(message,
+		"connection refused",
+		"connection reset",
+		"deadline exceeded",
+		"temporary",
+		"temporarily",
+		"timeout",
+		"timed out",
+		"unexpected eof",
+		"unavailable",
+	)
+}
+
+func IsIdempotentConversationCreateError(err error) bool {
+	var platform *PlatformError
+	if !errors.As(err, &platform) {
+		return false
+	}
+	message := strings.ToLower(strings.TrimSpace(platform.Message + "\n" + platform.Stderr))
+	return (platform.Status == 409 || platform.Status == 422) && containsAny(message, "already exists", "conversation exists", "duplicate")
+}
+
 func (c *Client) runCLI(ctx context.Context, args []string, input any, out any) error {
 	if strings.TrimSpace(c.cliPath) == "" {
 		return &PlatformError{
@@ -134,4 +187,13 @@ func sanitizeCLIError(stderr string, err error) string {
 		message = err.Error()
 	}
 	return strings.TrimSpace(strings.ReplaceAll(message, "\x00", ""))
+}
+
+func containsAny(value string, needles ...string) bool {
+	for _, needle := range needles {
+		if strings.Contains(value, needle) {
+			return true
+		}
+	}
+	return false
 }

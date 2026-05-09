@@ -43,6 +43,22 @@ func SourceName(title string) string {
 	return SourceNamePrefix(title) + "-" + uuidTail()
 }
 
+func SourceNameForProject(project *domain.Project) string {
+	title := ""
+	seed := ""
+	if project != nil {
+		title = project.Title
+		seed = strings.TrimSpace(project.ID)
+		if seed == "" {
+			seed = strings.TrimSpace(project.ConversationID)
+		}
+	}
+	if seed == "" {
+		return SourceName(title)
+	}
+	return SourceNamePrefix(title) + "-" + dnsSafeHexSuffix(seed)
+}
+
 func SourceNamePrefix(title string) string {
 	var b strings.Builder
 	for _, r := range strings.ToLower(title) {
@@ -92,6 +108,7 @@ Likeable project context:
 - Likeable project_id: %s
 - Fibe conversation_id: %s
 - target Fibe playground_id: %s
+- target Fibe playground_name: %s
 - target private source repo: %s
 - target preview_url: %s
 - target app subdomain: %s
@@ -101,9 +118,9 @@ Likeable project context:
 - project repositories:
 %s
 
-For app/environment changes, target only this project playground. If the user asks for environment shape changes, resolve the current playspec/source from playground_id %s, then use fibe_templates_develop with target_type="playground", mode="apply", post_apply="rollout_target", and wait=true. Target playground_id %s only. Do not use rollout_all, do not update default/global Import Templates, and do not mutate other playgrounds unless an admin/global template workflow explicitly asks for it.
+For app/environment changes, target only this project playground. If the user asks for environment shape changes, use fibe_playgrounds_transform for playground_id %s and wait for the target rollout. Target playground_id %s only. Do not use rollout_all, do not update default/global Import Templates, and do not mutate other playgrounds unless an admin/global template workflow explicitly asks for it.
 
-If the user asks to replace the stack or move away from the current template family, use fibe_playgrounds_retemplate or the equivalent generic Fibe playground retemplate workflow for playground_id %s. Keep the same playground, provision missing private source Props through the platform when needed, expose every user-facing service with clear names, and do not hardcode Likeable-specific behavior into the application.
+If the user asks to replace the stack or move away from the current template family, use fibe_playgrounds_transform for playground_id %s. Keep the same playground, provision missing private source Props through the platform when needed, expose every user-facing service with clear names, and do not hardcode Likeable-specific behavior into the application.
 
 For normal source edits, prefer direct Brownfield changes on the live playground workspace for playground_id %s. Use Fibe MCP/local playground tools to resolve the mounted source paths, edit only that mounted project, and let the current playground reload. Do not create, relink, fork, or replace the project source unless the trusted Likeable project context explicitly requires an environment-shape workflow.
 [[LIKEABLE_SYSTEM_CONTEXT_END]]
@@ -115,6 +132,7 @@ User request:
 		project.ID,
 		project.ConversationID,
 		project.PlaygroundID,
+		project.PlaygroundName,
 		project.RepoURL,
 		project.PreviewURL,
 		PreviewSubdomain(project),

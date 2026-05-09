@@ -41,7 +41,7 @@ func (s *Server) handleProfileDeleteAll(w http.ResponseWriter, r *http.Request) 
 		if !projectHasFibeResources(project) {
 			continue
 		}
-		fibe, err := s.fibeClientForProject(cleanupCtx, project, user.Email)
+		fibe, err := s.completeProjectResourceSnapshot(cleanupCtx, user.Email, project)
 		if err != nil {
 			log.Printf("delete all configure workspace cleanup for project %s: %v", project.ID, err)
 			writeError(w, http.StatusBadGateway, "could not configure workspace cleanup")
@@ -109,7 +109,8 @@ func projectHasFibeResources(project *Project) bool {
 		strings.TrimSpace(project.PlayspecID) != "" ||
 		strings.TrimSpace(project.PropID) != "" ||
 		strings.TrimSpace(project.RepoURL) != "" ||
-		strings.TrimSpace(project.ConversationID) != ""
+		strings.TrimSpace(project.ConversationID) != "" ||
+		len(project.Repositories) > 0
 }
 
 func (s *Server) deleteLocalProjectAttachmentDirs(projects []Project) error {

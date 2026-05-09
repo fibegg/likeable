@@ -14,6 +14,7 @@ import (
 
 type GreenfieldResult struct {
 	PlaygroundID        string
+	PlaygroundName      string
 	PlayspecID          string
 	PropID              string
 	RepoURL             string
@@ -49,8 +50,16 @@ func (c *Client) CreateConversation(ctx context.Context, conversationID, title s
 	return c.runCLI(ctx, args, nil, &out)
 }
 
+func (c *Client) EnsureConversation(ctx context.Context, conversationID, title string) error {
+	err := c.CreateConversation(ctx, conversationID, title)
+	if err == nil || IsIdempotentConversationCreateError(err) {
+		return nil
+	}
+	return err
+}
+
 func (c *Client) CreateGreenfield(ctx context.Context, project *Project) (*GreenfieldResult, error) {
-	name := projecttext.SourceName(project.Title)
+	name := firstNonEmpty(project.PlaygroundName, projecttext.SourceNameForProject(project))
 	args := []string{"greenfield", "--name", name, "--git-provider", "gitea", "--private", "--wait-timeout", "10m"}
 	if c.marqueeID != "" {
 		args = append(args, "--marquee-id", c.marqueeID)
@@ -66,6 +75,9 @@ func (c *Client) CreateGreenfield(ctx context.Context, project *Project) (*Green
 	}
 	var status map[string]any
 	if err := c.runCLI(ctx, args, nil, &status); err != nil {
+		if recovered, recoverErr := c.GreenfieldByPlaygroundName(ctx, name); recoverErr == nil && recovered.PlaygroundID != "" {
+			return recovered, nil
+		}
 		if recovered, recoverErr := c.FindGreenfieldBySubdomain(ctx, projecttext.PreviewSubdomain(project)); recoverErr == nil && recovered.PlaygroundID != "" {
 			return recovered, nil
 		}
@@ -75,10 +87,16 @@ func (c *Client) CreateGreenfield(ctx context.Context, project *Project) (*Green
 	if result.PlaygroundID == "" {
 		return nil, errors.New("workspace creation did not return an id")
 	}
+	if result.PlaygroundName == "" {
+		result.PlaygroundName = name
+	}
 	if result.PreviewURL == "" || len(result.Repositories) == 0 {
 		if recovered, err := c.GreenfieldByPlaygroundID(ctx, result.PlaygroundID); err == nil {
 			fillMissingGreenfieldFields(result, recovered)
 		}
+	}
+	if result.PlaygroundName == "" {
+		result.PlaygroundName = name
 	}
 	result.selectPrimary()
 	return result, nil
@@ -119,6 +137,28 @@ func (c *Client) FindGreenfieldBySubdomain(ctx context.Context, subdomain string
 	return nil, fmt.Errorf("workspace with subdomain %q was not found", subdomain)
 }
 
+func (c *Client) GreenfieldByPlaygroundName(ctx context.Context, playgroundName string) (*GreenfieldResult, error) {
+	playgroundName = strings.TrimSpace(playgroundName)
+	if playgroundName == "" {
+		return nil, errors.New("workspace name is not available")
+	}
+	var playground map[string]any
+	if err := c.runCLI(ctx, []string{"playgrounds", "get", playgroundName}, nil, &playground); err != nil {
+		return nil, err
+	}
+	result := greenfieldResultFromPlayground(playground)
+	if result.PlaygroundID == "" {
+		return nil, fmt.Errorf("workspace %q did not return an id", playgroundName)
+	}
+	if result.PlaygroundName == "" {
+		result.PlaygroundName = playgroundName
+	}
+	if recovered, err := c.GreenfieldByPlaygroundID(ctx, result.PlaygroundID); err == nil {
+		fillMissingGreenfieldFields(result, recovered)
+	}
+	return result, nil
+}
+
 func (c *Client) GreenfieldByPlaygroundID(ctx context.Context, playgroundID string) (*GreenfieldResult, error) {
 	playgroundID = strings.TrimSpace(playgroundID)
 	if playgroundID == "" {
@@ -156,11 +196,20 @@ func (c *Client) listPlaygrounds(ctx context.Context, page, perPage int) ([]map[
 	return items, hasMore, nil
 }
 
+func greenfieldResultFromPlayground(playground map[string]any) *GreenfieldResult {
+	return &GreenfieldResult{
+		PlaygroundID:   numberString(firstAny(playground["id"], playground["ID"])),
+		PlaygroundName: firstNonEmpty(fmt.Sprint(firstAny(playground["name"], playground["Name"]))),
+		PlayspecID:     numberString(firstAny(playground["playspec_id"], playground["playspecID"], playground["PlayspecID"])),
+	}
+}
+
 func greenfieldResultFromDebug(debug map[string]any) *GreenfieldResult {
 	result := &GreenfieldResult{}
 	diagnostics := anyMap(firstAny(debug["diagnostics"], debug["Diagnostics"]))
 	playground := anyMap(firstAny(diagnostics["playground"], debug["playground"]))
 	result.PlaygroundID = numberString(playground["id"])
+	result.PlaygroundName = firstNonEmpty(fmt.Sprint(playground["name"]), fmt.Sprint(diagnostics["name"]), fmt.Sprint(debug["name"]))
 	result.PlayspecID = numberString(firstAny(playground["playspec_id"], playground["playspecID"]))
 
 	for _, route := range objectSlice(firstAny(diagnostics["routes"], debug["routes"])) {
@@ -214,6 +263,9 @@ func fillMissingGreenfieldFields(result, recovered *GreenfieldResult) {
 	if result.PlaygroundID == "" {
 		result.PlaygroundID = recovered.PlaygroundID
 	}
+	if result.PlaygroundName == "" {
+		result.PlaygroundName = recovered.PlaygroundName
+	}
 	if result.PlayspecID == "" {
 		result.PlayspecID = recovered.PlayspecID
 	}
@@ -238,6 +290,10 @@ func parseGreenfieldStatus(status map[string]any) *GreenfieldResult {
 	result := &GreenfieldResult{}
 	if pg, ok := status["playground"].(map[string]any); ok {
 		result.PlaygroundID = firstNonEmpty(fmt.Sprint(pg["id"]))
+		result.PlaygroundName = firstNonEmpty(fmt.Sprint(pg["name"]))
+	}
+	if result.PlaygroundName == "" {
+		result.PlaygroundName = firstNonEmpty(fmt.Sprint(status["name"]))
 	}
 	if playspec, ok := status["playspec"].(map[string]any); ok {
 		result.PlayspecID = firstNonEmpty(fmt.Sprint(playspec["id"]))

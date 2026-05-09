@@ -15,6 +15,8 @@ import (
 	"github.com/hibiken/asynq"
 )
 
+const projectProvisionRetryDelay = 2 * time.Minute
+
 const (
 	taskProvisionProject       = "likeable:project:provision"
 	taskRecoverProject         = "likeable:project:recover"
@@ -219,10 +221,38 @@ func (s *Server) handleProvisionProjectTask(ctx context.Context, task *asynq.Tas
 		return err
 	}
 	if err := s.provisionProject(ctx, payload.UserID, payload.UserEmail, project, payload.Prompt); err != nil {
-		s.recordProjectProvisionFailure(ctx, payload.UserID, project, err)
+		retriesRemaining := taskRetriesRemaining(ctx)
+		if !retriesRemaining && retryProjectProvisionLater(project, err) {
+			retriesRemaining = s.enqueueDeferredProjectProvisionRetry(context.Background(), payload, projectProvisionRetryDelay)
+		}
+		s.recordProjectProvisionFailure(ctx, payload.UserID, project, err, retriesRemaining)
 		return err
 	}
 	return nil
+}
+
+func (s *Server) enqueueDeferredProjectProvisionRetry(ctx context.Context, payload projectJobPayload, delay time.Duration) bool {
+	if s.jobs == nil {
+		return false
+	}
+	if delay <= 0 {
+		delay = projectProvisionRetryDelay
+	}
+	err := s.enqueueProjectJob(ctx, taskProvisionProject, payload, asynq.Queue("critical"), asynq.MaxRetry(6), asynq.Timeout(15*time.Minute), asynq.ProcessIn(delay))
+	if err != nil {
+		log.Printf("enqueue deferred project provisioning retry %s: %v", payload.ProjectID, err)
+		return false
+	}
+	return true
+}
+
+func taskRetriesRemaining(ctx context.Context) bool {
+	retried, retriedOK := asynq.GetRetryCount(ctx)
+	maxRetry, maxRetryOK := asynq.GetMaxRetry(ctx)
+	if !retriedOK || !maxRetryOK {
+		return true
+	}
+	return retried < maxRetry
 }
 
 func (s *Server) handleRecoverProjectTask(ctx context.Context, task *asynq.Task) error {
@@ -256,16 +286,19 @@ func (s *Server) handleDeleteProjectResourcesTask(ctx context.Context, task *asy
 	log.Printf("delete project %s resources: started", project.ID)
 	fibeClient, err := s.completeProjectResourceSnapshot(ctx, payload.UserEmail, project)
 	if err != nil {
+		_ = s.store.UpdateProjectCleanupError(ctx, project.ID, payload.UserID, err.Error())
 		return err
 	}
 	if projectHasFibeResources(project) {
 		if err := fibeClient.DeleteProjectResources(ctx, project); err != nil {
+			_ = s.store.UpdateProjectCleanupError(ctx, project.ID, payload.UserID, err.Error())
 			return err
 		}
 	} else {
 		log.Printf("delete project %s resources: no remote resources found", project.ID)
 	}
 	if err := s.deleteProjectLocally(ctx, project, payload.UserID); err != nil {
+		_ = s.store.UpdateProjectCleanupError(ctx, project.ID, payload.UserID, err.Error())
 		return err
 	}
 	log.Printf("delete project %s resources: completed", project.ID)

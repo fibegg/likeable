@@ -16,24 +16,27 @@ type User struct {
 }
 
 type Project struct {
-	ID              string              `json:"id"`
-	UserID          string              `json:"-"`
-	Title           string              `json:"title"`
-	ConversationID  string              `json:"-"`
-	AgentID         string              `json:"-"`
-	MarqueeID       string              `json:"-"`
-	PlaygroundID    string              `json:"-"`
-	PlayspecID      string              `json:"-"`
-	PropID          string              `json:"-"`
-	RepoURL         string              `json:"-"`
-	PreviewURL      string              `json:"previewUrl,omitempty"`
-	SelectedService string              `json:"selectedServiceName,omitempty"`
-	Repositories    []ProjectRepository `json:"repositories,omitempty"`
-	Services        []ProjectService    `json:"services,omitempty"`
-	Status          string              `json:"status"`
-	ErrorMessage    string              `json:"errorMessage,omitempty"`
-	CreatedAt       string              `json:"createdAt"`
-	UpdatedAt       string              `json:"updatedAt"`
+	ID                    string              `json:"id"`
+	UserID                string              `json:"-"`
+	Title                 string              `json:"title"`
+	ConversationID        string              `json:"-"`
+	AgentID               string              `json:"-"`
+	MarqueeID             string              `json:"-"`
+	PlaygroundID          string              `json:"-"`
+	PlaygroundName        string              `json:"-"`
+	PlayspecID            string              `json:"-"`
+	PropID                string              `json:"-"`
+	RepoURL               string              `json:"-"`
+	PreviewURL            string              `json:"previewUrl,omitempty"`
+	SelectedService       string              `json:"selectedServiceName,omitempty"`
+	Repositories          []ProjectRepository `json:"repositories,omitempty"`
+	Services              []ProjectService    `json:"services,omitempty"`
+	Status                string              `json:"status"`
+	ErrorMessage          string              `json:"errorMessage,omitempty"`
+	ProvisioningLockUntil string              `json:"-"`
+	CleanupLastError      string              `json:"-"`
+	CreatedAt             string              `json:"createdAt"`
+	UpdatedAt             string              `json:"updatedAt"`
 }
 
 type ProjectRepository struct {

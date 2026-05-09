@@ -586,6 +586,12 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
         <span className="projectTitleMain">{activeProject?.title ?? (signedIn ? 'New project' : 'Sign in to build')}</span>
         <span className="projectTitleCount"><FolderOpen size={15} /><span>{signedIn ? projectCapLabel : '-'}</span></span>
       </button>
+      {!me.user && (
+        <div className="account chatAccount">
+          <a className={!googleReady ? 'disabled' : ''} href="/api/auth/google/start">Sign in</a>
+          {me.auth?.devAuth && <button onClick={() => fetch('/api/dev/login?email=admin@example.com', { method: 'POST' }).then(() => location.reload())}>Dev</button>}
+        </div>
+      )}
       <nav className="chatNav">
         {activeProject?.services && activeProject.services.length > 1 && (
           <div className="chromePill serviceSelector" aria-label="Preview service">
@@ -630,19 +636,6 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
           {viewMode === 'overlay' && <button className="chromeIconButton tooltip tooltipBottom" onClick={() => setBasicChatCollapsed(true)} aria-label="Collapse chat" data-tip="Collapse chat"><Minimize2 size={16} /></button>}
         </div>
       </nav>
-      <div className="account chatAccount">
-        {me.user ? (
-          <>
-            <span>{me.user.email}</span>
-            <button className="tooltip tooltipBottom" onClick={() => fetch('/api/auth/logout', { method: 'POST' }).then(() => location.reload())} aria-label="Sign out" data-tip="Sign out"><LogOut size={16} /></button>
-          </>
-        ) : (
-          <>
-            <a className={!googleReady ? 'disabled' : ''} href="/api/auth/google/start">Sign in</a>
-            {me.auth?.devAuth && <button onClick={() => fetch('/api/dev/login?email=admin@example.com', { method: 'POST' }).then(() => location.reload())}>Dev</button>}
-          </>
-        )}
-      </div>
     </div>
   );
 
