@@ -2,6 +2,7 @@ package fibe
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -148,6 +149,63 @@ func TestParseGreenfieldStatusPrefersAppPreviewURL(t *testing.T) {
 	}
 }
 
+func TestCreateGreenfieldRecoversHeadlessLinkFailureBySubdomain(t *testing.T) {
+	dir := t.TempDir()
+	cliPath := filepath.Join(dir, "fibe")
+	logPath := filepath.Join(dir, "commands.log")
+	script := `#!/bin/sh
+printf '%s\n' "$*" >> "` + logPath + `"
+case "$*" in
+  *"greenfield"*)
+    printf '%s\n' 'waiting for playground 32 to reach running...' >&2
+    printf '%s\n' 'status: running' >&2
+    printf '%s\n' '{"error":{"code":"LOCAL_PLAYGROUNDS_DIR_MISSING","message":"directory /opt/fibe/playgrounds does not exist","status":404}}' >&2
+    exit 1
+    ;;
+  *"playgrounds list"*)
+    echo '{"Data":[{"id":32,"name":"hope-ugsj58bp","status":"running","playspec_id":42}],"Meta":{"total_pages":1}}'
+    ;;
+  *"playgrounds debug 32"*)
+    echo '{"diagnostics":{"playground":{"id":32,"playspec_id":42,"status":"running"},"routes":[{"service":"frontend","playground_subdomain":"lk-1111111122223333","traefik_host":"lk-1111111122223333.troll-wish-copper.fibe.work"}]}}'
+    ;;
+  *"playspecs get 42"*)
+    echo '{"id":42,"services":[{"name":"frontend","type":"dynamic","prop_id":23,"repo_url":"https://git.example.test/owner/hope"}]}'
+    ;;
+  *)
+    echo "unexpected command: $*" >&2
+    exit 64
+    ;;
+esac
+`
+	if err := os.WriteFile(cliPath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	client := &Client{
+		apiKey:    "test",
+		agentID:   "agent",
+		marqueeID: "21",
+		cliPath:   cliPath,
+		cliDomain: testFibeCLIDomain(),
+		http:      http.DefaultClient,
+	}
+	result, err := client.CreateGreenfield(t.Context(), &Project{
+		ID:    "11111111-2222-3333-4444-555555555555",
+		Title: "Hope",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.PlaygroundID != "32" || result.PlayspecID != "42" || result.PropID != "23" {
+		t.Fatalf("result ids=%+v, want playground=32 playspec=42 prop=23", result)
+	}
+	if result.PreviewURL != "https://lk-1111111122223333.troll-wish-copper.fibe.work" {
+		t.Fatalf("PreviewURL=%q", result.PreviewURL)
+	}
+	if result.RepoURL != "https://git.example.test/owner/hope" {
+		t.Fatalf("RepoURL=%q", result.RepoURL)
+	}
+}
+
 func TestFrameBlockingHeaderDetectsIframeBlockers(t *testing.T) {
 	headers := http.Header{}
 	headers.Set("X-Frame-Options", "SAMEORIGIN")
@@ -271,7 +329,7 @@ func TestDeleteProjectResourcesTreatsMissingRemoteResourcesAsDeleted(t *testing.
 printf '%s\n' "$*" >> "` + logPath + `"
 case "$*" in
   *"playgrounds delete"*|*"agents delete-conversation"*)
-    echo "404 Not Found" >&2
+    echo '{"error":{"message":"Resource not found","code":"RESOURCE_NOT_FOUND","status":404}}' >&2
     exit 1
     ;;
   *)
@@ -317,6 +375,67 @@ func TestDeleteProjectResourcesDoesNotRetryPermanentCommandFailures(t *testing.T
 	}
 	if elapsed := time.Since(start); elapsed > time.Second {
 		t.Fatalf("permanent command failure took %s; want no long retry", elapsed)
+	}
+}
+
+func TestResourceDeleteRetryableUsesStructuredPlatformError(t *testing.T) {
+	tests := []struct {
+		name      string
+		err       error
+		deleted   bool
+		retryable bool
+	}{
+		{
+			name:    "not found is deleted",
+			err:     &PlatformError{Code: "RESOURCE_NOT_FOUND", Status: http.StatusNotFound, Message: "missing"},
+			deleted: true,
+		},
+		{
+			name:      "locked status retries",
+			err:       &PlatformError{Code: "LOCKED", Status: http.StatusLocked, Message: "locked"},
+			retryable: true,
+		},
+		{
+			name:      "busy detail retries",
+			err:       &PlatformError{Code: "VALIDATION_FAILED", Status: http.StatusUnprocessableEntity, Message: "busy", Details: map[string]any{"current_status": "destroying"}},
+			retryable: true,
+		},
+		{
+			name: "unauthorized does not retry",
+			err:  &PlatformError{Code: "UNAUTHORIZED", Status: http.StatusUnauthorized, Message: "unauthorized"},
+		},
+		{
+			name: "malformed cli stderr does not retry",
+			err:  parsePlatformError("404 Not Found", errors.New("exit status 1")),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := resourceAlreadyDeleted(tt.err); got != tt.deleted {
+				t.Fatalf("resourceAlreadyDeleted()=%t want %t", got, tt.deleted)
+			}
+			if got := resourceDeleteRetryable(tt.err); got != tt.retryable {
+				t.Fatalf("resourceDeleteRetryable()=%t want %t", got, tt.retryable)
+			}
+		})
+	}
+}
+
+func TestProbePreviewURLReturnsEmbeddingBlockedError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	ready, _, err := ProbePreviewURL(t.Context(), server.Client(), server.URL)
+	if ready {
+		t.Fatal("preview should not be ready when embedding is blocked")
+	}
+	var blocked *PreviewEmbeddingBlockedError
+	if !errors.As(err, &blocked) {
+		t.Fatalf("expected PreviewEmbeddingBlockedError, got %T: %v", err, err)
 	}
 }
 

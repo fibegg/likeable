@@ -10,6 +10,18 @@ import (
 	"time"
 )
 
+const (
+	resourceDeleteMaxAttempts       = 18
+	resourceDeleteRetryDelay        = 10 * time.Second
+	platformCodeResourceNotFound    = "RESOURCE_NOT_FOUND"
+	platformCodeGone                = "GONE"
+	platformCodeConflict            = "CONFLICT"
+	platformCodeLocked              = "LOCKED"
+	platformCodeRateLimited         = "RATE_LIMITED"
+	platformCodeResourceBusy        = "RESOURCE_BUSY"
+	platformCodeRemoteRequestFailed = "REMOTE_REQUEST_FAILED"
+)
+
 func (c *Client) GiteaToken(ctx context.Context) (map[string]string, error) {
 	var raw map[string]any
 	if err := c.runCLI(ctx, []string{"agents", "gitea-token", c.agentID}, nil, &raw); err != nil {
@@ -54,7 +66,7 @@ func (c *Client) DeleteProjectResources(ctx context.Context, project *Project) e
 
 func (c *Client) deleteFibeResourceWithRetry(ctx context.Context, resource, id string) error {
 	var lastErr error
-	for attempt := 0; attempt < 18; attempt++ {
+	for attempt := 0; attempt < resourceDeleteMaxAttempts; attempt++ {
 		if err := c.deleteFibeResource(ctx, resource, id); err != nil {
 			lastErr = err
 			if !resourceDeleteRetryable(err) {
@@ -66,7 +78,7 @@ func (c *Client) deleteFibeResourceWithRetry(ctx context.Context, resource, id s
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(10 * time.Second):
+		case <-time.After(resourceDeleteRetryDelay):
 		}
 	}
 	return lastErr
@@ -81,56 +93,46 @@ func (c *Client) deleteFibeResource(ctx context.Context, resource, id string) er
 }
 
 func resourceAlreadyDeleted(err error) bool {
-	if err == nil {
-		return false
-	}
-	message := strings.ToLower(err.Error())
-	return strings.Contains(message, "not found") || strings.Contains(message, "404") || strings.Contains(message, "gone")
+	platformErr := platformError(err)
+	return platformErr != nil && (platformErr.Status == http.StatusNotFound || platformErr.Status == http.StatusGone || platformErr.Code == platformCodeResourceNotFound || platformErr.Code == platformCodeGone)
 }
 
 func resourceDeleteRetryable(err error) bool {
 	if err == nil || resourceAlreadyDeleted(err) {
 		return false
 	}
-	message := strings.ToLower(err.Error())
-	permanentTokens := []string{
-		"executable file not found",
-		"forbidden",
-		"invalid",
-		"no such file or directory",
-		"no such host",
-		"not configured",
-		"unauthorized",
+	platformErr := platformError(err)
+	return platformErr != nil && platformDeleteRetryable(platformErr)
+}
+
+func platformError(err error) *PlatformError {
+	var platformErr *PlatformError
+	if errors.As(err, &platformErr) {
+		return platformErr
 	}
-	for _, token := range permanentTokens {
-		if strings.Contains(message, token) {
-			return false
+	return nil
+}
+
+func platformDeleteRetryable(err *PlatformError) bool {
+	switch err.Status {
+	case http.StatusConflict, http.StatusLocked, http.StatusTooEarly, http.StatusTooManyRequests, http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return true
+	}
+	switch err.Code {
+	case platformCodeConflict, platformCodeLocked, platformCodeRateLimited, platformCodeResourceBusy, platformCodeRemoteRequestFailed:
+		return true
+	}
+	return structuredResourceStateBusy(err.Details)
+}
+
+func structuredResourceStateBusy(details map[string]any) bool {
+	for _, key := range []string{"status", "state", "current_status"} {
+		value, ok := details[key].(string)
+		if !ok {
+			continue
 		}
-	}
-	retryableTokens := []string{
-		"409",
-		"423",
-		"425",
-		"429",
-		"500",
-		"502",
-		"503",
-		"504",
-		"conflict",
-		"deleting",
-		"depend",
-		"destroying",
-		"in progress",
-		"in use",
-		"in_progress",
-		"locked",
-		"must be in_progress",
-		"pending",
-		"referenced",
-		"still in use",
-	}
-	for _, token := range retryableTokens {
-		if strings.Contains(message, token) {
+		switch strings.ToLower(strings.TrimSpace(value)) {
+		case "deleting", "destroying", "in_progress", "in progress", "locked", "pending":
 			return true
 		}
 	}

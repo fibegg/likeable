@@ -253,21 +253,22 @@ func (s *Server) handleDeleteProjectResourcesTask(ctx context.Context, task *asy
 		}
 		return err
 	}
+	log.Printf("delete project %s resources: started", project.ID)
+	fibeClient, err := s.completeProjectResourceSnapshot(ctx, payload.UserEmail, project)
+	if err != nil {
+		return err
+	}
 	if projectHasFibeResources(project) {
-		fibe, err := s.fibeClientForProject(ctx, project, payload.UserEmail)
-		if err != nil {
+		if err := fibeClient.DeleteProjectResources(ctx, project); err != nil {
 			return err
 		}
-		if err := fibe.DeleteProjectResources(ctx, project); err != nil {
-			return err
-		}
+	} else {
+		log.Printf("delete project %s resources: no remote resources found", project.ID)
 	}
-	if err := s.deleteLocalProjectAttachmentDirs([]Project{*project}); err != nil {
+	if err := s.deleteProjectLocally(ctx, project, payload.UserID); err != nil {
 		return err
 	}
-	if err := s.store.DeleteProject(ctx, project.ID, payload.UserID); err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return err
-	}
+	log.Printf("delete project %s resources: completed", project.ID)
 	return nil
 }
 

@@ -2,6 +2,11 @@ package likeable
 
 import (
 	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"github.com/fibegg/likeable/internal/fibe"
+	projecttext "github.com/fibegg/likeable/internal/project"
 	"github.com/hibiken/asynq"
 	"log"
 	"time"
@@ -19,19 +24,51 @@ func (s *Server) deleteProjectResourcesAsync(userID, userEmail string, project *
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
-		if snapshot.PlaygroundID != "" || snapshot.PlayspecID != "" || snapshot.PropID != "" || snapshot.RepoURL != "" || snapshot.ConversationID != "" {
-			fibe, err := s.fibeClientForProject(ctx, &snapshot, userEmail)
-			if err != nil {
+		fibeClient, err := s.completeProjectResourceSnapshot(ctx, userEmail, &snapshot)
+		if err != nil {
+			log.Printf("delete project %s resources: %v", snapshot.ID, err)
+			return
+		}
+		if projectHasFibeResources(&snapshot) {
+			if err := fibeClient.DeleteProjectResources(ctx, &snapshot); err != nil {
 				log.Printf("delete project %s resources: %v", snapshot.ID, err)
 				return
 			}
-			if err := fibe.DeleteProjectResources(ctx, &snapshot); err != nil {
-				log.Printf("delete project %s resources: %v", snapshot.ID, err)
-				return
-			}
+		} else {
+			log.Printf("delete project %s resources: no remote resources found", snapshot.ID)
 		}
 		if err := s.store.DeleteProject(ctx, snapshot.ID, userID); err != nil {
 			log.Printf("delete local project %s: %v", snapshot.ID, err)
 		}
 	}()
+}
+
+func (s *Server) completeProjectResourceSnapshot(ctx context.Context, userEmail string, project *Project) (*fibe.Client, error) {
+	fibeClient, err := s.fibeClientForProject(ctx, project, userEmail)
+	if err != nil {
+		return nil, err
+	}
+	if projectHasProvisionedResources(project) {
+		return fibeClient, nil
+	}
+	recovered, err := fibeClient.FindGreenfieldBySubdomain(ctx, projecttext.PreviewSubdomain(project))
+	if err != nil {
+		return fibeClient, nil
+	}
+	mergeProjectGreenfieldResult(project, recovered)
+	return fibeClient, nil
+}
+
+func (s *Server) deleteProjectLocally(ctx context.Context, project *Project, userID string) error {
+	if err := s.deleteLocalProjectAttachmentDirs([]Project{*project}); err != nil {
+		return err
+	}
+	if err := s.store.DeleteProject(ctx, project.ID, userID); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("delete local project: %w", err)
+	}
+	return nil
+}
+
+func projectHasProvisionedResources(project *Project) bool {
+	return project != nil && (project.PlaygroundID != "" || project.PlayspecID != "" || project.PropID != "" || project.RepoURL != "" || project.PreviewURL != "")
 }

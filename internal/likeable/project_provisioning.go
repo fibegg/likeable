@@ -139,7 +139,7 @@ func (s *Server) recordProjectProvisionFailure(ctx context.Context, userID strin
 		_ = s.store.UpdateProjectStatus(ctx, project.ID, userID, "launching")
 		return
 	}
-	_ = s.store.UpdateProjectError(ctx, project.ID, userID, err.Error())
+	_ = s.store.UpdateProjectErrorFromError(ctx, project.ID, userID, err)
 }
 
 func retryProjectProvisionLater(project *Project, err error) bool {
@@ -156,6 +156,11 @@ func (s *Server) recoverProjectsAsync(userID, userEmail string, projects []Proje
 }
 
 func (s *Server) recoverProjectAsync(userID, userEmail string, project *Project) {
+	if projectNeedsProvisioningRecovery(project) {
+		log.Printf("recover project %s by retrying provisioning", project.ID)
+		s.provisionProjectAsync(userID, userEmail, project.ID, "")
+		return
+	}
 	if !projectNeedsReadinessRecovery(project) {
 		return
 	}
@@ -203,6 +208,14 @@ func (s *Server) recoverProjectReadiness(ctx context.Context, userID string, pro
 		}
 		return fmt.Errorf("workspace is still starting: %s", status)
 	}
+	if strings.TrimSpace(project.PreviewURL) == "" {
+		if recovered, err := fibe.GreenfieldByPlaygroundID(ctx, project.PlaygroundID); err == nil {
+			mergeProjectGreenfieldResult(project, recovered)
+			if err := s.store.UpdateProjectProvisioning(ctx, project.ID, userID, project.PlaygroundID, project.PlayspecID, project.PropID, project.RepoURL, project.PreviewURL, "launching"); err != nil {
+				return err
+			}
+		}
+	}
 	if _, previewReady, previewStatus, err := s.promoteProjectFromReachablePreview(ctx, userID, project); err != nil {
 		return err
 	} else if !previewReady {
@@ -238,7 +251,19 @@ func projectNeedsReadinessRecovery(project *Project) bool {
 	case "ready", "deleting":
 		return false
 	}
-	return strings.TrimSpace(project.PlaygroundID) != "" && strings.TrimSpace(project.PreviewURL) != ""
+	return strings.TrimSpace(project.PlaygroundID) != ""
+}
+
+func projectNeedsProvisioningRecovery(project *Project) bool {
+	if project == nil {
+		return false
+	}
+	switch project.Status {
+	case "creating", "launching":
+		return strings.TrimSpace(project.PlaygroundID) == ""
+	default:
+		return false
+	}
 }
 
 func (s *Server) promoteProjectFromReachablePreview(ctx context.Context, userID string, project *Project) (*Project, bool, string, error) {
@@ -263,5 +288,27 @@ func (s *Server) promoteProjectFromReachablePreview(ctx context.Context, userID 
 }
 
 func previewEmbeddingBlocked(err error) bool {
-	return err != nil && strings.Contains(err.Error(), "blocks iframe embedding")
+	var blocked *fibe.PreviewEmbeddingBlockedError
+	return errors.As(err, &blocked)
+}
+
+func mergeProjectGreenfieldResult(project *Project, result *fibe.GreenfieldResult) {
+	if project == nil || result == nil {
+		return
+	}
+	if strings.TrimSpace(project.PlaygroundID) == "" {
+		project.PlaygroundID = result.PlaygroundID
+	}
+	if strings.TrimSpace(project.PlayspecID) == "" {
+		project.PlayspecID = result.PlayspecID
+	}
+	if strings.TrimSpace(project.PropID) == "" {
+		project.PropID = result.PropID
+	}
+	if strings.TrimSpace(project.RepoURL) == "" {
+		project.RepoURL = result.RepoURL
+	}
+	if strings.TrimSpace(project.PreviewURL) == "" {
+		project.PreviewURL = result.PreviewURL
+	}
 }

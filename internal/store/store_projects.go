@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"strings"
 )
 
@@ -40,11 +41,19 @@ func (s *Store) UpdateProjectProvisioning(ctx context.Context, projectID, userID
 }
 
 func (s *Store) UpdateProjectError(ctx context.Context, projectID, userID, message string) error {
+	return s.updateProjectError(ctx, projectID, userID, publicProjectErrorMessage(message))
+}
+
+func (s *Store) UpdateProjectErrorFromError(ctx context.Context, projectID, userID string, err error) error {
+	return s.updateProjectError(ctx, projectID, userID, publicProjectErrorMessageFromError(err))
+}
+
+func (s *Store) updateProjectError(ctx context.Context, projectID, userID, message string) error {
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE projects
 		SET status = 'error', error_message = ?, updated_at = ?
 		WHERE id = ? AND user_id = ? AND status != 'deleting'
-	`, publicProjectErrorMessage(message), nowString(), projectID, userID)
+	`, message, nowString(), projectID, userID)
 	if err != nil {
 		return err
 	}
@@ -53,6 +62,26 @@ func (s *Store) UpdateProjectError(ctx context.Context, projectID, userID, messa
 		return sql.ErrNoRows
 	}
 	return nil
+}
+
+type projectPublicErrorKind interface {
+	PublicProjectErrorKind() string
+}
+
+func publicProjectErrorMessageFromError(err error) string {
+	if err == nil {
+		return publicProjectErrorMessage("")
+	}
+	var classified projectPublicErrorKind
+	if errors.As(err, &classified) {
+		switch classified.PublicProjectErrorKind() {
+		case "configuration":
+			return "Workspace settings are incomplete. Ask an admin to review the configuration, then create a new project."
+		case "timeout":
+			return "The canvas took too long to start. Try creating a new project."
+		}
+	}
+	return publicProjectErrorMessage(err.Error())
 }
 
 func publicProjectErrorMessage(message string) string {

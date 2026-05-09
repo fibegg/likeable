@@ -14,6 +14,26 @@ type playgroundStatus struct {
 	Status string `json:"status"`
 }
 
+type PreviewEmbeddingBlockedError struct {
+	Header string
+}
+
+func (e *PreviewEmbeddingBlockedError) Error() string {
+	return fmt.Sprintf("preview URL is reachable but blocks iframe embedding with %s", e.Header)
+}
+
+type PreviewTimeoutError struct {
+	Status string
+}
+
+func (e *PreviewTimeoutError) Error() string {
+	return fmt.Sprintf("preview URL did not become reachable: %s", e.Status)
+}
+
+func (e *PreviewTimeoutError) PublicProjectErrorKind() string {
+	return "timeout"
+}
+
 func (c *Client) WaitPlaygroundReady(ctx context.Context, playgroundID string) error {
 	playgroundID = strings.TrimSpace(playgroundID)
 	if playgroundID == "" {
@@ -57,7 +77,7 @@ func (c *Client) WaitPreviewReachable(ctx context.Context, previewURL string) er
 		case <-time.After(3 * time.Second):
 		}
 	}
-	return fmt.Errorf("preview URL did not become reachable: %s", lastStatus)
+	return &PreviewTimeoutError{Status: lastStatus}
 }
 
 func (c *Client) PreviewReachable(ctx context.Context, previewURL string) (bool, string, error) {
@@ -88,7 +108,7 @@ func ProbePreviewURL(ctx context.Context, client *http.Client, previewURL string
 		return false, resp.Status, nil
 	}
 	if header := frameBlockingHeader(resp.Header); header != "" {
-		return false, resp.Status, fmt.Errorf("preview URL is reachable but blocks iframe embedding with %s", header)
+		return false, resp.Status, &PreviewEmbeddingBlockedError{Header: header}
 	}
 	return true, resp.Status, nil
 }
