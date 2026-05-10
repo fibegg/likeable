@@ -2736,7 +2736,6 @@ html.resizingChat * {
   }
   .chatHeaderActions { gap: 4px; }
   .basicChatChrome { gap: 6px; padding: 7px 6px; }
-  .basicChatChrome .topOpenLink,
   .basicChatChrome .messageQuotaBadge { display: none; }
   .composer { grid-template-columns: 36px minmax(0, 1fr) 42px; padding: 8px; gap: 7px; }
   .attachButton { width: 36px; height: 46px; min-height: 0; }
