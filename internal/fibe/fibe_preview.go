@@ -34,6 +34,13 @@ func (e *PreviewTimeoutError) PublicProjectErrorKind() string {
 	return "timeout"
 }
 
+type PreviewProbeResult struct {
+	Ready       bool
+	Displayable bool
+	Maintenance bool
+	Status      string
+}
+
 func (c *Client) WaitPlaygroundReady(ctx context.Context, playgroundID string) error {
 	playgroundID = strings.TrimSpace(playgroundID)
 	if playgroundID == "" {
@@ -85,32 +92,46 @@ func (c *Client) PreviewReachable(ctx context.Context, previewURL string) (bool,
 }
 
 func ProbePreviewURL(ctx context.Context, client *http.Client, previewURL string) (bool, string, error) {
+	result, err := ProbePreviewURLResult(ctx, client, previewURL)
+	return result.Ready, result.Status, err
+}
+
+func ProbePreviewURLResult(ctx context.Context, client *http.Client, previewURL string) (PreviewProbeResult, error) {
 	previewURL = strings.TrimSpace(previewURL)
 	if previewURL == "" {
-		return false, "", errors.New("workspace creation did not return a preview URL")
+		return PreviewProbeResult{}, errors.New("workspace creation did not return a preview URL")
 	}
 	if client == nil {
 		client = http.DefaultClient
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, previewURL, nil)
 	if err != nil {
-		return false, "", err
+		return PreviewProbeResult{}, err
 	}
 	req.Header.Set("Cache-Control", "no-cache")
 	req.Header.Set("User-Agent", "likeable-preview-probe/1.0")
 	resp, err := client.Do(req)
 	if err != nil {
-		return false, err.Error(), nil
+		return PreviewProbeResult{Status: err.Error()}, nil
 	}
 	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4<<10))
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	_, _ = io.Copy(io.Discard, resp.Body)
+	result := PreviewProbeResult{Status: resp.Status}
+	if previewMaintenancePage(resp.StatusCode, resp.Header, body) {
+		result.Displayable = true
+		result.Maintenance = true
+		return result, nil
+	}
 	if !previewStatusReady(resp.StatusCode) {
-		return false, resp.Status, nil
+		return result, nil
 	}
 	if header := frameBlockingHeader(resp.Header); header != "" {
-		return false, resp.Status, &PreviewEmbeddingBlockedError{Header: header}
+		return result, &PreviewEmbeddingBlockedError{Header: header}
 	}
-	return true, resp.Status, nil
+	result.Ready = true
+	result.Displayable = true
+	return result, nil
 }
 
 func previewStatusReady(status int) bool {
@@ -135,4 +156,15 @@ func frameBlockingHeader(headers http.Header) string {
 		}
 	}
 	return ""
+}
+
+func previewMaintenancePage(status int, headers http.Header, body []byte) bool {
+	if status != http.StatusServiceUnavailable {
+		return false
+	}
+	if strings.EqualFold(strings.TrimSpace(headers.Get("X-Fibe-Maintenance")), "true") {
+		return true
+	}
+	html := strings.ToLower(string(body))
+	return strings.Contains(html, "<title>maintenance</title>") && strings.Contains(html, "maintenance is ongoing")
 }

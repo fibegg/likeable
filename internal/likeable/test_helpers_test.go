@@ -59,7 +59,7 @@ esac
 	return path, logPath, stdinPath
 }
 
-func fakeRetemplatedFibeCLI(t *testing.T) (string, string) {
+func fakeTransformedFibeCLI(t *testing.T) (string, string) {
 	t.Helper()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "fibe")
@@ -70,13 +70,13 @@ case "$*" in
     echo '{"diagnostics":{"playground":{"id":321,"playspec_id":654,"status":"running"},"routes":[{"service":"frontend","type":"dynamic","visibility":"external","url":"http://frontend.example.test"},{"service":"api","type":"dynamic","visibility":"external","url":"http://api.example.test"}]}}'
     ;;
   *"playspecs get 654"*)
-    echo '{"id":654,"source_template":{"id":900,"name":"project-retemplate"},"source_template_version_id":901,"services":[{"name":"frontend","prop_id":81,"propID":81,"repo_url":"http://gitea.test/owner/frontend.git","repository_url":"http://gitea.test/owner/frontend.git","source_repo_url":"https://github.com/fibegg/custom-frontend"},{"name":"api","prop_id":82,"propID":82,"repo_url":"http://gitea.test/owner/api.git","repository_url":"http://gitea.test/owner/api.git","source_repo_url":"https://github.com/fibegg/custom-api"}]}'
+    echo '{"id":654,"source_template":{"id":900,"name":"project-transform"},"source_template_version_id":901,"services":[{"name":"frontend","prop_id":81,"propID":81,"repo_url":"http://gitea.test/owner/frontend.git","repository_url":"http://gitea.test/owner/frontend.git","source_repo_url":"https://github.com/fibegg/custom-frontend"},{"name":"api","prop_id":82,"propID":82,"repo_url":"http://gitea.test/owner/api.git","repository_url":"http://gitea.test/owner/api.git","source_repo_url":"https://github.com/fibegg/custom-api"}]}'
     ;;
   *"agents messages"*|*"agents activity"*)
     echo '{"content":[]}'
     ;;
   *"agents live-state"*)
-    echo '{"conversationId":"conv-retpl","isProcessing":false,"streamText":"","queuedTurns":0}'
+    echo '{"conversationId":"conv-trns","isProcessing":false,"streamText":"","queuedTurns":0}'
     ;;
   *"agents send-message"*)
     cat > "` + stdinPath + `"

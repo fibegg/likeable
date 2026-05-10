@@ -653,6 +653,49 @@ func TestProbePreviewURLReturnsEmbeddingBlockedError(t *testing.T) {
 	}
 }
 
+func TestProbePreviewURLResultRecognizesMaintenancePage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte("<!doctype html><title>Maintenance</title><h1>maintenance is ongoing</h1>"))
+	}))
+	defer server.Close()
+
+	result, err := ProbePreviewURLResult(t.Context(), server.Client(), server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Ready {
+		t.Fatal("maintenance should not mark the runtime preview ready")
+	}
+	if !result.Displayable || !result.Maintenance {
+		t.Fatalf("result=%+v, want displayable maintenance page", result)
+	}
+
+	ready, _, err := ProbePreviewURL(t.Context(), server.Client(), server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ready {
+		t.Fatal("legacy preview readiness should remain false for maintenance")
+	}
+}
+
+func TestProbePreviewURLResultKeepsPlain503NotDisplayable(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "upstream unavailable", http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+
+	result, err := ProbePreviewURLResult(t.Context(), server.Client(), server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Ready || result.Displayable || result.Maintenance {
+		t.Fatalf("result=%+v, want ordinary 503 to stay behind placeholder", result)
+	}
+}
+
 func fakeFibeCLI(t *testing.T) (string, string, string) {
 	t.Helper()
 	dir := t.TempDir()

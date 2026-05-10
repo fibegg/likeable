@@ -251,7 +251,7 @@ func (s *Server) recoverProjectAsync(userID, userEmail string, project *Project)
 }
 
 func (s *Server) recoverProjectReadiness(ctx context.Context, userID string, project *Project, fibe *fibe.Client) error {
-	if _, ready, _, err := s.promoteProjectFromReachablePreview(ctx, userID, project); ready || previewEmbeddingBlocked(err) {
+	if _, ready, _, maintenance, err := s.promoteProjectFromReachablePreview(ctx, userID, project); ready || maintenance || previewEmbeddingBlocked(err) {
 		return err
 	}
 	ready, status, err := fibe.PlaygroundReady(ctx, project.PlaygroundID)
@@ -273,9 +273,9 @@ func (s *Server) recoverProjectReadiness(ctx context.Context, userID string, pro
 			}
 		}
 	}
-	if _, previewReady, previewStatus, err := s.promoteProjectFromReachablePreview(ctx, userID, project); err != nil {
+	if _, previewReady, previewStatus, maintenance, err := s.promoteProjectFromReachablePreview(ctx, userID, project); err != nil {
 		return err
-	} else if !previewReady {
+	} else if !previewReady && !maintenance {
 		_ = s.store.UpdateProjectStatus(ctx, project.ID, userID, "launching")
 		return fmt.Errorf("preview is still starting: %s", previewStatus)
 	}
@@ -380,25 +380,28 @@ func ensureProjectPlaygroundName(project *Project) string {
 	return project.PlaygroundName
 }
 
-func (s *Server) promoteProjectFromReachablePreview(ctx context.Context, userID string, project *Project) (*Project, bool, string, error) {
+func (s *Server) promoteProjectFromReachablePreview(ctx context.Context, userID string, project *Project) (*Project, bool, string, bool, error) {
 	if project == nil || strings.TrimSpace(project.PreviewURL) == "" {
-		return project, false, "starting", nil
+		return project, false, "starting", false, nil
 	}
-	ready, status, err := fibe.ProbePreviewURL(ctx, s.http, project.PreviewURL)
+	result, err := fibe.ProbePreviewURLResult(ctx, s.http, project.PreviewURL)
 	if err != nil {
-		return project, false, status, err
+		return project, false, result.Status, result.Maintenance, err
 	}
-	if !ready {
-		return project, false, status, nil
+	if result.Maintenance {
+		return project, false, result.Status, true, nil
+	}
+	if !result.Ready {
+		return project, false, result.Status, false, nil
 	}
 	if userID != "" && project.Status != "ready" {
 		if err := s.store.SaveProjectProvisioningSnapshot(ctx, project, "ready"); err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return project, false, status, err
+			return project, false, result.Status, false, err
 		}
 	}
 	project.Status = "ready"
 	project.ErrorMessage = ""
-	return project, true, status, nil
+	return project, true, result.Status, false, nil
 }
 
 func previewEmbeddingBlocked(err error) bool {

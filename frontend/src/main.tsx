@@ -7,7 +7,7 @@ import { api } from './api';
 import { AgentNotificationRow, AppDialog, CanvasLoader, ConfirmDeleteProject, ConfirmNewProject, DeleteAllAccountDialog, EmptyCanvas, ProjectList, UserMessageRow } from './builder_components';
 import { BASIC_CHAT_COLLAPSED_KEY, BASIC_CHAT_HEIGHT_KEY, BUILDER_MODE_KEY, MAX_ATTACHMENTS, SINGLE_VIEW_QUERY } from './config';
 import type { AppDialogConfig, BuilderMode, BusyPolicy, Feed, FeedRow, Message, MessageQuota, Me, PendingAttachment, PreviewStatus, Project, ProjectListResponse, ProjectService, UserNotice } from './domain';
-import { feedAwaitingAgent, feedRows } from './feed';
+import { feedAwaitingAgent, feedHasAssistantAfterLatestUser, feedLiveIdle, feedRows } from './feed';
 import { formatResetCountdown, projectLaunchErrorMessage } from './format';
 import { installPwa } from './pwa';
 import { ProfilePanel } from './profile_panel';
@@ -15,6 +15,8 @@ import { clampBasicChatHeight, defaultBasicChatHeight, singleViewScreen } from '
 
 installPwa();
 
+const LOCAL_AGENT_RUN_MAX_MS = 30 * 60_000;
+const LOCAL_AGENT_IDLE_GRACE_MS = 10_000;
 
 function App() {
   const [me, setMe] = useState<Me | null>(null);
@@ -128,6 +130,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const [prompt, setPrompt] = useState('');
   const [busy, setBusy] = useState(false);
   const [messageSubmitting, setMessageSubmitting] = useState(false);
+  const [pendingAgentRuns, setPendingAgentRuns] = useState<Record<string, number>>({});
   const [projectCap, setProjectCap] = useState<number | null>(null);
   const [showProjects, setShowProjects] = useState(false);
   const [showProfile, setShowProfile] = useState(profileRoute && signedIn);
@@ -161,7 +164,15 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const activePreviewURL = selectedService?.url ?? activeProject?.previewUrl ?? '';
   const rawRows = useMemo(() => feedRows(feed), [feed]);
   const rows = useMemo(() => normalizeActiveNotificationRows(rawRows), [rawRows]);
-  const agentWorking = Boolean(signedIn && activeProject?.status === 'ready' && activePreviewURL && (messageSubmitting || feed?.live?.isProcessing || feedAwaitingAgent(feed)));
+  const pendingAgentStartedAt = activeProject?.id ? pendingAgentRuns[activeProject.id] : undefined;
+  const pendingAgentAge = typeof pendingAgentStartedAt === 'number' ? Date.now() - pendingAgentStartedAt : null;
+  const localAgentRunActive = Boolean(
+    pendingAgentAge != null
+    && pendingAgentAge < LOCAL_AGENT_RUN_MAX_MS
+    && !feedHasAssistantAfterLatestUser(feed)
+    && (pendingAgentAge < LOCAL_AGENT_IDLE_GRACE_MS || !feedLiveIdle(feed))
+  );
+  const agentWorking = Boolean(signedIn && activeProject?.status === 'ready' && activePreviewURL && (messageSubmitting || localAgentRunActive || feed?.live?.isProcessing || feedAwaitingAgent(feed)));
   const agentWorkingLabel = messageSubmitting ? 'Transmitting request' : 'Synthesizing canvas';
   const lastRow = rows.at(-1);
   const lastRowSignature = lastRow ? `${lastRow.id}:${lastRow.body}` : '';
@@ -170,8 +181,10 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const messageQuotaLabel = messageQuota ? `${messageQuota.remaining}/${messageQuota.limit}` : '';
   const messageQuotaTooltip = messageQuota ? `${messageQuota.paidRemaining ?? 0} paid credits · resets in ${formatResetCountdown(messageQuota.resetsAt, quotaNow)}` : '';
   const isProjectStarting = activeProject?.status === 'creating' || activeProject?.status === 'launching';
+  const previewMaintenance = Boolean(activePreviewURL && previewStatus?.maintenance);
   const previewReady = Boolean(activePreviewURL && previewStatus?.ready);
-  const canvasStatusLabel = agentWorking ? 'Agent working' : activeProject?.status === 'ready' ? (previewReady ? 'Canvas live' : 'Canvas starting') : isProjectStarting ? 'Canvas starting' : activeProject?.status === 'error' ? 'Canvas error' : 'Canvas idle';
+  const previewDisplayable = Boolean(activePreviewURL && (previewReady || previewMaintenance));
+  const canvasStatusLabel = agentWorking ? 'Agent working' : previewMaintenance ? 'Maintenance' : activeProject?.status === 'ready' ? (previewReady ? 'Canvas live' : 'Canvas starting') : isProjectStarting ? 'Canvas starting' : activeProject?.status === 'error' ? 'Canvas error' : 'Canvas idle';
   const hasDraft = Boolean(prompt.trim()) || attachments.length > 0;
   const canSend = signedIn && hasDraft && !busy && !messageSubmitting && Boolean(activePreviewURL) && (activeProject?.status === 'ready' || previewReady);
   const hasActiveNotification = rows.some((row) => row.kind === 'notification' && row.active);
@@ -198,12 +211,23 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const refreshQuota = () => api<Me>('/api/me')
     .then((next) => setMessageQuota(next.messageQuota ?? null))
     .catch(() => undefined);
+  const rememberPendingAgentRun = (projectID: string) => {
+    setPendingAgentRuns((current) => ({ ...current, [projectID]: Date.now() }));
+  };
+  const forgetPendingAgentRun = (projectID: string) => {
+    setPendingAgentRuns((current) => {
+      if (!current[projectID]) return current;
+      const { [projectID]: _removed, ...rest } = current;
+      return rest;
+    });
+  };
 
   useEffect(() => {
     if (!signedIn) {
       setProjects([]);
       setActiveID('');
       setFeed(null);
+      setPendingAgentRuns({});
       return;
     }
     void loadProjects().catch(() => {
@@ -275,6 +299,15 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     setProjects((current) => current.map((project) => project.id === feed.project.id ? feed.project : project));
   }, [feed?.project]);
   useEffect(() => {
+    if (!feed?.project) return;
+    const pendingStartedAt = pendingAgentRuns[feed.project.id];
+    const pendingAgeMs = typeof pendingStartedAt === 'number' ? Date.now() - pendingStartedAt : null;
+    const idleSettled = feedLiveIdle(feed) && (pendingAgeMs == null || pendingAgeMs >= LOCAL_AGENT_IDLE_GRACE_MS);
+    if (feed.project.status !== 'ready' || idleSettled || feedHasAssistantAfterLatestUser(feed)) {
+      forgetPendingAgentRun(feed.project.id);
+    }
+  }, [feed, pendingAgentRuns]);
+  useEffect(() => {
     const textarea = textareaRef.current;
     if (!textarea) return;
     const maxHeight = singleView ? 112 : 180;
@@ -289,7 +322,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     setPreviewStatus(null);
   }, [activeProject?.id, activePreviewURL, activeProject?.status]);
   useEffect(() => {
-    if (!activeProject?.id || !activePreviewURL || activeProject.status === 'error' || activeProject.status === 'deleting') {
+    if (!activeProject?.id || !activePreviewURL || activeProject.status === 'deleting') {
       setPreviewStatus(null);
       return;
     }
@@ -298,7 +331,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       .then((status) => {
         if (cancelled) return;
         setPreviewStatus(status);
-        if (!status.ready) setIframeLoaded(false);
+        if (!status.ready && !status.maintenance) setIframeLoaded(false);
         if (status.ready && activeProject.status !== 'ready') {
           setProjects((current) => current.map((project) => project.id === activeProject.id ? { ...project, status: 'ready', errorMessage: '' } : project));
           setFeed((current) => current?.project.id === activeProject.id ? { ...current, project: { ...current.project, status: 'ready', errorMessage: '' } } : current);
@@ -310,12 +343,12 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
         setIframeLoaded(false);
       });
     void load();
-    const timer = setInterval(load, previewStatus?.ready && !agentWorking ? 5000 : 1500);
+    const timer = setInterval(load, (previewStatus?.ready || previewStatus?.maintenance) && !agentWorking ? 5000 : 1500);
     return () => {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [activeProject?.id, activePreviewURL, activeProject?.status, agentWorking, previewStatus?.ready]);
+  }, [activeProject?.id, activePreviewURL, activeProject?.status, agentWorking, previewStatus?.maintenance, previewStatus?.ready]);
   useEffect(() => {
     setAttachments([]);
     dragDepthRef.current = 0;
@@ -368,6 +401,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
           await api(`/api/projects/${activeProject.id}/messages`, { method: 'POST', body: JSON.stringify({ text, busy_policy: busyPolicy }) });
         }
         requestAccepted = true;
+        rememberPendingAgentRun(activeProject.id);
         setPrompt('');
         setAttachments([]);
         try {
@@ -395,6 +429,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     setBusy(true);
     try {
       await api(`/api/projects/${activeProject.id}/agent/interrupt`, { method: 'POST', body: JSON.stringify({}) });
+      forgetPendingAgentRun(activeProject.id);
       setMessageSubmitting(false);
       setFeed(await api<Feed>(`/api/projects/${activeProject.id}/feed`));
     } catch (err) {
@@ -459,6 +494,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     setBusy(true);
     try {
       await api(`/api/projects/${targetID}`, { method: 'DELETE' });
+      forgetPendingAgentRun(targetID);
       const remaining = projects.filter((project) => project.id !== targetID);
       setProjects(remaining);
       setProjectCap((cap) => cap);
@@ -703,19 +739,19 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     : 'The canvas route is warming up. Likeable will open it automatically when it is ready.';
   const preview = (
     <section className="previewPane">
-      {activeProject?.status === 'error' ? (
+      {activeProject?.status === 'error' && !previewMaintenance ? (
         <CanvasLoader title="Canvas launch failed" body={projectLaunchErrorMessage(activeProject.errorMessage)} tone="error" />
-      ) : activePreviewURL && previewReady ? (
+      ) : activePreviewURL && previewDisplayable ? (
         <>
           <iframe
             title="preview"
             src={activePreviewURL}
-            className={previewReady && iframeLoaded ? 'loaded' : ''}
+            className={previewDisplayable && iframeLoaded ? 'loaded' : ''}
             onLoad={() => {
-              if (previewReady) setIframeLoaded(true);
+              if (previewDisplayable) setIframeLoaded(true);
             }}
           />
-          {(!previewReady || !iframeLoaded) && <CanvasLoader title="Connecting canvas" body={connectingCanvasBody} />}
+          {(!previewDisplayable || !iframeLoaded) && <CanvasLoader title="Connecting canvas" body={connectingCanvasBody} />}
         </>
       ) : isProjectStarting ? (
         <CanvasLoader title={previewTitle} body={previewBody} />
@@ -765,9 +801,11 @@ function selectedProjectService(project?: Project): ProjectService | undefined {
 function mergeFeedSnapshot(current: Feed | null, next: Feed): Feed {
   if (!current || current.project.id !== next.project.id) return next;
   if (next.live?.isProcessing || next.live?.streamText) return next;
+  if (next.project.status !== 'ready') return next;
   const currentLive = current.live;
   if (!currentLive?.isProcessing || !currentLive.streamText) return next;
-  if (feedHasDurableNotifications(next)) return next;
+  if (feedHasAssistantAfterLatestUser(next)) return next;
+  const nextLiveIdle = feedLiveIdle(next);
 
   return {
     ...next,
@@ -776,15 +814,11 @@ function mergeFeedSnapshot(current: Feed | null, next: Feed): Feed {
     live: {
       ...currentLive,
       conversationId: next.live?.conversationId ?? currentLive.conversationId,
-      isProcessing: typeof next.live?.isProcessing === 'boolean' ? next.live.isProcessing : currentLive.isProcessing,
+      isProcessing: !nextLiveIdle,
       queuedTurns: typeof next.live?.queuedTurns === 'number' ? next.live.queuedTurns : currentLive.queuedTurns,
       startedAt: currentLive.startedAt ?? next.live?.startedAt
     }
   };
-}
-
-function feedHasDurableNotifications(feed: Feed): boolean {
-  return feedRows({ ...feed, live: null }).some((row) => row.kind === 'notification');
 }
 
 function normalizeActiveNotificationRows(rows: FeedRow[]): FeedRow[] {

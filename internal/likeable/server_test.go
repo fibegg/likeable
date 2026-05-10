@@ -595,6 +595,117 @@ func TestProjectPreviewStatusKeepsPlatform404BehindPlaceholder(t *testing.T) {
 	}
 }
 
+func TestProjectPreviewStatusAllowsMaintenancePageThrough(t *testing.T) {
+	previewServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte("<!doctype html><html><head><title>Maintenance</title></head><body><h1>maintenance is ongoing</h1></body></html>"))
+	}))
+	defer previewServer.Close()
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: previewServer.Client()}
+	user, _ := store.UpsertUser(t.Context(), "a@example.com", "A", "")
+	if err := store.CreateSession(t.Context(), user.ID, "token-a", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{
+		ID:             "project-preview-maintenance",
+		UserID:         user.ID,
+		Title:          "Preview",
+		ConversationID: "conv-preview-maintenance",
+		PreviewURL:     previewServer.URL,
+		Status:         "error",
+		ErrorMessage:   "The canvas could not start.",
+	}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/projects/project-preview-maintenance/preview-status", nil)
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "token-a"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("preview-status returned %d: %s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Ready       bool   `json:"ready"`
+		Maintenance bool   `json:"maintenance"`
+		Status      string `json:"status"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Ready {
+		t.Fatal("maintenance must not mark the project runtime ready")
+	}
+	if !body.Maintenance {
+		t.Fatalf("body=%+v, want maintenance marker", body)
+	}
+	if body.Status != "503 Service Unavailable" {
+		t.Fatalf("status=%q, want raw 503 status for maintenance page", body.Status)
+	}
+	updated, err := store.ProjectForUser(t.Context(), user.ID, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Status != "error" {
+		t.Fatalf("status=%q, want maintenance probe to preserve project status", updated.Status)
+	}
+}
+
+func TestProjectPreviewStatusKeepsPlain503BehindPlaceholder(t *testing.T) {
+	previewServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "upstream unavailable", http.StatusServiceUnavailable)
+	}))
+	defer previewServer.Close()
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: previewServer.Client()}
+	user, _ := store.UpsertUser(t.Context(), "a@example.com", "A", "")
+	if err := store.CreateSession(t.Context(), user.ID, "token-a", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{
+		ID:             "project-preview-plain-503",
+		UserID:         user.ID,
+		Title:          "Preview",
+		ConversationID: "conv-preview-plain-503",
+		PreviewURL:     previewServer.URL,
+		Status:         "ready",
+	}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/projects/project-preview-plain-503/preview-status", nil)
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "token-a"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("preview-status returned %d: %s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Ready       bool `json:"ready"`
+		Maintenance bool `json:"maintenance"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Ready || body.Maintenance {
+		t.Fatalf("body=%+v, want ordinary 503 to stay behind Likeable placeholder", body)
+	}
+}
+
 func TestProjectPreviewStatusRecoversErroredProjectWithResources(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {
@@ -1202,7 +1313,7 @@ func TestProjectFeedTriggersReadinessRecovery(t *testing.T) {
 	t.Fatalf("project status=%q, want recovered ready", updated.Status)
 }
 
-func TestProjectFeedReturnsServiceUnavailableForTransientLiveStateFailure(t *testing.T) {
+func TestProjectFeedReturnsPartialSnapshotForTransientLiveStateFailure(t *testing.T) {
 	dir := t.TempDir()
 	cliPath := filepath.Join(dir, "fibe")
 	script := `#!/bin/sh
@@ -1258,21 +1369,35 @@ esac
 	rec := httptest.NewRecorder()
 	server.routes().ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("feed returned %d, want 503; body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("feed returned %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "Live updates are temporarily unavailable") {
-		t.Fatalf("body=%s, want retryable live update error", rec.Body.String())
+	var body struct {
+		Warning string `json:"warning"`
+		Live    struct {
+			ConversationID string `json:"conversationId"`
+			IsProcessing   bool   `json:"isProcessing"`
+			QueuedTurns    int    `json:"queuedTurns"`
+		} `json:"live"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(body.Warning, "Live workspace status is temporarily unavailable") {
+		t.Fatalf("warning=%q, want live-state warning", body.Warning)
+	}
+	if body.Live.ConversationID != project.ConversationID || body.Live.IsProcessing || body.Live.QueuedTurns != 0 {
+		t.Fatalf("live=%+v, want explicit idle fallback for unavailable live state", body.Live)
 	}
 }
 
-func TestProjectFeedRefreshesRetemplatedServiceLayout(t *testing.T) {
+func TestProjectFeedRefreshesTransformedServiceLayout(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	cliPath, _ := fakeRetemplatedFibeCLI(t)
+	cliPath, _ := fakeTransformedFibeCLI(t)
 	if err := store.UpsertConfig(t.Context(), map[string]string{
 		"fibe_base_url": "server.test:3000",
 		"fibe_api_key":  "test-key",
@@ -1286,10 +1411,10 @@ func TestProjectFeedRefreshesRetemplatedServiceLayout(t *testing.T) {
 		t.Fatal(err)
 	}
 	project := &Project{
-		ID:              "project-retemplate-feed",
+		ID:              "project-transform-feed",
 		UserID:          user.ID,
-		Title:           "Retemplate",
-		ConversationID:  "conv-retpl",
+		Title:           "Transform",
+		ConversationID:  "conv-trns",
 		AgentID:         "agent-1",
 		PlaygroundID:    "321",
 		PlayspecID:      "123",
@@ -1310,7 +1435,7 @@ func TestProjectFeedRefreshesRetemplatedServiceLayout(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/projects/project-retemplate-feed/feed", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/projects/project-transform-feed/feed", nil)
 	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "token-a"})
 	rec := httptest.NewRecorder()
 	server.routes().ServeHTTP(rec, req)
@@ -1354,7 +1479,7 @@ func TestProjectMessageRefreshesServiceContextBeforeSending(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	cliPath, stdinPath := fakeRetemplatedFibeCLI(t)
+	cliPath, stdinPath := fakeTransformedFibeCLI(t)
 	if err := store.UpsertConfig(t.Context(), map[string]string{
 		"fibe_base_url": "server.test:3000",
 		"fibe_api_key":  "test-key",
@@ -1368,10 +1493,10 @@ func TestProjectMessageRefreshesServiceContextBeforeSending(t *testing.T) {
 		t.Fatal(err)
 	}
 	project := &Project{
-		ID:              "project-retemplate-message",
+		ID:              "project-transform-message",
 		UserID:          user.ID,
-		Title:           "Retemplate",
-		ConversationID:  "conv-retpl",
+		Title:           "Transform",
+		ConversationID:  "conv-trns",
 		AgentID:         "agent-1",
 		PlaygroundID:    "321",
 		PlayspecID:      "123",
@@ -1392,7 +1517,7 @@ func TestProjectMessageRefreshesServiceContextBeforeSending(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/projects/project-retemplate-message/messages", strings.NewReader(`{"text":"change the admin background"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/projects/project-transform-message/messages", strings.NewReader(`{"text":"change the admin background"}`))
 	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "token-a"})
 	rec := httptest.NewRecorder()
 	server.routes().ServeHTTP(rec, req)

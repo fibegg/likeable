@@ -51,7 +51,7 @@ func (s *Server) handleProjectMessages(w http.ResponseWriter, r *http.Request, u
 	}
 	if project.Status != "ready" && strings.TrimSpace(project.PreviewURL) != "" {
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-		updated, ready, _, err := s.promoteProjectFromReachablePreview(ctx, user.ID, project)
+		updated, ready, _, _, err := s.promoteProjectFromReachablePreview(ctx, user.ID, project)
 		cancel()
 		if err == nil && ready && updated != nil {
 			project = updated

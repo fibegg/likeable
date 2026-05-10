@@ -1,6 +1,10 @@
 import { LIKEABLE_NOTIFICATION_END, LIKEABLE_NOTIFICATION_START } from './config';
 import type { Feed, FeedRow, Message, MessageAttachment, NotificationFeedRow } from './domain';
 
+const TURN_TIME_SLOP_MS = 5000;
+const RECENT_UNANSWERED_TURN_MS = 30 * 60_000;
+const RECENT_ACTIVITY_WORKING_MS = 15 * 60_000;
+
 export function feedRows(feed: Feed | null): FeedRow[] {
   if (!feed) return [];
   const rows: FeedRow[] = [];
@@ -89,6 +93,7 @@ function notificationFeedRows(feed: Feed): NotificationFeedRow[] {
 
   const rows = dedupeNotifications([...assistantRows, ...activityRows]);
   if (feed.live?.streamText) {
+    const liveIdle = feedLiveIdle(feed);
     const liveTurnKey = latestTurnKey || 'live';
     const liveTime = liveNotificationTime(feed.live.startedAt, latestUserTime);
     const liveSegments = parseLikeableNotificationSegments(feed.live.streamText);
@@ -101,7 +106,7 @@ function notificationFeedRows(feed: Feed): NotificationFeedRow[] {
         id: `${liveTurnKey}-notification-${segmentIndex}`,
         body: segment.body,
         time: liveTime,
-        active: isLast && Boolean(feed.live.isProcessing || segment.streaming),
+        active: isLast && !liveIdle && Boolean(feed.live.isProcessing || segment.streaming),
         fallback: segment.fallback
       });
     }
@@ -194,17 +199,37 @@ function parseLikeableNotificationSegments(value: string): Array<{ body: string;
 export function feedAwaitingAgent(feed: Feed | null): boolean {
   if (!feed) return false;
   if (feed.live?.isProcessing) return true;
-  const latestUser = latestTimestamp((feed.localMessages ?? []).filter((msg) => msg.role === 'user').map((msg) => msg.createdAt));
+  const latestUser = feedLatestUserTimestamp(feed);
   if (latestUser == null) return false;
+  if (feedLiveIdle(feed)) return false;
+  if (feedHasAssistantAfterLatestUser(feed)) return false;
 
-  const latestAgent = latestTimestamp([
+  const latestActivity = latestTimestamp((feed.activity ?? []).map((activity) => activity.occurred_at));
+  if (latestActivity != null && latestActivity >= latestUser - TURN_TIME_SLOP_MS) {
+    return Date.now() - latestActivity < RECENT_ACTIVITY_WORKING_MS;
+  }
+
+  return Date.now() - latestUser < RECENT_UNANSWERED_TURN_MS;
+}
+
+export function feedLiveIdle(feed: Feed | null): boolean {
+  if (!feed?.live) return false;
+  return feed.live.isProcessing === false && (feed.live.queuedTurns ?? 0) <= 0;
+}
+
+function feedLatestUserTimestamp(feed: Feed | null): number | null {
+  if (!feed) return null;
+  return latestTimestamp((feed.localMessages ?? []).filter((msg) => msg.role === 'user').map((msg) => msg.createdAt));
+}
+
+export function feedHasAssistantAfterLatestUser(feed: Feed | null): boolean {
+  const latestUser = feedLatestUserTimestamp(feed);
+  if (!feed || latestUser == null) return false;
+  const latestAssistant = latestTimestamp([
     ...(feed.localMessages ?? []).filter((msg) => msg.role !== 'user').map((msg) => msg.createdAt),
-    ...(feed.messages ?? []).filter((msg) => msg.role !== 'user').map((msg) => msg.created_at),
-    ...(feed.activity ?? []).map((activity) => activity.occurred_at)
+    ...(feed.messages ?? []).filter((msg) => msg.role === 'assistant').map((msg) => msg.created_at)
   ]);
-  if (latestAgent != null && latestAgent >= latestUser - 5000) return false;
-
-  return Date.now() - latestUser < 20_000;
+  return latestAssistant != null && latestAssistant >= latestUser - TURN_TIME_SLOP_MS;
 }
 
 function latestTimestamp(values: Array<string | undefined>): number | null {

@@ -260,22 +260,35 @@ func (s *Server) handleProjectFeed(w http.ResponseWriter, r *http.Request, user 
 	messages, messagesErr := fibe.Messages(r.Context(), project.ConversationID)
 	activity, activityErr := fibe.Activity(r.Context(), project.ConversationID)
 	live, liveErr := fibe.ConversationLiveState(r.Context(), project.ConversationID)
-	if err := projectFeedSnapshotError(messagesErr, activityErr, liveErr); err != nil {
-		log.Printf("load project feed live data for project %s: %v", project.ID, err)
-		writeError(w, http.StatusServiceUnavailable, "Live updates are temporarily unavailable. Retrying.")
-		return
+	warnings := []string{}
+	if messagesErr != nil && !fibegateway.IsConversationMissingError(messagesErr) {
+		log.Printf("load project feed messages for project %s: %v", project.ID, messagesErr)
+		warnings = append(warnings, "Workspace messages are temporarily unavailable.")
+		messages = []any{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"project": project, "localMessages": local, "messages": messages, "activity": activity, "live": live})
-}
-
-func projectFeedSnapshotError(errs ...error) error {
-	for _, err := range errs {
-		if err == nil || fibegateway.IsConversationMissingError(err) {
-			continue
+	if activityErr != nil && !fibegateway.IsConversationMissingError(activityErr) {
+		log.Printf("load project feed activity for project %s: %v", project.ID, activityErr)
+		warnings = append(warnings, "Workspace activity is temporarily unavailable.")
+		activity = []any{}
+	}
+	if liveErr != nil {
+		if !fibegateway.IsConversationMissingError(liveErr) {
+			log.Printf("load project feed live state for project %s: %v", project.ID, liveErr)
+			warnings = append(warnings, "Live workspace status is temporarily unavailable.")
 		}
-		return err
+		live = &fibegateway.ConversationLiveState{ConversationID: project.ConversationID, IsProcessing: false, StreamText: "", QueuedTurns: 0}
 	}
-	return nil
+	if messages == nil {
+		messages = []any{}
+	}
+	if activity == nil {
+		activity = []any{}
+	}
+	response := map[string]any{"project": project, "localMessages": local, "messages": messages, "activity": activity, "live": live}
+	if len(warnings) > 0 {
+		response["warning"] = strings.Join(warnings, " ")
+	}
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (s *Server) handleProjectPreviewStatus(w http.ResponseWriter, r *http.Request, project *Project) {
@@ -305,16 +318,18 @@ func (s *Server) handleProjectPreviewStatus(w http.ResponseWriter, r *http.Reque
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
-	_, ready, status, err := s.promoteProjectFromReachablePreview(ctx, project.UserID, project)
+	_, ready, status, maintenance, err := s.promoteProjectFromReachablePreview(ctx, project.UserID, project)
 	if err != nil {
 		log.Printf("preview status probe for project %s failed: %v", project.ID, err)
 		ready = false
+		maintenance = false
 		status = "starting"
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ready":     ready,
-		"status":    publicPreviewProbeStatus(status),
-		"checkedAt": nowString(),
+		"ready":       ready,
+		"maintenance": maintenance,
+		"status":      publicPreviewProbeStatus(status),
+		"checkedAt":   nowString(),
 	})
 }
 
