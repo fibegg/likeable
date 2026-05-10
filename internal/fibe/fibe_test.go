@@ -99,6 +99,20 @@ func TestIsAgentRuntimeUnavailableError(t *testing.T) {
 	}
 }
 
+func TestIsConversationMissingError(t *testing.T) {
+	for _, err := range []error{
+		&PlatformError{Code: "NOT_FOUND", Status: 404, Message: "Conversation not found"},
+		&PlatformError{Code: "UNPROCESSABLE_ENTITY", Status: 422, Message: "HTTP 404: {\"message\":\"Conversation not found\"}"},
+	} {
+		if !IsConversationMissingError(err) {
+			t.Fatalf("IsConversationMissingError(%v)=false, want true", err)
+		}
+	}
+	if IsConversationMissingError(&PlatformError{Code: "NOT_FOUND", Status: 404, Message: "Playground not found"}) {
+		t.Fatal("unrelated not found failure must not look like a missing conversation")
+	}
+}
+
 func TestStartAgentChatUsesConfiguredMarquee(t *testing.T) {
 	cliPath, logPath, _ := fakeFibeCLI(t)
 	client := &Client{

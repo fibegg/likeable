@@ -255,7 +255,9 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
 
   useEffect(() => {
     if (!activeID) return;
-    const load = () => api<Feed>(`/api/projects/${activeID}/feed`).then(setFeed).catch((err) => {
+    const load = () => api<Feed>(`/api/projects/${activeID}/feed`).then((nextFeed) => {
+      setFeed((current) => mergeFeedSnapshot(current, nextFeed));
+    }).catch((err) => {
       if (err instanceof Error && err.message.includes('project not found')) {
         setFeed(null);
         void loadProjects();
@@ -757,6 +759,31 @@ function selectedProjectService(project?: Project): ProjectService | undefined {
   return project.services.find((service) => service.name === selected)
     ?? project.services.find((service) => service.name === 'app')
     ?? project.services[0];
+}
+
+function mergeFeedSnapshot(current: Feed | null, next: Feed): Feed {
+  if (!current || current.project.id !== next.project.id) return next;
+  if (next.live?.isProcessing || next.live?.streamText) return next;
+  const currentLive = current.live;
+  if (!currentLive?.isProcessing || !currentLive.streamText) return next;
+  if (feedHasDurableNotifications(next)) return next;
+
+  return {
+    ...next,
+    messages: next.messages?.length ? next.messages : current.messages,
+    activity: next.activity?.length ? next.activity : current.activity,
+    live: {
+      ...currentLive,
+      conversationId: next.live?.conversationId ?? currentLive.conversationId,
+      isProcessing: typeof next.live?.isProcessing === 'boolean' ? next.live.isProcessing : currentLive.isProcessing,
+      queuedTurns: typeof next.live?.queuedTurns === 'number' ? next.live.queuedTurns : currentLive.queuedTurns,
+      startedAt: currentLive.startedAt ?? next.live?.startedAt
+    }
+  };
+}
+
+function feedHasDurableNotifications(feed: Feed): boolean {
+  return feedRows({ ...feed, live: null }).some((row) => row.kind === 'notification');
 }
 
 createRoot(document.getElementById('root')!).render(<App />);

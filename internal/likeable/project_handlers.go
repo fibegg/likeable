@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	fibegateway "github.com/fibegg/likeable/internal/fibe"
 	projecttext "github.com/fibegg/likeable/internal/project"
 )
 
@@ -256,10 +257,25 @@ func (s *Server) handleProjectFeed(w http.ResponseWriter, r *http.Request, user 
 		writeJSON(w, http.StatusOK, map[string]any{"project": project, "localMessages": local, "messages": []any{}, "activity": []any{}, "warning": "Live updates are temporarily unavailable."})
 		return
 	}
-	messages, _ := fibe.Messages(r.Context(), project.ConversationID)
-	activity, _ := fibe.Activity(r.Context(), project.ConversationID)
-	live, _ := fibe.ConversationLiveState(r.Context(), project.ConversationID)
+	messages, messagesErr := fibe.Messages(r.Context(), project.ConversationID)
+	activity, activityErr := fibe.Activity(r.Context(), project.ConversationID)
+	live, liveErr := fibe.ConversationLiveState(r.Context(), project.ConversationID)
+	if err := projectFeedSnapshotError(messagesErr, activityErr, liveErr); err != nil {
+		log.Printf("load project feed live data for project %s: %v", project.ID, err)
+		writeError(w, http.StatusServiceUnavailable, "Live updates are temporarily unavailable. Retrying.")
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"project": project, "localMessages": local, "messages": messages, "activity": activity, "live": live})
+}
+
+func projectFeedSnapshotError(errs ...error) error {
+	for _, err := range errs {
+		if err == nil || fibegateway.IsConversationMissingError(err) {
+			continue
+		}
+		return err
+	}
+	return nil
 }
 
 func (s *Server) handleProjectPreviewStatus(w http.ResponseWriter, r *http.Request, project *Project) {

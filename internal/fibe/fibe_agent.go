@@ -67,6 +67,23 @@ func IsAgentRuntimeUnavailableError(err error) bool {
 	)
 }
 
+func IsConversationMissingError(err error) bool {
+	if err == nil {
+		return false
+	}
+	text := strings.ToLower(err.Error())
+	var platformErr *PlatformError
+	if errors.As(err, &platformErr) {
+		text = strings.ToLower(strings.Join([]string{
+			platformErr.Code,
+			platformErr.Message,
+			platformErr.Stderr,
+			err.Error(),
+		}, " "))
+	}
+	return strings.Contains(text, "conversation") && containsAny(text, "not found", "http 404")
+}
+
 func (c *Client) Interrupt(ctx context.Context, conversationID string) error {
 	var out map[string]any
 	args := []string{"agents", "interrupt", c.agentID}

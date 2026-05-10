@@ -1202,6 +1202,70 @@ func TestProjectFeedTriggersReadinessRecovery(t *testing.T) {
 	t.Fatalf("project status=%q, want recovered ready", updated.Status)
 }
 
+func TestProjectFeedReturnsServiceUnavailableForTransientLiveStateFailure(t *testing.T) {
+	dir := t.TempDir()
+	cliPath := filepath.Join(dir, "fibe")
+	script := `#!/bin/sh
+case "$*" in
+  *"agents messages"*|*"agents activity"*)
+    echo '{"content":[]}'
+    ;;
+  *"agents live-state"*)
+    printf '%s\n' '{"error":{"message":"Agent unreachable: connection refused","code":"AGENT_COMMUNICATION_FAILED","status":422}}' >&2
+    exit 1
+    ;;
+  *)
+    echo "unexpected command: $*" >&2
+    exit 64
+    ;;
+esac
+`
+	if err := os.WriteFile(cliPath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url": "server.test:3000",
+		"fibe_api_key":  "test-key",
+		"fibe_cli_path": cliPath,
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	user, _ := store.UpsertUser(t.Context(), "a@example.com", "A", "")
+	if err := store.CreateSession(t.Context(), user.ID, "token-a", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{
+		ID:             "project-feed-transient-live-failure",
+		UserID:         user.ID,
+		Title:          "Transient Live Failure",
+		ConversationID: "conv-live-failure",
+		AgentID:        "agent-1",
+		PreviewURL:     "http://preview.example.test",
+		Status:         "ready",
+	}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/projects/project-feed-transient-live-failure/feed", nil)
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "token-a"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("feed returned %d, want 503; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "Live updates are temporarily unavailable") {
+		t.Fatalf("body=%s, want retryable live update error", rec.Body.String())
+	}
+}
+
 func TestProjectFeedRefreshesRetemplatedServiceLayout(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {
