@@ -1058,6 +1058,89 @@ esac
 	}
 }
 
+func TestProjectMessageStartsOfflineAgentAndReturnsHumanReadableRetry(t *testing.T) {
+	dir := t.TempDir()
+	cliPath := filepath.Join(dir, "fibe")
+	logPath := filepath.Join(dir, "commands.log")
+	script := `#!/bin/sh
+printf '%s\n' "$*" >> "` + logPath + `"
+case "$*" in
+  *"agents create-conversation"*)
+    printf '%s\n' '{"error":{"message":"No running AgentChat for Agent#1","code":"UNPROCESSABLE_ENTITY","status":422}}' >&2
+    exit 1
+    ;;
+  *"agents start-chat"*)
+    echo '{"id":1,"status":"pending"}'
+    ;;
+  *)
+    echo "unexpected command: $*" >&2
+    exit 64
+    ;;
+esac
+`
+	if err := os.WriteFile(cliPath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url": "server.test:3000",
+		"fibe_api_key":  "test-key",
+		"fibe_cli_path": cliPath,
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	user, _ := store.UpsertUser(t.Context(), "a@example.com", "A", "")
+	if err := store.CreateSession(t.Context(), user.ID, "token-a", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{
+		ID:             "project-message-offline-agent",
+		UserID:         user.ID,
+		Title:          "Offline agent",
+		ConversationID: "conv-offline-agent",
+		AgentID:        "agent-1",
+		MarqueeID:      "multipass",
+		PreviewURL:     "http://preview.example.test",
+		Status:         "ready",
+	}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/projects/project-message-offline-agent/messages", strings.NewReader(`{"text":"change the heading"}`))
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "token-a"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("message returned %d, want 503; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "build agent was offline") || !strings.Contains(rec.Body.String(), "starting") {
+		t.Fatalf("body=%s, want human-readable agent-starting message", rec.Body.String())
+	}
+	log := readFile(t, logPath)
+	if !strings.Contains(log, "agents start-chat agent-1 --marquee-id multipass") {
+		t.Fatalf("log=%s, want start-chat command after offline runtime", log)
+	}
+	if strings.Contains(log, "agents send-message") {
+		t.Fatalf("log=%s, send-message must not run while agent runtime is offline", log)
+	}
+	messages, err := store.MessagesForProject(t.Context(), project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(messages) != 0 {
+		t.Fatalf("messages=%+v, want no local message stored before conversation exists", messages)
+	}
+}
+
 func TestProjectFeedTriggersReadinessRecovery(t *testing.T) {
 	previewServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")

@@ -2,6 +2,7 @@ package fibe
 
 import (
 	"context"
+	"errors"
 	"strings"
 )
 
@@ -28,6 +29,42 @@ func (c *Client) SendMessage(ctx context.Context, conversationID, text string, a
 	}
 	payload := map[string]any{"text": text}
 	return c.runCLI(ctx, append(args, "-f", "-"), payload, &out)
+}
+
+func (c *Client) StartAgentChat(ctx context.Context) error {
+	if strings.TrimSpace(c.marqueeID) == "" {
+		return &PlatformError{
+			Code:    "FIBE_MARQUEE_NOT_CONFIGURED",
+			Message: "Fibe Marquee is not configured for this project",
+		}
+	}
+	var out map[string]any
+	return c.runCLI(ctx, []string{"agents", "start-chat", c.agentID, "--marquee-id", c.marqueeID}, nil, &out)
+}
+
+func IsAgentRuntimeUnavailableError(err error) bool {
+	if err == nil {
+		return false
+	}
+	text := strings.ToLower(err.Error())
+	var platformErr *PlatformError
+	if errors.As(err, &platformErr) {
+		text = strings.ToLower(strings.Join([]string{
+			platformErr.Code,
+			platformErr.Message,
+			platformErr.Stderr,
+			err.Error(),
+		}, " "))
+	}
+	return containsAny(text,
+		"no running agentchat",
+		"no running agent chat",
+		"no running chat",
+		"start a chat first",
+		"agent unreachable",
+		"connection refused",
+		"runtime reachable: no",
+	)
 }
 
 func (c *Client) Interrupt(ctx context.Context, conversationID string) error {

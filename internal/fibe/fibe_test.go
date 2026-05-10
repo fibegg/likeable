@@ -83,6 +83,41 @@ func TestIsIdempotentConversationCreateError(t *testing.T) {
 	}
 }
 
+func TestIsAgentRuntimeUnavailableError(t *testing.T) {
+	for _, err := range []error{
+		&PlatformError{Code: "UNPROCESSABLE_ENTITY", Status: 422, Message: "No running AgentChat for Agent#1"},
+		&PlatformError{Code: "NOT_FOUND", Status: 404, Message: "No running chat. Start a chat first."},
+		&PlatformError{Code: "AGENT_COMMUNICATION_FAILED", Status: 422, Message: "Agent unreachable: connection refused"},
+		errors.New("runtime reachable: no"),
+	} {
+		if !IsAgentRuntimeUnavailableError(err) {
+			t.Fatalf("IsAgentRuntimeUnavailableError(%v)=false, want true", err)
+		}
+	}
+	if IsAgentRuntimeUnavailableError(&PlatformError{Code: platformCodeCLINotConfigured, Message: "Fibe CLI path is not configured"}) {
+		t.Fatal("configuration failure must not look like an agent runtime outage")
+	}
+}
+
+func TestStartAgentChatUsesConfiguredMarquee(t *testing.T) {
+	cliPath, logPath, _ := fakeFibeCLI(t)
+	client := &Client{
+		apiKey:    "test",
+		agentID:   "agent-1",
+		marqueeID: "multipass",
+		cliPath:   cliPath,
+		cliDomain: testFibeCLIDomain(),
+		http:      http.DefaultClient,
+	}
+	if err := client.StartAgentChat(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	log := readFile(t, logPath)
+	if !strings.Contains(log, "agents start-chat agent-1 --marquee-id multipass") {
+		t.Fatalf("log=%s, want start-chat with configured marquee", log)
+	}
+}
+
 func TestCreateGreenfieldUsesTemplateVersionIDOnlyWhenConfigured(t *testing.T) {
 	for _, tc := range []struct {
 		name              string
@@ -638,7 +673,7 @@ case "$*" in
   *"agents gitea-token"*)
     echo '{"token":"gitea-token","username":"agent"}'
     ;;
-  *"agents create-conversation"*|*"agents delete-conversation"*|*"agents interrupt"*|*"agents messages"*|*"agents activity"*|*"playgrounds delete"*|*"playspecs delete"*|*"templates versions destroy"*|*"templates delete"*|*"props delete"*)
+  *"agents create-conversation"*|*"agents start-chat"*|*"agents delete-conversation"*|*"agents interrupt"*|*"agents messages"*|*"agents activity"*|*"playgrounds delete"*|*"playspecs delete"*|*"templates versions destroy"*|*"templates delete"*|*"props delete"*)
     echo '{"ok":true,"content":[]}'
     ;;
   *)

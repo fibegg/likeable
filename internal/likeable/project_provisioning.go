@@ -143,6 +143,9 @@ func (s *Server) provisionProject(ctx context.Context, userID, userEmail string,
 			return err
 		}
 	}
+	if err := s.startProjectAgentChat(ctx, project, fibeClient, "project provisioning"); err != nil {
+		log.Printf("start workspace agent chat during project provisioning %s: %v", project.ID, err)
+	}
 	if err := fibeClient.WaitPlaygroundReady(ctx, project.PlaygroundID); err != nil {
 		return err
 	}

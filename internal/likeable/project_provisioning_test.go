@@ -2,7 +2,10 @@ package likeable
 
 import (
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/fibegg/likeable/internal/fibe"
@@ -133,5 +136,54 @@ func TestProvisionProjectSkipsAlreadyReadyProject(t *testing.T) {
 	}
 	if stored.Status != "ready" {
 		t.Fatalf("status=%q, want ready", stored.Status)
+	}
+}
+
+func TestProvisionProjectStartsAssignedAgentChat(t *testing.T) {
+	previewServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("<!doctype html><title>ready</title>"))
+	}))
+	defer previewServer.Close()
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	cliPath, logPath, _ := fakeFibeCLI(t)
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url": "server.test:3000",
+		"fibe_api_key":  "test-key",
+		"fibe_cli_path": cliPath,
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	user, err := store.UpsertUser(t.Context(), "pilot@example.com", "Pilot", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{
+		ID:             "project-start-agent",
+		UserID:         user.ID,
+		Title:          "Start Agent",
+		ConversationID: "conv-start-agent",
+		AgentID:        "agent-1",
+		MarqueeID:      "multipass",
+		PlaygroundID:   "123",
+		PreviewURL:     previewServer.URL,
+		Status:         "creating",
+	}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store, http: previewServer.Client()}
+
+	if err := server.provisionProject(t.Context(), user.ID, user.Email, project, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	log := readFile(t, logPath)
+	if !strings.Contains(log, "agents start-chat agent-1 --marquee-id multipass") {
+		t.Fatalf("log=%s, want provisioning to start assigned agent chat", log)
 	}
 }

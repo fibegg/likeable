@@ -79,14 +79,22 @@ func (s *Server) handleProjectMessages(w http.ResponseWriter, r *http.Request, u
 		writeError(w, http.StatusPaymentRequired, "message pack required")
 		return
 	}
-	fibe, err := s.fibeClientForProject(r.Context(), project, user.Email)
+	fibeClient, err := s.fibeClientForProject(r.Context(), project, user.Email)
 	if err != nil {
 		log.Printf("message workspace client for project %s: %v", project.ID, err)
 		writeError(w, http.StatusServiceUnavailable, "workspace messaging is not configured")
 		return
 	}
-	if err := fibe.EnsureConversation(r.Context(), project.ConversationID, project.Title); err != nil {
+	if err := fibeClient.EnsureConversation(r.Context(), project.ConversationID, project.Title); err != nil {
 		log.Printf("create workspace conversation for project %s: %v", project.ID, err)
+		if fibegateway.IsAgentRuntimeUnavailableError(err) {
+			if startErr := s.startProjectAgentChat(r.Context(), project, fibeClient, "create conversation"); startErr != nil {
+				writeError(w, http.StatusServiceUnavailable, agentRuntimeStartFailedMessage())
+			} else {
+				writeError(w, http.StatusServiceUnavailable, agentRuntimeStartingMessage())
+			}
+			return
+		}
 		status, message := workspaceSendFailureResponse(nil, err)
 		writeError(w, status, message)
 		return
@@ -119,10 +127,16 @@ func (s *Server) handleProjectMessages(w http.ResponseWriter, r *http.Request, u
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if err := fibe.SendMessage(r.Context(), project.ConversationID, projecttext.AgentPrompt(project, agentText), attachmentPaths, busyPolicy); err != nil {
+	if err := fibeClient.SendMessage(r.Context(), project.ConversationID, projecttext.AgentPrompt(project, agentText), attachmentPaths, busyPolicy); err != nil {
 		cleanupLocalAttachments()
 		_ = s.store.DeleteMessage(context.Background(), project.ID, messageID)
 		log.Printf("send workspace message for project %s: %v", project.ID, err)
+		if fibegateway.IsAgentRuntimeUnavailableError(err) {
+			if startErr := s.startProjectAgentChat(r.Context(), project, fibeClient, "send message"); startErr != nil {
+				writeError(w, http.StatusServiceUnavailable, agentRuntimeStartFailedMessage())
+				return
+			}
+		}
 		status, message := workspaceSendFailureResponse(localAttachments, err)
 		writeError(w, status, message)
 		return
@@ -135,6 +149,16 @@ func (s *Server) handleProjectMessages(w http.ResponseWriter, r *http.Request, u
 	}
 	s.notifyMessageQuotaIfNeeded(r.Context(), user)
 	writeJSON(w, http.StatusAccepted, map[string]any{"message": msg})
+}
+
+func (s *Server) startProjectAgentChat(ctx context.Context, project *Project, fibeClient *fibegateway.Client, reason string) error {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if err := fibeClient.StartAgentChat(ctx); err != nil {
+		log.Printf("start workspace agent chat for project %s after %s: %v", project.ID, reason, err)
+		return err
+	}
+	return nil
 }
 
 func parseProjectMessageRequest(w http.ResponseWriter, r *http.Request) (string, []*multipart.FileHeader, string, error) {
@@ -175,7 +199,22 @@ func workspaceSendFailureResponse(attachments []MessageAttachment, err error) (i
 	if len(attachments) > 0 && workspaceAttachmentFailure(err) {
 		return http.StatusBadRequest, unsupportedAttachmentMessage(attachments)
 	}
+	if fibegateway.IsAgentRuntimeUnavailableError(err) {
+		return http.StatusServiceUnavailable, agentRuntimeUnavailableMessage()
+	}
 	return http.StatusBadGateway, "could not send the request to the workspace"
+}
+
+func agentRuntimeStartingMessage() string {
+	return "The build agent was offline. Likeable is starting it now; try again shortly."
+}
+
+func agentRuntimeUnavailableMessage() string {
+	return "The build agent is offline or still starting. Try again shortly."
+}
+
+func agentRuntimeStartFailedMessage() string {
+	return "The build agent is offline and Likeable could not start it. Check the assigned Fibe agent chat in Fibe, then try again."
 }
 
 func workspaceAttachmentFailure(err error) bool {
