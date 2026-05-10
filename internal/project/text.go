@@ -118,11 +118,6 @@ Likeable project context:
 - project repositories:
 %s
 
-For app/environment changes, target only this project playground. If the user asks for environment shape changes, use fibe_playgrounds_transform for playground_id %s and wait for the target rollout. Target playground_id %s only. Do not use rollout_all, do not update default/global Import Templates, and do not mutate other playgrounds unless an admin/global template workflow explicitly asks for it.
-
-If the user asks to replace the stack or move away from the current template family, use fibe_playgrounds_transform for playground_id %s. Keep the same playground, provision missing private source Props through the platform when needed, expose every user-facing service with clear names, and do not hardcode Likeable-specific behavior into the application.
-
-For normal source edits, prefer direct Brownfield changes on the live playground workspace for playground_id %s. Use Fibe MCP/local playground tools to resolve the mounted source paths, edit only that mounted project, and let the current playground reload. Do not create, relink, fork, or replace the project source unless the trusted Likeable project context explicitly requires an environment-shape workflow.
 [[LIKEABLE_SYSTEM_CONTEXT_END]]
 [[LIKEABLE_USER_CONTEXT_START]]
 User request:
@@ -139,10 +134,6 @@ User request:
 		selectedServiceLine(project),
 		formatProjectServices(project),
 		formatProjectRepositories(project),
-		project.PlaygroundID,
-		project.PlaygroundID,
-		project.PlaygroundID,
-		project.PlaygroundID,
 		userText,
 	)
 }
