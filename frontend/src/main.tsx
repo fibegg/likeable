@@ -6,7 +6,7 @@ import { Admin } from './admin';
 import { api } from './api';
 import { AgentNotificationRow, AppDialog, CanvasLoader, ConfirmDeleteProject, ConfirmNewProject, DeleteAllAccountDialog, EmptyCanvas, ProjectList, UserMessageRow } from './builder_components';
 import { BASIC_CHAT_COLLAPSED_KEY, BASIC_CHAT_HEIGHT_KEY, BUILDER_MODE_KEY, MAX_ATTACHMENTS, SINGLE_VIEW_QUERY } from './config';
-import type { AppDialogConfig, BuilderMode, BusyPolicy, Feed, Message, MessageQuota, Me, PendingAttachment, PreviewStatus, Project, ProjectListResponse, ProjectService, UserNotice } from './domain';
+import type { AppDialogConfig, BuilderMode, BusyPolicy, Feed, FeedRow, Message, MessageQuota, Me, PendingAttachment, PreviewStatus, Project, ProjectListResponse, ProjectService, UserNotice } from './domain';
 import { feedAwaitingAgent, feedRows } from './feed';
 import { formatResetCountdown, projectLaunchErrorMessage } from './format';
 import { installPwa } from './pwa';
@@ -159,7 +159,8 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const activeProject = feed?.project?.id === activeID ? feed.project : active;
   const selectedService = useMemo(() => selectedProjectService(activeProject), [activeProject]);
   const activePreviewURL = selectedService?.url ?? activeProject?.previewUrl ?? '';
-  const rows = useMemo(() => feedRows(feed), [feed]);
+  const rawRows = useMemo(() => feedRows(feed), [feed]);
+  const rows = useMemo(() => normalizeActiveNotificationRows(rawRows), [rawRows]);
   const agentWorking = Boolean(signedIn && activeProject?.status === 'ready' && activePreviewURL && (messageSubmitting || feed?.live?.isProcessing || feedAwaitingAgent(feed)));
   const agentWorkingLabel = messageSubmitting ? 'Transmitting request' : 'Synthesizing canvas';
   const lastRow = rows.at(-1);
@@ -784,6 +785,23 @@ function mergeFeedSnapshot(current: Feed | null, next: Feed): Feed {
 
 function feedHasDurableNotifications(feed: Feed): boolean {
   return feedRows({ ...feed, live: null }).some((row) => row.kind === 'notification');
+}
+
+function normalizeActiveNotificationRows(rows: FeedRow[]): FeedRow[] {
+  let latestNotificationIndex = -1;
+  let latestActiveIndex = -1;
+  rows.forEach((row, index) => {
+    if (row.kind !== 'notification') return;
+    latestNotificationIndex = index;
+    if (row.active) latestActiveIndex = index;
+  });
+  if (latestActiveIndex === -1) return rows;
+
+  return rows.map((row, index) => {
+    if (row.kind !== 'notification' || !row.active) return row;
+    if (latestActiveIndex === latestNotificationIndex && index === latestActiveIndex) return row;
+    return { ...row, active: false };
+  });
 }
 
 createRoot(document.getElementById('root')!).render(<App />);
