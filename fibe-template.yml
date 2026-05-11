@@ -3,12 +3,13 @@ x-fibe.gg:
     REPO_URL:
       name: Repository URL
       required: true
+      default: "https://github.com/fibegg/likeable"
     SUBDOMAIN:
       name: Subdomain
       default: "@"
     BASE_URL:
       name: Public app URL
-      default: "http://likeable.phoenix.test"
+      default: "https://likeable.lol"
     ADMIN_EMAIL:
       name: Admin email
       default: "admin@example.com"
@@ -44,11 +45,11 @@ services:
     cap_drop:
       - ALL
     labels:
-      fibe.gg/repo_url: $$var__REPO_URL
+      fibe.gg/repo_url: "$$var__REPO_URL"
       fibe.gg/source_mount: /src
       fibe.gg/dockerfile: Dockerfile
       fibe.gg/expose: external:8080
-      fibe.gg/subdomain: $$var__SUBDOMAIN
+      fibe.gg/subdomain: "$$var__SUBDOMAIN"
       fibe.gg/zerodowntime: "true"
       fibe.gg/healthcheck_path: /healthz
       fibe.gg/healthcheck_interval: 30s
@@ -57,12 +58,12 @@ services:
       fibe.gg/healthcheck_start_period: 10s
     environment:
       ADDR: ":8080"
-      ADMIN_EMAIL: $$var__ADMIN_EMAIL
-      BASE_URL: $$var__BASE_URL
+      ADMIN_EMAIL: "$$var__ADMIN_EMAIL"
+      BASE_URL: "$$var__BASE_URL"
       DATABASE_PATH: /data/likeable.db
       HOME: /tmp
-      LIKEABLE_DEV_AUTH: $$var__LIKEABLE_DEV_AUTH
-      LIKEABLE_BOOTSTRAP_TOKEN: $$var__BOOTSTRAP_TOKEN
+      LIKEABLE_DEV_AUTH: "$$var__LIKEABLE_DEV_AUTH"
+      LIKEABLE_BOOTSTRAP_TOKEN: "$$var__BOOTSTRAP_TOKEN"
       REDIS_URL: redis://redis:6379/0
     depends_on:
       redis:
