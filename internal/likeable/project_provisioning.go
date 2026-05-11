@@ -312,6 +312,9 @@ func (s *Server) refreshProjectResources(ctx context.Context, user *User, projec
 	if user == nil || project == nil || strings.TrimSpace(project.PlaygroundID) == "" || project.Status == "deleting" {
 		return project, nil
 	}
+	if err := s.applyCurrentProjectAssignment(ctx, user, project); err != nil {
+		return project, err
+	}
 	if !force {
 		key := user.ID + ":" + project.ID + ":resources"
 		if last, ok := s.refreshing.Load(key); ok {
@@ -345,6 +348,23 @@ func (s *Server) refreshProjectResources(ctx context.Context, user *User, projec
 		return project, err
 	}
 	return updated, nil
+}
+
+func (s *Server) applyCurrentProjectAssignment(ctx context.Context, user *User, project *Project) error {
+	cfg, err := s.store.ConfigMap(ctx)
+	if err != nil {
+		return err
+	}
+	assignment, changed, err := fibe.CurrentAssignmentForProject(cfg, project, user.Email)
+	if err != nil {
+		return err
+	}
+	if !changed {
+		return nil
+	}
+	project.AgentID = assignment.AgentID
+	project.MarqueeID = assignment.MarqueeID
+	return nil
 }
 
 func projectNeedsReadinessRecovery(project *Project) bool {

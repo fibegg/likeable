@@ -336,13 +336,13 @@ func parseGreenfieldServices(raw any) []GreenfieldService {
 		if !ok {
 			continue
 		}
-		rawURL := firstNonEmpty(fmt.Sprint(entry["url"]))
+		rawURL := firstNonEmpty(fmt.Sprint(entry["url"]), fmt.Sprint(entry["preview_url"]))
 		if rawURL == "" {
 			continue
 		}
 		services = append(services, GreenfieldService{
 			Name:         serviceName(entry),
-			URL:          rawURL,
+			URL:          browserPreviewURL(rawURL),
 			Type:         firstNonEmpty(fmt.Sprint(entry["type"]), fmt.Sprint(entry["service_type"])),
 			Visibility:   firstNonEmpty(fmt.Sprint(entry["visibility"]), fmt.Sprint(entry["exposure"])),
 			AuthRequired: boolValue(firstAny(entry["auth_required"], entry["authRequired"])),
@@ -592,7 +592,7 @@ func routePreviewURL(route map[string]any) string {
 	)
 	if rawURL != "" {
 		if strings.HasPrefix(rawURL, "http://") || strings.HasPrefix(rawURL, "https://") {
-			return rawURL
+			return browserPreviewURL(rawURL)
 		}
 		return "https://" + strings.TrimLeft(rawURL, "/")
 	}
@@ -605,10 +605,24 @@ func routePreviewURL(route map[string]any) string {
 		return ""
 	}
 	scheme := "https"
-	if strings.Contains(host, ".test") || strings.Contains(host, "localhost") || strings.Contains(host, "127.0.0.1") {
+	if strings.Contains(host, "localhost") || strings.Contains(host, "127.0.0.1") {
 		scheme = "http"
 	}
 	return scheme + "://" + host
+}
+
+func browserPreviewURL(rawURL string) string {
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Scheme != "http" || !localPreviewHost(parsed.Hostname()) {
+		return rawURL
+	}
+	parsed.Scheme = "https"
+	return parsed.String()
+}
+
+func localPreviewHost(host string) bool {
+	host = strings.ToLower(strings.TrimSpace(host))
+	return host == "phoenix.test" || strings.HasSuffix(host, ".phoenix.test")
 }
 
 func routeServiceName(route map[string]any) string {

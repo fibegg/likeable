@@ -2,10 +2,12 @@ package fibe
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -110,7 +112,7 @@ func ProbePreviewURLResult(ctx context.Context, client *http.Client, previewURL 
 	}
 	req.Header.Set("Cache-Control", "no-cache")
 	req.Header.Set("User-Agent", "likeable-preview-probe/1.0")
-	resp, err := client.Do(req)
+	resp, err := previewProbeClient(client, previewURL).Do(req)
 	if err != nil {
 		return PreviewProbeResult{Status: err.Error()}, nil
 	}
@@ -132,6 +134,42 @@ func ProbePreviewURLResult(ctx context.Context, client *http.Client, previewURL 
 	result.Ready = true
 	result.Displayable = true
 	return result, nil
+}
+
+func previewProbeClient(client *http.Client, previewURL string) *http.Client {
+	if !localInsecurePreviewTLS(previewURL) {
+		return client
+	}
+	clone := *client
+	var transport *http.Transport
+	if client.Transport == nil {
+		transport = http.DefaultTransport.(*http.Transport).Clone()
+	} else if existing, ok := client.Transport.(*http.Transport); ok {
+		transport = existing.Clone()
+	} else {
+		return client
+	}
+	tlsConfig := transport.TLSClientConfig
+	if tlsConfig == nil {
+		tlsConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+	} else {
+		tlsConfig = tlsConfig.Clone()
+		if tlsConfig.MinVersion == 0 {
+			tlsConfig.MinVersion = tls.VersionTLS12
+		}
+	}
+	tlsConfig.InsecureSkipVerify = true // #nosec G402
+	transport.TLSClientConfig = tlsConfig
+	clone.Transport = transport
+	return &clone
+}
+
+func localInsecurePreviewTLS(previewURL string) bool {
+	parsed, err := url.Parse(previewURL)
+	if err != nil || parsed.Scheme != "https" {
+		return false
+	}
+	return localPreviewHost(parsed.Hostname())
 }
 
 func previewStatusReady(status int) bool {

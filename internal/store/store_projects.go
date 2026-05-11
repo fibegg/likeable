@@ -227,9 +227,9 @@ func (s *Store) SaveProjectProvisioningSnapshot(ctx context.Context, project *Pr
 
 	result, err := tx.ExecContext(ctx, `
 		UPDATE projects
-		SET playground_id = ?, playground_name = ?, playspec_id = ?, prop_id = ?, repo_url = ?, preview_url = ?, selected_service_name = ?, status = ?, error_message = '', cleanup_last_error = '', updated_at = ?
+		SET agent_id = ?, marquee_id = ?, playground_id = ?, playground_name = ?, playspec_id = ?, prop_id = ?, repo_url = ?, preview_url = ?, selected_service_name = ?, status = ?, error_message = '', cleanup_last_error = '', updated_at = ?
 		WHERE id = ? AND user_id = ? AND status != 'deleting'
-	`, project.PlaygroundID, project.PlaygroundName, project.PlayspecID, project.PropID, project.RepoURL, project.PreviewURL, project.SelectedService, status, nowString(), project.ID, project.UserID)
+	`, project.AgentID, project.MarqueeID, project.PlaygroundID, project.PlaygroundName, project.PlayspecID, project.PropID, project.RepoURL, project.PreviewURL, project.SelectedService, status, nowString(), project.ID, project.UserID)
 	if err != nil {
 		return err
 	}

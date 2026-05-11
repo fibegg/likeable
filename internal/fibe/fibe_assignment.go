@@ -58,6 +58,39 @@ func AssignmentForProject(cfg map[string]string, project *Project, email string)
 	return global, nil
 }
 
+func CurrentAssignmentForProject(cfg map[string]string, project *Project, email string) (Assignment, bool, error) {
+	stored := Assignment{}
+	if project != nil {
+		stored = Assignment{
+			AgentID:   strings.TrimSpace(project.AgentID),
+			MarqueeID: strings.TrimSpace(project.MarqueeID),
+		}
+	}
+	global := GlobalAssignment(cfg)
+	if global.AgentID != "" {
+		current := Assignment{
+			AgentID:   global.AgentID,
+			MarqueeID: firstNonEmpty(global.MarqueeID, stored.MarqueeID),
+		}
+		return current, !sameAssignment(stored, current), nil
+	}
+	pool, err := assignmentPoolFromConfig(cfg)
+	if err != nil {
+		return Assignment{}, false, err
+	}
+	if len(pool) == 0 {
+		return stored, false, nil
+	}
+	if assignmentInPool(stored, pool) {
+		return stored, false, nil
+	}
+	current, ok := selectAssignment(email, pool)
+	if !ok {
+		return stored, false, nil
+	}
+	return current, !sameAssignment(stored, current), nil
+}
+
 func assignmentPoolFromConfig(cfg map[string]string) ([]Assignment, error) {
 	return ParseAssignmentPool(firstNonEmpty(cfg["fibe_agent_server_pool"], cfg["fibe_agent_marquee_pool"]))
 }
@@ -124,6 +157,23 @@ func selectAssignment(email string, pool []Assignment) (Assignment, bool) {
 		return Assignment{}, false
 	}
 	return selected, true
+}
+
+func assignmentInPool(assignment Assignment, pool []Assignment) bool {
+	if assignment.AgentID == "" {
+		return false
+	}
+	for _, candidate := range pool {
+		if sameAssignment(assignment, candidate) {
+			return true
+		}
+	}
+	return false
+}
+
+func sameAssignment(left Assignment, right Assignment) bool {
+	return strings.TrimSpace(left.AgentID) == strings.TrimSpace(right.AgentID) &&
+		strings.TrimSpace(left.MarqueeID) == strings.TrimSpace(right.MarqueeID)
 }
 
 func assignmentScore(email, key string) uint64 {

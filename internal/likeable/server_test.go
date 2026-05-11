@@ -979,6 +979,64 @@ func TestProjectMessagePromotesLaunchingReadyWorkspace(t *testing.T) {
 	}
 }
 
+func TestProjectMessageRefreshesStaleAssignmentFromCurrentPool(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	_, logPath, _ := fakeFibeCLI(t)
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url":          "server.test:3000",
+		"fibe_api_key":           "test-key",
+		"fibe_agent_server_pool": `[{"agent_id":"current-agent","server_id":"current-marquee"}]`,
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	user, _ := store.UpsertUser(t.Context(), "a@example.com", "A", "")
+	if err := store.CreateSession(t.Context(), user.ID, "token-a", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{
+		ID:             "project-stale-assignment",
+		UserID:         user.ID,
+		Title:          "Stale",
+		ConversationID: "conv-stale",
+		AgentID:        "stale-agent",
+		MarqueeID:      "stale-marquee",
+		PlaygroundID:   "123",
+		PreviewURL:     "http://preview.example.test",
+		Status:         "ready",
+	}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/projects/project-stale-assignment/messages", strings.NewReader(`{"text":"change the heading"}`))
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "token-a"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("message returned %d: %s", rec.Code, rec.Body.String())
+	}
+	updated, err := store.ProjectForUser(t.Context(), user.ID, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.AgentID != "current-agent" || updated.MarqueeID != "current-marquee" {
+		t.Fatalf("assignment=%s/%s, want current-agent/current-marquee", updated.AgentID, updated.MarqueeID)
+	}
+	log := readFile(t, logPath)
+	if !strings.Contains(log, "agents create-conversation current-agent") || !strings.Contains(log, "agents send-message current-agent") {
+		t.Fatalf("commands=%s, want current assignment", log)
+	}
+	if strings.Contains(log, "stale-agent") {
+		t.Fatalf("commands=%s, stale assignment should not be used", log)
+	}
+}
+
 func TestProjectMessageIsStoredBeforeForwardingToAgent(t *testing.T) {
 	dir := t.TempDir()
 	cliPath := filepath.Join(dir, "fibe")

@@ -1,8 +1,10 @@
 package fibe
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -254,6 +256,36 @@ func TestFibeAssignmentFallsBackToGlobalConfig(t *testing.T) {
 	}
 }
 
+func TestCurrentAssignmentForProjectRepairsStaleStoredPair(t *testing.T) {
+	assignment, changed, err := CurrentAssignmentForProject(map[string]string{
+		"fibe_agent_server_pool": `[{"agent_id":"current-agent","server_id":"current-marquee"}]`,
+	}, &Project{AgentID: "stale-agent", MarqueeID: "stale-marquee"}, "pilot@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed {
+		t.Fatal("changed=false, want stale assignment repaired")
+	}
+	if assignment.AgentID != "current-agent" || assignment.MarqueeID != "current-marquee" {
+		t.Fatalf("assignment=%+v, want current pool pair", assignment)
+	}
+}
+
+func TestCurrentAssignmentForProjectKeepsStoredPairInPool(t *testing.T) {
+	assignment, changed, err := CurrentAssignmentForProject(map[string]string{
+		"fibe_agent_server_pool": `[{"agent_id":"stored-agent","server_id":"stored-marquee"},{"agent_id":"other-agent","server_id":"other-marquee"}]`,
+	}, &Project{AgentID: "stored-agent", MarqueeID: "stored-marquee"}, "pilot@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed {
+		t.Fatal("changed=true, want stored pool assignment preserved")
+	}
+	if assignment.AgentID != "stored-agent" || assignment.MarqueeID != "stored-marquee" {
+		t.Fatalf("assignment=%+v, want stored pool pair", assignment)
+	}
+}
+
 func TestParseGreenfieldStatusPrefersAppPreviewURL(t *testing.T) {
 	result := parseGreenfieldStatus(map[string]any{
 		"status": "success",
@@ -262,7 +294,7 @@ func TestParseGreenfieldStatusPrefersAppPreviewURL(t *testing.T) {
 			map[string]any{"name": "app", "type": "dynamic", "url": "http://starter.phoenix.test", "visibility": "external"},
 		},
 	})
-	if result.PreviewURL != "http://starter.phoenix.test" {
+	if result.PreviewURL != "https://starter.phoenix.test" {
 		t.Fatalf("PreviewURL=%q, want app URL", result.PreviewURL)
 	}
 }
@@ -284,7 +316,7 @@ func TestParseGreenfieldStatusReturnsAllServicesAndRepos(t *testing.T) {
 		},
 	})
 
-	if result.PreviewURL != "http://app.phoenix.test" || result.SelectedServiceName != "app" {
+	if result.PreviewURL != "https://app.phoenix.test" || result.SelectedServiceName != "app" {
 		t.Fatalf("selected service=%q url=%q", result.SelectedServiceName, result.PreviewURL)
 	}
 	if len(result.Services) != 2 {
@@ -693,6 +725,28 @@ func TestProbePreviewURLResultKeepsPlain503NotDisplayable(t *testing.T) {
 	}
 	if result.Ready || result.Displayable || result.Maintenance {
 		t.Fatalf("result=%+v, want ordinary 503 to stay behind placeholder", result)
+	}
+}
+
+func TestProbePreviewURLResultAllowsLocalPhoenixSelfSignedTLS(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	transport := &http.Transport{
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, network, server.Listener.Addr().String())
+		},
+	}
+	client := &http.Client{Transport: transport}
+
+	result, err := ProbePreviewURLResult(t.Context(), client, "https://lk-test.phoenix.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Ready || !result.Displayable {
+		t.Fatalf("result=%+v, want ready displayable preview", result)
 	}
 }
 
