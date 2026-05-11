@@ -284,6 +284,8 @@ func (s *Server) handleProjectFeed(w http.ResponseWriter, r *http.Request, user 
 	if activity == nil {
 		activity = []any{}
 	}
+	messages = sanitizeAgentProtocolMessages(messages)
+	sanitizeAgentProtocolLiveState(live)
 	response := map[string]any{"project": project, "localMessages": local, "messages": messages, "activity": activity, "live": live}
 	if len(warnings) > 0 {
 		response["warning"] = strings.Join(warnings, " ")

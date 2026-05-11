@@ -1449,6 +1449,88 @@ esac
 	}
 }
 
+func TestProjectFeedSanitizesAgentNotificationProtocol(t *testing.T) {
+	dir := t.TempDir()
+	cliPath := filepath.Join(dir, "fibe")
+	script := `#!/bin/sh
+case "$*" in
+  *"agents messages"*)
+    echo '{"content":[{"role":"assistant","body":"hidden prose [[LIKEABLE_NOTIFICATION_START]]Checking the preview[[LIKEABLE_NOTIFICATION_END]] more prose [[LIKEABLE_NOTIFICATION_START]]Canvas updated[[LIKEABLE_NOTIFICATION_END]]"},{"role":"user","body":"keep user body"}]}'
+    ;;
+  *"agents activity"*)
+    echo '{"content":[]}'
+    ;;
+  *"agents live-state"*)
+    echo '{"conversationId":"conv-clean","isProcessing":true,"streamText":"thinking [[LIKEABLE_NOTIFICATION_START]]Updating files[[LIKEABLE_NOTIFICATION_END]] noisy"}'
+    ;;
+  *)
+    echo "unexpected command: $*" >&2
+    exit 64
+    ;;
+esac
+`
+	if err := os.WriteFile(cliPath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url": "server.test:3000",
+		"fibe_api_key":  "test-key",
+		"fibe_cli_path": cliPath,
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	user, _ := store.UpsertUser(t.Context(), "a@example.com", "A", "")
+	if err := store.CreateSession(t.Context(), user.ID, "token-a", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{
+		ID:             "project-feed-sanitize",
+		UserID:         user.ID,
+		Title:          "Sanitize",
+		ConversationID: "conv-clean",
+		AgentID:        "agent-1",
+		PreviewURL:     "http://preview.example.test",
+		Status:         "ready",
+	}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/projects/project-feed-sanitize/feed", nil)
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "token-a"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("feed returned %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Messages []struct {
+			Role string `json:"role"`
+			Body string `json:"body"`
+		} `json:"messages"`
+		Live struct {
+			StreamText string `json:"streamText"`
+		} `json:"live"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	wantAssistant := "[[LIKEABLE_NOTIFICATION_START]]Checking the preview[[LIKEABLE_NOTIFICATION_END]][[LIKEABLE_NOTIFICATION_START]]Canvas updated[[LIKEABLE_NOTIFICATION_END]]"
+	if len(body.Messages) != 2 || body.Messages[0].Body != wantAssistant || body.Messages[1].Body != "keep user body" {
+		t.Fatalf("messages=%+v, want sanitized assistant and untouched user", body.Messages)
+	}
+	wantLive := "[[LIKEABLE_NOTIFICATION_START]]Updating files[[LIKEABLE_NOTIFICATION_END]]"
+	if body.Live.StreamText != wantLive {
+		t.Fatalf("live stream=%q, want %q", body.Live.StreamText, wantLive)
+	}
+}
+
 func TestProjectFeedRefreshesTransformedServiceLayout(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {
