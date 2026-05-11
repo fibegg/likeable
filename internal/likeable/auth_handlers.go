@@ -30,12 +30,22 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	notices, _ := s.store.ActiveNoticesForUser(r.Context(), user.ID, 3)
+	githubConnected := false
+	githubNeedsReconnect := false
+	if conn, err := s.store.SocialConnection(r.Context(), user.ID, "github"); err == nil {
+		githubConnected = true
+		githubNeedsReconnect = conn != nil && !githubScopeIncludes(conn.Scope, "workflow")
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		log.Printf("load github connection for user %s failed: %v", user.ID, err)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"user":         user,
-		"isAdmin":      s.config.AdminEmail != "" && normalizeEmail(user.Email) == s.config.AdminEmail,
-		"messageQuota": s.messageQuota(r.Context(), user),
-		"projectQuota": s.projectQuota(r.Context(), user),
-		"notices":      notices,
+		"user":                 user,
+		"isAdmin":              s.config.AdminEmail != "" && normalizeEmail(user.Email) == s.config.AdminEmail,
+		"githubConnected":      githubConnected,
+		"githubNeedsReconnect": githubNeedsReconnect,
+		"messageQuota":         s.messageQuota(r.Context(), user),
+		"projectQuota":         s.projectQuota(r.Context(), user),
+		"notices":              notices,
 	})
 }
 

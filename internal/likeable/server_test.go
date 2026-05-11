@@ -1,6 +1,7 @@
 package likeable
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"crypto/hmac"
@@ -263,6 +264,65 @@ func TestBootstrapConfigIsOneTime(t *testing.T) {
 	}
 }
 
+func TestMeIncludesGithubConnectionState(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	user, err := store.UpsertUser(t.Context(), "github@example.com", "GitHub User", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateSession(t.Context(), user.ID, "github-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+
+	readGithubState := func() (bool, bool) {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "/api/me", nil)
+		req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "github-token"})
+		rec := httptest.NewRecorder()
+		server.routes().ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("me returned %d, want 200; body=%s", rec.Code, rec.Body.String())
+		}
+		var body map[string]any
+		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		value, ok := body["githubConnected"].(bool)
+		if !ok {
+			t.Fatalf("githubConnected missing from /api/me response: %+v", body)
+		}
+		needsReconnect, ok := body["githubNeedsReconnect"].(bool)
+		if !ok {
+			t.Fatalf("githubNeedsReconnect missing from /api/me response: %+v", body)
+		}
+		return value, needsReconnect
+	}
+
+	connected, needsReconnect := readGithubState()
+	if connected || needsReconnect {
+		t.Fatalf("github state=%t/%t before connecting GitHub, want disconnected without reconnect prompt", connected, needsReconnect)
+	}
+	if err := store.UpsertSocialConnection(t.Context(), SocialConnection{UserID: user.ID, Provider: "github", ProviderUserID: "gh-user", AccessToken: "token", Scope: "repo"}); err != nil {
+		t.Fatal(err)
+	}
+	connected, needsReconnect = readGithubState()
+	if !connected || !needsReconnect {
+		t.Fatalf("github state=%t/%t with repo-only scope, want connected with reconnect prompt", connected, needsReconnect)
+	}
+	if err := store.UpsertSocialConnection(t.Context(), SocialConnection{UserID: user.ID, Provider: "github", ProviderUserID: "gh-user", AccessToken: "token", Scope: "repo,workflow"}); err != nil {
+		t.Fatal(err)
+	}
+	connected, needsReconnect = readGithubState()
+	if !connected || needsReconnect {
+		t.Fatalf("github state=%t/%t with workflow scope, want connected without reconnect prompt", connected, needsReconnect)
+	}
+}
+
 func TestProjectEndpointsEnforceUserOwnership(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {
@@ -301,11 +361,13 @@ func TestProjectEndpointsEnforceUserOwnership(t *testing.T) {
 		{http.MethodGet, "/api/projects/project-b/preview-status", ""},
 		{http.MethodPost, "/api/projects/project-b/messages", `{"text":"steal"}`},
 		{http.MethodPost, "/api/projects/project-b/export", `{"repoName":"steal"}`},
+		{http.MethodPost, "/api/projects/project-b/archive", `{}`},
 		{http.MethodDelete, "/api/projects/project-b", ""},
 		{http.MethodGet, "/api/projects/likeable-secret-conversation/feed", ""},
 		{http.MethodGet, "/api/projects/likeable-secret-conversation/preview-status", ""},
 		{http.MethodPost, "/api/projects/likeable-secret-conversation/messages", `{"text":"steal"}`},
 		{http.MethodPost, "/api/projects/likeable-secret-conversation/export", `{"repoName":"steal"}`},
+		{http.MethodPost, "/api/projects/likeable-secret-conversation/archive", `{}`},
 		{http.MethodPatch, "/api/projects/likeable-secret-conversation", `{"title":"stolen"}`},
 		{http.MethodDelete, "/api/projects/likeable-secret-conversation", ""},
 	} {
@@ -318,6 +380,94 @@ func TestProjectEndpointsEnforceUserOwnership(t *testing.T) {
 		if rec.Code != http.StatusNotFound {
 			t.Fatalf("%s %s returned %d, want 404; body=%s", tc.method, tc.path, rec.Code, rec.Body.String())
 		}
+	}
+}
+
+func TestProjectExportRequiresWorkflowGithubScope(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	user, err := store.UpsertUser(t.Context(), "github@example.com", "GitHub User", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateSession(t.Context(), user.ID, "github-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{ID: "project-export", UserID: user.ID, Title: "Export Me", ConversationID: "conv-export", Status: "ready"}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertSocialConnection(t.Context(), SocialConnection{UserID: user.ID, Provider: "github", ProviderUserID: "gh-user", AccessToken: "token", Scope: "repo"}); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/projects/project-export/export", strings.NewReader(`{"repoName":"export-me","private":true}`))
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "github-token"})
+	rec := httptest.NewRecorder()
+
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusPreconditionRequired {
+		t.Fatalf("export returned %d, want 428; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "workflow") {
+		t.Fatalf("export body=%s, want workflow reconnect guidance", rec.Body.String())
+	}
+}
+
+func TestProjectArchiveExportCreatesDownloadableZip(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	user, err := store.UpsertUser(t.Context(), "archive@example.com", "Archive User", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateSession(t.Context(), user.ID, "archive-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{ID: "project-archive", UserID: user.ID, Title: "Zip Me", ConversationID: "conv-archive", Status: "ready"}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/projects/project-archive/archive", strings.NewReader(`{}`))
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "archive-token"})
+	rec := httptest.NewRecorder()
+
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("archive export returned %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Archive     ProjectArchive `json:"archive"`
+		DownloadURL string         `json:"downloadUrl"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Archive.ID == "" || body.DownloadURL == "" {
+		t.Fatalf("archive response=%+v, want archive id and download URL", body)
+	}
+	downloadReq := httptest.NewRequest(http.MethodGet, "/api/profile/archives/"+body.Archive.ID+"/download", nil)
+	downloadReq.AddCookie(&http.Cookie{Name: "likeable_session", Value: "archive-token"})
+	downloadRec := httptest.NewRecorder()
+	server.routes().ServeHTTP(downloadRec, downloadReq)
+	if downloadRec.Code != http.StatusOK {
+		t.Fatalf("archive download returned %d, want 200; body=%s", downloadRec.Code, downloadRec.Body.String())
+	}
+	reader, err := zip.NewReader(bytes.NewReader(downloadRec.Body.Bytes()), int64(downloadRec.Body.Len()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reader.File) == 0 || reader.File[0].Name != "README.txt" {
+		t.Fatalf("zip files=%+v, want fallback README", reader.File)
 	}
 }
 

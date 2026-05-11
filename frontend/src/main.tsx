@@ -4,9 +4,9 @@ import { CircleStop, ExternalLink, FolderOpen, LayoutPanelLeft, Loader2, LogOut,
 import './styles.css';
 import { Admin } from './admin';
 import { api } from './api';
-import { AgentNotificationRow, AppDialog, CanvasLoader, ConfirmDeleteProject, ConfirmNewProject, DeleteAllAccountDialog, EmptyCanvas, ProjectList, UserMessageRow } from './builder_components';
+import { AgentNotificationRow, AppDialog, CanvasLoader, ConfirmDeleteProject, ConfirmExportProject, ConfirmNewProject, DeleteAllAccountDialog, EmptyCanvas, ProjectList, UserMessageRow } from './builder_components';
 import { BASIC_CHAT_COLLAPSED_KEY, BASIC_CHAT_HEIGHT_KEY, BUILDER_MODE_KEY, MAX_ATTACHMENTS, SINGLE_VIEW_QUERY } from './config';
-import type { AppDialogConfig, BuilderMode, BusyPolicy, Feed, FeedRow, Message, MessageQuota, Me, PendingAttachment, PreviewStatus, Project, ProjectListResponse, ProjectService, UserNotice } from './domain';
+import type { AppDialogConfig, BuilderMode, BusyPolicy, Feed, FeedRow, Message, MessageQuota, Me, PendingAttachment, PreviewStatus, Project, ProjectArchiveResponse, ProjectExportResponse, ProjectListResponse, ProjectService, UserNotice } from './domain';
 import { feedAwaitingAgent, feedHasAssistantAfterLatestUser, feedLiveIdle, feedRows } from './feed';
 import { formatResetCountdown, projectLaunchErrorMessage } from './format';
 import { installPwa } from './pwa';
@@ -136,6 +136,9 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const [showProfile, setShowProfile] = useState(profileRoute && signedIn);
   const [confirmNewProject, setConfirmNewProject] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Project | null>(null);
+  const [exportTarget, setExportTarget] = useState<Project | null>(null);
+  const [exportingID, setExportingID] = useState('');
+  const [exportingMode, setExportingMode] = useState<'github' | 'zip' | ''>('');
   const [dialog, setDialog] = useState<AppDialogConfig | null>(null);
   const [iframeLoaded, setIframeLoaded] = useState(false);
   const [previewStatus, setPreviewStatus] = useState<PreviewStatus | null>(null);
@@ -180,6 +183,8 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const projectCapLabel = projectCap == null ? `${projects.length}` : `${projects.length}/${projectCap}`;
   const messageQuotaLabel = messageQuota ? `${messageQuota.remaining}/${messageQuota.limit}` : '';
   const messageQuotaTooltip = messageQuota ? `${messageQuota.paidRemaining ?? 0} paid credits · resets in ${formatResetCountdown(messageQuota.resetsAt, quotaNow)}` : '';
+  const githubConnected = Boolean(me.githubConnected);
+  const githubNeedsReconnect = Boolean(me.githubNeedsReconnect);
   const isProjectStarting = activeProject?.status === 'creating' || activeProject?.status === 'launching';
   const previewMaintenance = Boolean(activePreviewURL && previewStatus?.maintenance);
   const previewReady = Boolean(activePreviewURL && previewStatus?.ready);
@@ -510,6 +515,61 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       setBusy(false);
     }
   };
+  const requestProjectExport = (project: Project) => {
+    setExportTarget(project);
+  };
+  const connectGithub = () => {
+    location.href = '/api/profile/github/start';
+  };
+  const exportProject = async (project: Project, repoName: string, privateRepo: boolean) => {
+    if (!signedIn) return;
+    setBusy(true);
+    setExportingID(project.id);
+    setExportingMode('github');
+    try {
+      const res = await api<ProjectExportResponse>(`/api/projects/${project.id}/export`, {
+        method: 'POST',
+        body: JSON.stringify({ repoName, private: privateRepo })
+      });
+      setExportTarget(null);
+      setDialog({
+        title: 'Export ready',
+        body: `${project.title} was pushed to ${res.githubRepoUrl}.`,
+        confirmLabel: 'Open GitHub',
+        onConfirm: () => {
+          window.open(res.githubRepoUrl, '_blank', 'noopener,noreferrer');
+        }
+      });
+    } catch (err) {
+      setExportTarget(null);
+      setDialog({ title: 'Export failed', body: err instanceof Error ? err.message : 'Request failed', tone: 'warning', confirmLabel: 'Close' });
+    } finally {
+      setExportingID('');
+      setExportingMode('');
+      setBusy(false);
+    }
+  };
+  const exportProjectZip = async (project: Project) => {
+    if (!signedIn) return;
+    setBusy(true);
+    setExportingID(project.id);
+    setExportingMode('zip');
+    try {
+      const res = await api<ProjectArchiveResponse>(`/api/projects/${project.id}/archive`, {
+        method: 'POST',
+        body: JSON.stringify({})
+      });
+      setExportTarget(null);
+      location.href = res.downloadUrl;
+    } catch (err) {
+      setExportTarget(null);
+      setDialog({ title: 'Zip export failed', body: err instanceof Error ? err.message : 'Request failed', tone: 'warning', confirmLabel: 'Close' });
+    } finally {
+      setExportingID('');
+      setExportingMode('');
+      setBusy(false);
+    }
+  };
   const handleComposerKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (singleView) return;
     if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return;
@@ -684,7 +744,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
         Powered by <span>fibe.gg</span>
       </a>
       {builderChrome}
-      {showProjects && <ProjectList projects={projects} activeID={activeID} projectCap={projectCap} busy={busy} onSelect={(id) => { setActiveID(id); setShowProjects(false); }} onNew={() => setConfirmNewProject(true)} onRename={renameProject} onDelete={setDeleteTarget} onClose={() => setShowProjects(false)} />}
+      {showProjects && <ProjectList projects={projects} activeID={activeID} projectCap={projectCap} busy={busy} exportingID={exportingID} onSelect={(id) => { setActiveID(id); setShowProjects(false); }} onNew={() => setConfirmNewProject(true)} onRename={renameProject} onDelete={setDeleteTarget} onExport={requestProjectExport} onClose={() => setShowProjects(false)} />}
       {showProfile && <ProfilePanel me={me} onClose={closeProfilePanel} />}
       {!utilityScreenOpen && (
         <>
@@ -778,6 +838,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       )}
       {confirmNewProject && <ConfirmNewProject projectCap={projectCap} projectCount={projects.length} busy={busy} onCancel={() => setConfirmNewProject(false)} onConfirm={createProject} />}
       {deleteTarget && <ConfirmDeleteProject project={deleteTarget} busy={busy} onCancel={() => setDeleteTarget(null)} onConfirm={deleteProject} />}
+      {exportTarget && <ConfirmExportProject project={exportTarget} busy={busy || exportingID === exportTarget.id} busyMode={exportingMode} githubConnected={githubConnected} githubNeedsReconnect={githubNeedsReconnect} onCancel={() => setExportTarget(null)} onGithub={(repoName, privateRepo) => void exportProject(exportTarget, repoName, privateRepo)} onZip={() => void exportProjectZip(exportTarget)} onConnectGithub={connectGithub} />}
       {dialog && <AppDialog dialog={dialog} onClose={() => setDialog(null)} />}
     </section>
   );

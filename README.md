@@ -29,6 +29,26 @@ After the first admin login, open Admin and configure:
 
 Signup defaults to forbidden until the admin changes it.
 
+## GitHub Integration
+
+Likeable does not need any GitHub webhooks.
+
+GitHub is used only as an OAuth + REST/git export integration:
+
+- Users connect GitHub through `/api/profile/github/start`.
+- GitHub redirects back to `/api/profile/github/callback`.
+- Likeable stores the OAuth access token and later uses it to create a repository and push exported project code.
+
+Configure a GitHub OAuth App, not a GitHub App webhook:
+
+- Homepage URL: the public Likeable `BASE_URL`.
+- Authorization callback URL: `${BASE_URL}/api/profile/github/callback`.
+- Requested OAuth scopes: `repo` and `workflow`. The `workflow` scope is required because exported projects can include `.github/workflows/*`.
+- Client ID: save in Admin as `github_client_id`.
+- Client secret: save in Admin as `github_client_secret`.
+
+Do not configure repository webhooks for Likeable. There is no handler for GitHub `push`, `pull_request`, `workflow_run`, or installation events. The only inbound provider webhook currently handled by Likeable is Stripe at `/api/stripe/webhook`.
+
 To run the fully containerized app instead of the live-reload development server:
 
 ```bash

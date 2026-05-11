@@ -152,6 +152,8 @@ func (s *Server) handleProjectRoute(w http.ResponseWriter, r *http.Request) {
 		s.handleProjectAttachment(w, r, project, parts[2])
 	case "export":
 		s.handleProjectExport(w, r, user, project)
+	case "archive":
+		s.handleProjectArchiveExport(w, r, user, project)
 	default:
 		writeError(w, http.StatusNotFound, "not found")
 	}

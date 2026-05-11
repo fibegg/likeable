@@ -20,6 +20,7 @@ import (
 var (
 	githubRepoNamePattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,100}$`)
 	urlUserInfoPattern    = regexp.MustCompile(`https?://[^\s/]+@`)
+	githubOAuthScopes     = []string{"repo", "workflow"}
 )
 
 func (s *Server) githubOAuthConfig(ctx context.Context) (*oauth2.Config, error) {
@@ -36,7 +37,7 @@ func (s *Server) githubOAuthConfig(ctx context.Context) (*oauth2.Config, error) 
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
 		RedirectURL:  s.config.BaseURL + "/api/profile/github/callback",
-		Scopes:       []string{"repo"},
+		Scopes:       githubOAuthScopes,
 		Endpoint: oauth2.Endpoint{
 			AuthURL:  "https://github.com/login/oauth/authorize",
 			TokenURL: "https://github.com/login/oauth/access_token",
@@ -82,7 +83,7 @@ func (s *Server) handleGithubCallback(w http.ResponseWriter, r *http.Request) {
 		Provider:       "github",
 		ProviderUserID: login,
 		AccessToken:    token.AccessToken,
-		Scope:          "repo",
+		Scope:          githubTokenScope(token),
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -141,12 +142,17 @@ func (s *Server) handleProjectExport(w http.ResponseWriter, r *http.Request, use
 		writeError(w, http.StatusPreconditionRequired, "connect GitHub first")
 		return
 	}
+	if !githubScopeIncludes(conn.Scope, "workflow") {
+		writeError(w, http.StatusPreconditionRequired, "Reconnect GitHub to grant workflow export permission.")
+		return
+	}
 	jobID, _ := s.store.CreateExportJob(r.Context(), project.ID)
 	repoURL, err := s.exportProjectToGithub(r.Context(), user, project, conn, body.RepoName, body.Private)
 	if err != nil {
 		log.Printf("export project %s to GitHub failed: %v", project.ID, err)
-		_ = s.store.FinishExportJob(r.Context(), jobID, "error", "", "Export failed. Try again later.")
-		writeError(w, http.StatusBadGateway, "Export failed. Try again later.")
+		message := publicGithubExportError(err)
+		_ = s.store.FinishExportJob(r.Context(), jobID, "error", "", message)
+		writeError(w, http.StatusBadGateway, message)
 		return
 	}
 	_ = s.store.FinishExportJob(r.Context(), jobID, "success", repoURL, "")
@@ -184,6 +190,40 @@ func (s *Server) exportProjectToGithub(ctx context.Context, user *User, project 
 		return "", err
 	}
 	return repoURL, nil
+}
+
+func githubTokenScope(token *oauth2.Token) string {
+	if token == nil {
+		return strings.Join(githubOAuthScopes, ",")
+	}
+	if scope, ok := token.Extra("scope").(string); ok && strings.TrimSpace(scope) != "" {
+		return scope
+	}
+	return strings.Join(githubOAuthScopes, ",")
+}
+
+func githubScopeIncludes(scope, required string) bool {
+	required = strings.ToLower(strings.TrimSpace(required))
+	for _, part := range strings.FieldsFunc(strings.ToLower(scope), func(r rune) bool {
+		return r == ',' || r == ' ' || r == ';' || r == '\t' || r == '\n' || r == '\r'
+	}) {
+		if strings.TrimSpace(part) == required {
+			return true
+		}
+	}
+	return false
+}
+
+func publicGithubExportError(err error) string {
+	message := strings.ToLower(strings.TrimSpace(fmt.Sprint(err)))
+	switch {
+	case strings.Contains(message, "workflow") && strings.Contains(message, "scope"):
+		return "GitHub rejected workflow files. Reconnect GitHub to grant workflow export permission, then export again."
+	case strings.Contains(message, "authentication failed") || strings.Contains(message, "bad credentials") || strings.Contains(message, "401"):
+		return "GitHub authentication failed. Reconnect GitHub, then export again."
+	default:
+		return "Export failed. Try again later."
+	}
 }
 
 func createGithubRepo(ctx context.Context, client *http.Client, token, owner, name string, private bool) (string, error) {

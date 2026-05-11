@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { Check, Loader2, Paperclip, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { Check, Download, GitBranch, Loader2, Paperclip, Pencil, Plus, Trash2, X } from 'lucide-react';
 import type { AppDialogConfig, MessageAttachment, Project, UserFeedRow } from './domain';
 import { formatMessageTime } from './format';
 
-export function ProjectList({ projects, activeID, projectCap, busy, onSelect, onNew, onRename, onDelete, onClose }: { projects: Project[]; activeID: string; projectCap: number | null; busy: boolean; onSelect: (id: string) => void; onNew: () => void; onRename: (project: Project, title: string) => Promise<void>; onDelete: (project: Project) => void; onClose: () => void }) {
+export function ProjectList({ projects, activeID, projectCap, busy, exportingID, onSelect, onNew, onRename, onDelete, onExport, onClose }: { projects: Project[]; activeID: string; projectCap: number | null; busy: boolean; exportingID: string; onSelect: (id: string) => void; onNew: () => void; onRename: (project: Project, title: string) => Promise<void>; onDelete: (project: Project) => void; onExport: (project: Project) => void; onClose: () => void }) {
   const [editingID, setEditingID] = useState('');
   const [draftTitle, setDraftTitle] = useState('');
   const projectCountLabel = projectCap == null
@@ -64,6 +64,15 @@ export function ProjectList({ projects, activeID, projectCap, busy, onSelect, on
                   <em>{project.status}</em>
                 </button>
                 <div className="projectRowActions">
+                  <button
+                    className="projectRowIcon"
+                    disabled={busy || exportingID === project.id || project.status === 'deleting'}
+                    onClick={() => onExport(project)}
+                    aria-label={`Export ${project.title}`}
+                    title="Export project"
+                  >
+                    {exportingID === project.id ? <Loader2 className="spinIcon" size={14} /> : <GitBranch size={14} />}
+                  </button>
                   <button className="projectRowIcon" onClick={() => startEdit(project)} aria-label={`Rename ${project.title}`}><Pencil size={14} /></button>
                   <button className="projectDelete" onClick={() => onDelete(project)} aria-label={`Delete ${project.title}`}><Trash2 size={15} /></button>
                 </div>
@@ -237,6 +246,59 @@ export function ConfirmDeleteProject({ project, busy, onCancel, onConfirm }: { p
       </section>
     </div>
   );
+}
+
+export function ConfirmExportProject({ project, busy, busyMode, githubConnected, githubNeedsReconnect, onCancel, onGithub, onZip, onConnectGithub }: { project: Project; busy: boolean; busyMode: 'github' | 'zip' | ''; githubConnected: boolean; githubNeedsReconnect: boolean; onCancel: () => void; onGithub: (repoName: string, privateRepo: boolean) => void; onZip: () => void; onConnectGithub: () => void }) {
+  const [repoName, setRepoName] = useState(defaultGithubRepoName(project.title));
+  const [privateRepo, setPrivateRepo] = useState(true);
+  const cleanName = repoName.trim();
+  const valid = /^[A-Za-z0-9._-]{1,100}$/.test(cleanName);
+  const githubLabel = !githubConnected ? 'Connect GitHub' : githubNeedsReconnect ? 'Reconnect GitHub' : 'Export GitHub';
+  return (
+    <div className="modalScrim">
+      <section className="confirmDialog">
+        <button className="dialogClose" disabled={busy} onClick={onCancel} aria-label="Close dialog"><X size={16} /></button>
+        <span className="eyebrow">Project export</span>
+        <h2>Export project?</h2>
+        <p>Download a local zip or push the current source for {project.title} to GitHub.</p>
+        <label className="dialogField">
+          <span>Repository name</span>
+          <input className="dialogInput" value={repoName} maxLength={100} onChange={(event) => setRepoName(event.target.value)} placeholder="likeable-project" />
+        </label>
+        <label className="dialogCheck">
+          <input type="checkbox" checked={privateRepo} onChange={(event) => setPrivateRepo(event.target.checked)} />
+          <span>Private repository</span>
+        </label>
+        {!valid && <p className="quotaLine">Use only letters, numbers, dots, underscores, and hyphens.</p>}
+        <div className="dialogActions">
+          <button className="ghostButton" disabled={busy} onClick={onCancel}>Cancel</button>
+          <button className="ghostButton" disabled={busy} onClick={onZip}>
+            {busy && busyMode === 'zip' ? <Loader2 className="spinIcon" size={15} /> : <Download size={15} />}
+            Zip
+          </button>
+          <button className="primaryButton" disabled={busy || (githubConnected && !githubNeedsReconnect && !valid)} onClick={() => {
+            if (!githubConnected || githubNeedsReconnect) {
+              onConnectGithub();
+              return;
+            }
+            onGithub(cleanName, privateRepo);
+          }}>
+            {busy && busyMode === 'github' ? <Loader2 className="spinIcon" size={15} /> : <GitBranch size={15} />}
+            {githubLabel}
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function defaultGithubRepoName(title: string) {
+  return title
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 100) || 'likeable-project';
 }
 
 export function Metric({ label, value }: { label: string; value: string }) {

@@ -1095,6 +1095,20 @@ html[data-builder-mode="split"] .account {
   padding: 7px 10px;
   font-size: 12px;
 }
+.profileConnected {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  border: 1px solid rgba(91, 228, 155, .3);
+  border-radius: 999px;
+  background: rgba(91, 228, 155, .08);
+  color: #9ff4be;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 7px 10px;
+}
 .packButtons {
   display: flex;
   flex-wrap: wrap;
@@ -1853,6 +1867,20 @@ html.resizingChat * {
   line-height: 1.2;
   letter-spacing: 0;
   text-transform: none;
+}
+.dialogCheck {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  margin: 4px 0 12px;
+  color: rgba(216, 228, 231, .78);
+  font-size: 13px;
+  font-weight: 700;
+}
+.dialogCheck input {
+  width: 17px;
+  height: 17px;
+  accent-color: var(--amber);
 }
 .quotaLine {
   color: var(--amber) !important;

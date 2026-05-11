@@ -5,6 +5,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,6 +16,23 @@ import (
 )
 
 const projectArchiveTTL = 90 * 24 * time.Hour
+
+func (s *Server) handleProjectArchiveExport(w http.ResponseWriter, r *http.Request, user *User, project *Project) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	archive, err := s.archiveProjectSource(r.Context(), user, project)
+	if err != nil {
+		log.Printf("archive project %s failed: %v", project.ID, err)
+		writeError(w, http.StatusBadGateway, "Zip export failed. Try again later.")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"archive":     archive,
+		"downloadUrl": archive.DownloadURL,
+	})
+}
 
 func (s *Server) archiveProjectSource(ctx context.Context, user *User, project *Project) (*ProjectArchive, error) {
 	if user == nil || project == nil {

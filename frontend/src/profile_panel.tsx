@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ExternalLink, FolderOpen, GitBranch, Loader2, LogOut, Send, Trash2, Wallet, X } from 'lucide-react';
+import { Check, ExternalLink, FolderOpen, GitBranch, Loader2, LogOut, Send, Trash2, Wallet, X } from 'lucide-react';
 import { api } from './api';
 import { DeleteAllAccountDialog } from './builder_components';
 import type { Me, ProjectArchive, UserNotice } from './domain';
@@ -139,7 +139,9 @@ export function ProfilePanel({ me, onClose }: { me: Me; onClose: () => void }) {
             <span className="profileLabel">GitHub</span>
             <strong>Repository export</strong>
           </div>
-          <a className="ghostButton" href="/api/profile/github/start"><GitBranch size={18} /> Connect</a>
+          {me.githubConnected && !me.githubNeedsReconnect
+            ? <span className="profileConnected"><Check size={15} /> Connected</span>
+            : <a className="ghostButton" href="/api/profile/github/start"><GitBranch size={18} /> {me.githubNeedsReconnect ? 'Reconnect' : 'Connect'}</a>}
         </div>
         <div className="profileCard profileActionCard">
           <div>
