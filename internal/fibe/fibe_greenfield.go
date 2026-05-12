@@ -60,28 +60,25 @@ func (c *Client) EnsureConversation(ctx context.Context, conversationID, title s
 
 func (c *Client) CreateGreenfield(ctx context.Context, project *Project) (*GreenfieldResult, error) {
 	name := firstNonEmpty(project.PlaygroundName, projecttext.SourceNameForProject(project))
-	args := []string{"greenfield", "--name", name, "--git-provider", "gitea", "--private", "--wait-timeout", "10m"}
-	if c.marqueeID != "" {
-		args = append(args, "--marquee-id", c.marqueeID)
-	}
-	if c.templateVersionID != "" {
-		args = append(args, "--template-version-id", c.templateVersionID)
-	}
-	for service, subdomain := range projecttext.ServiceSubdomains(project) {
-		args = append(args, "--service-subdomain", service+"="+subdomain)
-	}
+	serviceSubdomains := projecttext.ServiceSubdomains(project)
+	args := c.greenfieldArgs(name, serviceSubdomains)
 	for key, value := range greenfieldVariables(project) {
 		args = append(args, "--var", key+"="+value)
 	}
 	var status map[string]any
 	if err := c.runCLI(ctx, args, nil, &status); err != nil {
-		if recovered, recoverErr := c.GreenfieldByPlaygroundName(ctx, name); recoverErr == nil && recovered.PlaygroundID != "" {
-			return recovered, nil
+		if filtered, ok := serviceSubdomainsWithoutUnknowns(serviceSubdomains, err); ok {
+			args = c.greenfieldArgs(name, filtered)
+			for key, value := range greenfieldVariables(project) {
+				args = append(args, "--var", key+"="+value)
+			}
+			status = nil
+			if retryErr := c.runCLI(ctx, args, nil, &status); retryErr != nil {
+				return c.recoverGreenfieldAfterCreateError(ctx, project, name, retryErr)
+			}
+		} else {
+			return c.recoverGreenfieldAfterCreateError(ctx, project, name, err)
 		}
-		if recovered, recoverErr := c.FindGreenfieldBySubdomain(ctx, projecttext.PreviewSubdomain(project)); recoverErr == nil && recovered.PlaygroundID != "" {
-			return recovered, nil
-		}
-		return nil, err
 	}
 	result := parseGreenfieldStatus(status)
 	if result.PlaygroundID == "" {
@@ -100,6 +97,78 @@ func (c *Client) CreateGreenfield(ctx context.Context, project *Project) (*Green
 	}
 	result.selectPrimary()
 	return result, nil
+}
+
+func (c *Client) greenfieldArgs(name string, serviceSubdomains map[string]string) []string {
+	args := []string{"greenfield", "--name", name, "--git-provider", "gitea", "--private", "--wait-timeout", "10m"}
+	if c.marqueeID != "" {
+		args = append(args, "--marquee-id", c.marqueeID)
+	}
+	if c.templateVersionID != "" {
+		args = append(args, "--template-version-id", c.templateVersionID)
+	}
+	for service, subdomain := range serviceSubdomains {
+		args = append(args, "--service-subdomain", service+"="+subdomain)
+	}
+	return args
+}
+
+func (c *Client) recoverGreenfieldAfterCreateError(ctx context.Context, project *Project, name string, err error) (*GreenfieldResult, error) {
+	if recovered, recoverErr := c.GreenfieldByPlaygroundName(ctx, name); recoverErr == nil && recovered.PlaygroundID != "" {
+		return recovered, nil
+	}
+	if recovered, recoverErr := c.FindGreenfieldBySubdomain(ctx, projecttext.PreviewSubdomain(project)); recoverErr == nil && recovered.PlaygroundID != "" {
+		return recovered, nil
+	}
+	return nil, err
+}
+
+func serviceSubdomainsWithoutUnknowns(serviceSubdomains map[string]string, err error) (map[string]string, bool) {
+	unknowns := unknownServiceSubdomains(err)
+	if len(unknowns) == 0 {
+		return nil, false
+	}
+	unknownSet := make(map[string]bool, len(unknowns))
+	for _, service := range unknowns {
+		unknownSet[service] = true
+	}
+	filtered := make(map[string]string, len(serviceSubdomains))
+	changed := false
+	for service, subdomain := range serviceSubdomains {
+		if unknownSet[service] {
+			changed = true
+			continue
+		}
+		filtered[service] = subdomain
+	}
+	return filtered, changed
+}
+
+func unknownServiceSubdomains(err error) []string {
+	var platformErr *PlatformError
+	text := err.Error()
+	if errors.As(err, &platformErr) {
+		text = strings.Join([]string{platformErr.Message, platformErr.Stderr}, "\n")
+	}
+	lower := strings.ToLower(text)
+	marker := "unknown exposed service(s):"
+	idx := strings.Index(lower, marker)
+	if idx < 0 {
+		return nil
+	}
+	raw := text[idx+len(marker):]
+	if cut := strings.IndexAny(raw, "\n.;"); cut >= 0 {
+		raw = raw[:cut]
+	}
+	parts := strings.Split(raw, ",")
+	unknowns := make([]string, 0, len(parts))
+	for _, part := range parts {
+		service := strings.Trim(strings.TrimSpace(part), `"'[]{}()`)
+		if service != "" {
+			unknowns = append(unknowns, service)
+		}
+	}
+	return unknowns
 }
 
 func (c *Client) FindGreenfieldBySubdomain(ctx context.Context, subdomain string) (*GreenfieldResult, error) {
@@ -580,6 +649,7 @@ func serviceURLScore(entry map[string]any, rawURL string) int {
 func greenfieldVariables(project *Project) map[string]string {
 	subdomains := projecttext.ServiceSubdomains(project)
 	return map[string]string{
+		"subdomain":       subdomains["app"],
 		"app_subdomain":   subdomains["app"],
 		"admin_subdomain": subdomains["admin"],
 	}

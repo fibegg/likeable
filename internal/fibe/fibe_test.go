@@ -225,10 +225,74 @@ func TestCreateGreenfieldUsesTemplateVersionIDOnlyWhenConfigured(t *testing.T) {
 			if !strings.Contains(log, "--var app_subdomain=lk-0123456789abcdef") {
 				t.Fatalf("log=%s, want app subdomain variable", log)
 			}
+			if !strings.Contains(log, "--var subdomain=lk-0123456789abcdef") {
+				t.Fatalf("log=%s, want generic subdomain variable", log)
+			}
 			if !strings.Contains(log, "--var admin_subdomain=lk-0123456789abcdef-admin") {
 				t.Fatalf("log=%s, want admin subdomain variable", log)
 			}
 		})
+	}
+}
+
+func TestCreateGreenfieldRetriesWithoutUnknownServiceSubdomain(t *testing.T) {
+	dir := t.TempDir()
+	cliPath := filepath.Join(dir, "fibe")
+	logPath := filepath.Join(dir, "commands.log")
+	script := `#!/bin/sh
+printf '%s\n' "$*" >> "` + logPath + `"
+case "$*" in
+  *"greenfield"*--service-subdomain\ admin=*)
+    echo '{"error":{"code":"REMOTE_REQUEST_FAILED","status":422,"message":"fibe: REMOTE_REQUEST_FAILED (422): service_subdomains are invalid: unknown exposed service(s): admin"}}' >&2
+    exit 1
+    ;;
+  *"greenfield"*)
+    echo '{"status":"success","playground":{"id":123},"playspec":{"id":456},"prop":{"id":789},"repo":{"repository_url":"http://gitea.test/owner/repo.git"},"service_urls":[{"name":"app","type":"dynamic","url":"http://lk-test.phoenix.test","visibility":"external"}]}'
+    ;;
+  *)
+    echo "unexpected command: $*" >&2
+    exit 64
+    ;;
+esac
+`
+	if err := os.WriteFile(cliPath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	client := &Client{
+		apiKey:    "test",
+		agentID:   "agent",
+		marqueeID: "30",
+		cliPath:   cliPath,
+		cliDomain: testFibeCLIDomain(),
+		http:      http.DefaultClient,
+	}
+	project := &Project{
+		ID:             "01234567-89ab-cdef-0123-456789abcdef",
+		Title:          "Test app",
+		ConversationID: "likeable-0123456789abcdef0123456789abcdef",
+	}
+	result, err := client.CreateGreenfield(t.Context(), project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.PlaygroundID != "123" {
+		t.Fatalf("playground id=%q, want retry success", result.PlaygroundID)
+	}
+	lines := strings.Split(strings.TrimSpace(readFile(t, logPath)), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("commands=%v, want initial failed command plus retry", lines)
+	}
+	if !strings.Contains(lines[0], "--service-subdomain admin=lk-0123456789abcdef-admin") {
+		t.Fatalf("first command=%q, want admin subdomain", lines[0])
+	}
+	if strings.Contains(lines[1], "--service-subdomain admin=") {
+		t.Fatalf("retry command=%q, should omit unknown admin subdomain", lines[1])
+	}
+	if !strings.Contains(lines[1], "--service-subdomain app=lk-0123456789abcdef") {
+		t.Fatalf("retry command=%q, should keep app subdomain", lines[1])
+	}
+	if !strings.Contains(lines[1], "--marquee-id 30") {
+		t.Fatalf("retry command=%q, should keep stored marquee id", lines[1])
 	}
 }
 
