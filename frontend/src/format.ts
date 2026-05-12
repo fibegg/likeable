@@ -20,6 +20,15 @@ export function formatResetCountdown(value?: string, now = Date.now()): string {
   return `${minutes}m`;
 }
 
+export function formatElapsedDuration(ms?: number): string {
+  if (typeof ms !== 'number' || !Number.isFinite(ms) || ms < 0) return '';
+  const totalSeconds = Math.max(1, Math.round(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes <= 0) return `${seconds}s`;
+  return `${minutes}m${String(seconds).padStart(2, '0')}s`;
+}
+
 export function projectLaunchErrorMessage(_value?: string): string {
   return 'The canvas could not start. Check workspace settings in Admin, then create a new project.';
 }

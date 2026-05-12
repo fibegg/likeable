@@ -743,6 +743,26 @@ func TestProbePreviewURLResultRecognizesMaintenancePage(t *testing.T) {
 	}
 }
 
+func TestProbePreviewURLResultRecognizesMaintenanceHeader(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Fibe-Maintenance", "true")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte("maintenance"))
+	}))
+	defer server.Close()
+
+	result, err := ProbePreviewURLResult(t.Context(), server.Client(), server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Ready {
+		t.Fatal("maintenance should not mark the runtime preview ready")
+	}
+	if !result.Displayable || !result.Maintenance {
+		t.Fatalf("result=%+v, want displayable maintenance page", result)
+	}
+}
+
 func TestProbePreviewURLResultKeepsPlain503NotDisplayable(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "upstream unavailable", http.StatusServiceUnavailable)

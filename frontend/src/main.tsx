@@ -18,6 +18,8 @@ installPwa();
 const LOCAL_AGENT_RUN_MAX_MS = 30 * 60_000;
 const LOCAL_AGENT_IDLE_GRACE_MS = 10_000;
 
+type NotificationTiming = { startedAt?: number; elapsedMs?: number };
+
 function App() {
   const [me, setMe] = useState<Me | null>(null);
   const [route, setRoute] = useState(location.pathname);
@@ -131,6 +133,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const [busy, setBusy] = useState(false);
   const [messageSubmitting, setMessageSubmitting] = useState(false);
   const [pendingAgentRuns, setPendingAgentRuns] = useState<Record<string, number>>({});
+  const [notificationTimings, setNotificationTimings] = useState<Record<string, NotificationTiming>>({});
   const [projectCap, setProjectCap] = useState<number | null>(null);
   const [showProjects, setShowProjects] = useState(false);
   const [showProfile, setShowProfile] = useState(profileRoute && signedIn);
@@ -167,7 +170,8 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const selectedService = useMemo(() => selectedProjectService(activeProject), [activeProject]);
   const activePreviewURL = selectedService?.url ?? activeProject?.previewUrl ?? '';
   const rawRows = useMemo(() => feedRows(feed), [feed]);
-  const rows = useMemo(() => normalizeActiveNotificationRows(rawRows), [rawRows]);
+  const normalizedRows = useMemo(() => normalizeActiveNotificationRows(rawRows), [rawRows]);
+  const rows = useMemo(() => applyNotificationTimings(normalizedRows, notificationTimings), [normalizedRows, notificationTimings]);
   const pendingAgentStartedAt = activeProject?.id ? pendingAgentRuns[activeProject.id] : undefined;
   const pendingAgentAge = typeof pendingAgentStartedAt === 'number' ? Date.now() - pendingAgentStartedAt : null;
   const localAgentRunActive = Boolean(
@@ -314,6 +318,9 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     }
   }, [feed, pendingAgentRuns]);
   useEffect(() => {
+    setNotificationTimings((current) => nextNotificationTimings(current, normalizedRows));
+  }, [normalizedRows]);
+  useEffect(() => {
     const textarea = textareaRef.current;
     if (!textarea) return;
     const maxHeight = singleView ? 112 : 180;
@@ -357,6 +364,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   }, [activeProject?.id, activePreviewURL, activeProject?.status, agentWorking, previewStatus?.maintenance, previewStatus?.ready]);
   useEffect(() => {
     setAttachments([]);
+    setNotificationTimings({});
     dragDepthRef.current = 0;
     setDraggingFiles(false);
   }, [activeID]);
@@ -768,7 +776,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
         <>
           <div className="messages" ref={messagesRef}>
             {rows.map((row) => row.kind === 'notification'
-              ? <AgentNotificationRow key={row.id} body={row.body || agentWorkingLabel} active={row.active} />
+              ? <AgentNotificationRow key={row.id} body={row.body || agentWorkingLabel} active={row.active} elapsedMs={row.elapsedMs} />
               : <UserMessageRow key={row.id} row={row} />
             )}
             {agentWorking && !hasActiveNotification && <AgentNotificationRow body={agentWorkingLabel} active />}
@@ -916,6 +924,50 @@ function normalizeActiveNotificationRows(rows: FeedRow[]): FeedRow[] {
     if (row.kind !== 'notification' || !row.active) return row;
     if (latestActiveIndex === latestNotificationIndex && index === latestActiveIndex) return row;
     return { ...row, active: false };
+  });
+}
+
+function nextNotificationTimings(current: Record<string, NotificationTiming>, rows: FeedRow[]): Record<string, NotificationTiming> {
+  const notificationRows = rows.filter((row) => row.kind === 'notification');
+  if (notificationRows.length === 0) return Object.keys(current).length === 0 ? current : {};
+
+  const now = Date.now();
+  const visibleIDs = new Set(notificationRows.map((row) => row.id));
+  let changed = false;
+  const next: Record<string, NotificationTiming> = { ...current };
+
+  for (const id of Object.keys(next)) {
+    if (!visibleIDs.has(id)) {
+      delete next[id];
+      changed = true;
+    }
+  }
+
+  notificationRows.forEach((row, index) => {
+    const timing = next[row.id];
+    if (row.active) {
+      if (!timing?.startedAt) {
+        next[row.id] = { startedAt: now };
+        changed = true;
+      }
+      return;
+    }
+    if (!timing?.startedAt || timing.elapsedMs != null) return;
+    const laterNotificationArrived = notificationRows.slice(index + 1).length > 0;
+    if (!laterNotificationArrived) return;
+    next[row.id] = { ...timing, elapsedMs: now - timing.startedAt };
+    changed = true;
+  });
+
+  return changed ? next : current;
+}
+
+function applyNotificationTimings(rows: FeedRow[], timings: Record<string, NotificationTiming>): FeedRow[] {
+  return rows.map((row) => {
+    if (row.kind !== 'notification') return row;
+    const elapsedMs = timings[row.id]?.elapsedMs;
+    if (elapsedMs == null) return row;
+    return { ...row, elapsedMs };
   });
 }
 

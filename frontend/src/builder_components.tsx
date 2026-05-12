@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { Check, Download, GitBranch, Loader2, MoreHorizontal, Paperclip, Pencil, Play, Plus, RotateCcw, Square, Trash2, X } from 'lucide-react';
+import { Check, Download, FileOutput, GitBranch, Loader2, MoreHorizontal, Paperclip, Pencil, Play, Plus, RotateCcw, Square, Trash2, X } from 'lucide-react';
 import type { AppDialogConfig, MessageAttachment, Project, UserFeedRow } from './domain';
-import { formatMessageTime } from './format';
+import { formatElapsedDuration, formatMessageTime } from './format';
 
 export function ProjectList({ projects, activeID, projectCap, busy, exportingID, controllingID, onSelect, onNew, onRename, onDelete, onExport, onControlPlayground, onClose }: { projects: Project[]; activeID: string; projectCap: number | null; busy: boolean; exportingID: string; controllingID: string; onSelect: (id: string) => void; onNew: () => void; onRename: (project: Project, title: string) => Promise<void>; onDelete: (project: Project) => void; onExport: (project: Project) => void; onControlPlayground: (project: Project, action: 'start' | 'stop' | 'restart') => Promise<void>; onClose: () => void }) {
   const [editingID, setEditingID] = useState('');
@@ -72,6 +72,17 @@ export function ProjectList({ projects, activeID, projectCap, busy, exportingID,
                   <em>{project.status}</em>
                 </button>
                 <div className="projectRowActions">
+                  <button
+                    className="projectRowIcon"
+                    disabled={busy || exportingID === project.id || project.status === 'deleting'}
+                    onClick={() => onExport(project)}
+                    aria-label={`Export ${project.title}`}
+                    title="Export project"
+                  >
+                    {exportingID === project.id ? <Loader2 className="spinIcon" size={14} /> : <FileOutput size={14} />}
+                  </button>
+                  <button className="projectRowIcon" onClick={() => startEdit(project)} aria-label={`Rename ${project.title}`}><Pencil size={14} /></button>
+                  <button className="projectDelete" onClick={() => onDelete(project)} aria-label={`Delete ${project.title}`}><Trash2 size={15} /></button>
                   <div className="projectMenuAnchor">
                     <button
                       className="projectRowIcon"
@@ -92,17 +103,6 @@ export function ProjectList({ projects, activeID, projectCap, busy, exportingID,
                       </div>
                     )}
                   </div>
-                  <button
-                    className="projectRowIcon"
-                    disabled={busy || exportingID === project.id || project.status === 'deleting'}
-                    onClick={() => onExport(project)}
-                    aria-label={`Export ${project.title}`}
-                    title="Export project"
-                  >
-                    {exportingID === project.id ? <Loader2 className="spinIcon" size={14} /> : <GitBranch size={14} />}
-                  </button>
-                  <button className="projectRowIcon" onClick={() => startEdit(project)} aria-label={`Rename ${project.title}`}><Pencil size={14} /></button>
-                  <button className="projectDelete" onClick={() => onDelete(project)} aria-label={`Delete ${project.title}`}><Trash2 size={15} /></button>
                 </div>
               </>
             )}
@@ -145,13 +145,14 @@ function AttachmentGrid({ attachments }: { attachments: MessageAttachment[] }) {
   );
 }
 
-export function AgentNotificationRow({ body, active }: { body: string; active?: boolean }) {
+export function AgentNotificationRow({ body, active, elapsedMs }: { body: string; active?: boolean; elapsedMs?: number }) {
   const text = body.trim() || (active ? 'Receiving update' : 'Canvas updated');
+  const elapsed = active ? '' : formatElapsedDuration(elapsedMs);
   return (
     <div className={`notificationRow ${active ? 'active' : ''}`} aria-live="polite">
       <div className="notificationBubble">
         {active ? <Loader2 className="notificationSpinner" size={14} /> : <Check className="notificationDone" size={14} />}
-        <span className="notificationText">{text}</span>
+        <span className="notificationText">{text}{elapsed && <small className="notificationElapsed">{elapsed}</small>}</span>
       </div>
     </div>
   );

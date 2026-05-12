@@ -111,6 +111,32 @@ button, a, input, select, [role="button"] { touch-action: manipulation; }
   white-space: pre;
   animation: matrixDrift 3.2s linear infinite;
 }
+.minimizedChatBar.working {
+  border-color: rgba(174, 244, 255, .82);
+  background: rgba(5, 17, 21, .92);
+  box-shadow:
+    0 0 0 1px rgba(174, 244, 255, .18),
+    0 0 26px rgba(174, 244, 255, .3),
+    0 16px 46px rgba(0, 0, 0, .44);
+  animation: collapsedButtonGlow 1.45s ease-in-out infinite;
+}
+.minimizedChatBar.working .statusMark {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+.minimizedChatBar.working .statusMark::before {
+  inset: -58% -24%;
+  color: rgba(174, 244, 255, .7);
+  font-size: 6px;
+  line-height: 7px;
+  opacity: .72;
+  animation-duration: 1.65s;
+}
+.minimizedChatBar.working .markGlyph {
+  text-shadow: 0 0 9px rgba(174, 244, 255, .72);
+}
 .statusMark.working .brandStatusDot {
   background: var(--cyan);
   box-shadow: 0 0 13px rgba(174, 244, 255, .9);
@@ -824,7 +850,7 @@ html[data-builder-mode="split"] .account {
     linear-gradient(90deg, rgba(213, 141, 45, .06), rgba(174, 244, 255, .025)),
     rgba(0, 0, 0, .18);
   min-height: 0;
-  overflow: auto;
+  overflow: visible;
 }
 .projectPanelHeader {
   padding: 0 2px 2px;
@@ -843,7 +869,7 @@ html[data-builder-mode="split"] .account {
 .projectListMeta strong { color: var(--amber); }
 .projectRows {
   max-height: 150px;
-  overflow: auto;
+  overflow: visible;
   display: grid;
   gap: 7px;
 }
@@ -851,10 +877,13 @@ html[data-builder-mode="split"] .account {
 .chatPane.screenOpen .inlinePanel {
   min-height: 0;
   border-bottom: 0;
+}
+.chatPane.screenOpen .inlinePanel {
   overflow: auto;
 }
 .chatPane.screenOpen .projectRows {
   max-height: none;
+  overflow: visible;
 }
 .projectRow,
 .newProjectRow {
@@ -1507,6 +1536,15 @@ html[data-builder-mode="split"] .account {
   font-weight: 760;
   line-height: 1.25;
 }
+.notificationElapsed {
+  margin-left: 8px;
+  color: rgba(174, 244, 255, .7);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 10.5px;
+  font-weight: 900;
+  letter-spacing: .5px;
+  white-space: nowrap;
+}
 .agentInlineStatus {
   margin-top: 7px;
   display: inline-flex;
@@ -1862,6 +1900,11 @@ html.resizingChat * {
   to { transform: translateY(20%) rotate(-14deg); }
 }
 
+@keyframes collapsedButtonGlow {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.06); }
+}
+
 @keyframes miniSlideIn {
   from {
     opacity: 0;
@@ -1880,7 +1923,8 @@ html.resizingChat * {
 
 @media (prefers-reduced-motion: reduce) {
   .statusMark.working::before,
-  .statusMark.working .brandStatusDot {
+  .statusMark.working .brandStatusDot,
+  .minimizedChatBar.working {
     animation: none;
   }
 }
