@@ -96,9 +96,9 @@ button, a, input, select, [role="button"] { touch-action: manipulation; }
   box-shadow: inset 0 0 16px rgba(174, 244, 255, .08), 0 0 18px rgba(174, 244, 255, .12);
 }
 .statusMark.working::before {
-  content: "101001\A010110\A110010\A001101\A101010\A010011";
+  content: "10101010\A01011001\A11001010\A00110101\A10100110\A01010101\A11100100\A00101101\A10101010\A01011001\A11001010\A00110101\A10100110\A01010101\A11100100\A00101101";
   position: absolute;
-  inset: -70% -30%;
+  inset: -170% -70%;
   z-index: 0;
   color: rgba(174, 244, 255, .38);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
@@ -106,10 +106,10 @@ button, a, input, select, [role="button"] { touch-action: manipulation; }
   font-weight: 900;
   letter-spacing: 0;
   line-height: 7px;
-  opacity: .42;
+  opacity: .46;
   text-align: left;
   white-space: pre;
-  animation: matrixDrift 3.2s linear infinite;
+  animation: matrixDrift 1.8s linear infinite;
 }
 .minimizedChatBar.working {
   border-color: rgba(174, 244, 255, .82);
@@ -127,12 +127,12 @@ button, a, input, select, [role="button"] { touch-action: manipulation; }
   font-size: 13px;
 }
 .minimizedChatBar.working .statusMark::before {
-  inset: -58% -24%;
+  inset: -190% -80%;
   color: rgba(174, 244, 255, .7);
   font-size: 6px;
   line-height: 7px;
-  opacity: .72;
-  animation-duration: 1.65s;
+  opacity: .86;
+  animation-duration: .95s;
 }
 .minimizedChatBar.working .markGlyph {
   text-shadow: 0 0 9px rgba(174, 244, 255, .72);
@@ -350,6 +350,17 @@ html[data-builder-mode="split"] .account {
 }
 .account span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .account button { display: grid; place-items: center; padding: 4px; border-radius: 999px; }
+.account button.languageToggle,
+.languageToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0;
+}
 .noticeStack {
   position: fixed;
   z-index: 31;
@@ -637,6 +648,15 @@ html[data-builder-mode="split"] .account {
 .chromePill .chromeIconButton {
   width: 28px;
   height: 26px;
+}
+.chromePill .chromeIconButton.languageChromeButton {
+  width: auto;
+  min-width: 44px;
+  padding: 0 7px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0;
 }
 .chatNav button:hover,
 .chromeIconButton:hover {
@@ -1827,6 +1847,11 @@ html.resizingChat * {
   cursor: ns-resize !important;
   user-select: none !important;
 }
+html.draggingCollapsedChat,
+html.draggingCollapsedChat * {
+  cursor: grabbing !important;
+  user-select: none !important;
+}
 .minimizedChatBar {
   position: relative;
   width: 40px;
@@ -1837,9 +1862,14 @@ html.resizingChat * {
   color: var(--amber);
   box-shadow: 0 14px 44px rgba(0, 0, 0, .38);
   backdrop-filter: blur(16px);
-  cursor: pointer;
+  cursor: grab;
   display: grid;
   place-items: center;
+  touch-action: none;
+  user-select: none;
+}
+.minimizedChatBar:active {
+  cursor: grabbing;
 }
 .minimizedChatBar .statusDot {
   position: absolute;
@@ -1896,8 +1926,8 @@ html.resizingChat * {
 }
 
 @keyframes matrixDrift {
-  from { transform: translateY(-20%) rotate(-14deg); }
-  to { transform: translateY(20%) rotate(-14deg); }
+  from { transform: translate3d(0, -34%, 0) rotate(-12deg); }
+  to { transform: translate3d(0, 0, 0) rotate(-12deg); }
 }
 
 @keyframes collapsedButtonGlow {

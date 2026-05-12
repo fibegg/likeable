@@ -92,9 +92,41 @@
   <body>
     <main>
       <div class="mark">L</div>
-      <h1>Likeable is offline</h1>
-      <p>The app shell is cached. Reconnect to load live projects, send messages, and refresh the canvas.</p>
-      <button type="button" onclick="location.reload()">Retry</button>
+      <h1 id="offline-title">Likeable is offline</h1>
+      <p id="offline-body">The app shell is cached. Reconnect to load live projects, send messages, and refresh the canvas.</p>
+      <button id="offline-retry" type="button" onclick="location.reload()">Retry</button>
     </main>
+    <script>
+      (() => {
+        const copy = {
+          en: {
+            title: 'Likeable Offline',
+            heading: 'Likeable is offline',
+            body: 'The app shell is cached. Reconnect to load live projects, send messages, and refresh the canvas.',
+            retry: 'Retry'
+          },
+          uk: {
+            title: 'Likeable офлайн',
+            heading: 'Likeable офлайн',
+            body: 'Оболонка застосунку збережена в кеші. Підключіться до мережі, щоб завантажити живі проєкти, надіслати повідомлення й оновити полотно.',
+            retry: 'Повторити'
+          }
+        };
+        let locale = 'en';
+        try {
+          const stored = localStorage.getItem('likeable.locale');
+          if (stored === 'en' || stored === 'uk') locale = stored;
+          else if ((navigator.language || '').toLowerCase().startsWith('uk')) locale = 'uk';
+        } catch (_) {
+          if ((navigator.language || '').toLowerCase().startsWith('uk')) locale = 'uk';
+        }
+        const selected = copy[locale];
+        document.documentElement.lang = locale;
+        document.title = selected.title;
+        document.getElementById('offline-title').textContent = selected.heading;
+        document.getElementById('offline-body').textContent = selected.body;
+        document.getElementById('offline-retry').textContent = selected.retry;
+      })();
+    </script>
   </body>
 </html>

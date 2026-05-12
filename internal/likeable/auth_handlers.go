@@ -26,6 +26,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 				"devAuth":          s.config.DevAuth,
 				"signupMode":       s.signupMode(cfg),
 			},
+			"billingProducts": s.billingProducts(r.Context()),
 		})
 		return
 	}
@@ -45,6 +46,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		"githubNeedsReconnect": githubNeedsReconnect,
 		"messageQuota":         s.messageQuota(r.Context(), user),
 		"projectQuota":         s.projectQuota(r.Context(), user),
+		"billingProducts":      s.billingProducts(r.Context()),
 		"notices":              notices,
 	})
 }

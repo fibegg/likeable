@@ -3,11 +3,13 @@ import { Loader2, Plus, Send, Trash2 } from 'lucide-react';
 import { cleanPoolRows, makePoolRow, parsePoolRows } from './admin_pool';
 import { api } from './api';
 import { AppDialog, Metric } from './builder_components';
-import { ADMIN_CONFIG_SECTIONS, adminConfigLabel } from './config';
+import { ADMIN_CONFIG_SECTIONS } from './config';
 import type { AdminConfigEntry, AdminConfigResponse, AdminUserDetail, AdminUserSummary, AdminUsersResponse, AppDialogConfig, PoolRow } from './domain';
 import { formatMessageTime, formatShortDate } from './format';
+import { statusLabel, TranslationKey, useI18n } from './i18n';
 
 function AdminCustomersPanel() {
+  const { locale, t } = useI18n();
   const [filters, setFilters] = useState({ q: '', status: '', github: '', billing: '', sort: 'created_desc', perPage: '25' });
   const [page, setPage] = useState(1);
   const [users, setUsers] = useState<AdminUserSummary[]>([]);
@@ -43,7 +45,7 @@ function AdminCustomersPanel() {
         setDetail(null);
       }
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Could not load users');
+      setActionError(err instanceof Error ? err.message : t('admin.loadUsersFailed'));
     } finally {
       setLoading(false);
     }
@@ -85,17 +87,17 @@ function AdminCustomersPanel() {
       await loadDetail(selectedUserID);
       await loadUsers();
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Access update failed');
+      setActionError(err instanceof Error ? err.message : t('admin.accessUpdateFailed'));
     }
   };
   const patchAccess = async (status: 'active' | 'restricted') => {
     if (!selectedUserID) return;
     if (status === 'restricted') {
       setDialog({
-        title: 'Restrict user?',
-        body: 'The user will keep seeing system notices, but app actions will be blocked until access is restored.',
+        title: t('admin.restrictDialog.title'),
+        body: t('admin.restrictDialog.body'),
         tone: 'danger',
-        confirmLabel: 'Restrict',
+        confirmLabel: t('admin.restrictAccess'),
         onConfirm: () => applyAccess('restricted')
       });
       return;
@@ -114,7 +116,7 @@ function AdminCustomersPanel() {
       await loadDetail(selectedUserID);
       await loadUsers();
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Notice failed');
+      setActionError(err instanceof Error ? err.message : t('admin.noticeFailed'));
     }
   };
   const handleNoticeKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -130,16 +132,16 @@ function AdminCustomersPanel() {
       await loadDetail(selectedUserID);
       await loadUsers();
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Unsend failed');
+      setActionError(err instanceof Error ? err.message : t('admin.unsendFailed'));
     }
   };
   const unsendNotice = async (noticeID: string) => {
     if (!selectedUserID) return;
     setDialog({
-      title: 'Unsend system message?',
-      body: 'It will disappear from the user mailbox and active banners.',
+      title: t('admin.unsendDialog.title'),
+      body: t('admin.unsendDialog.body'),
       tone: 'warning',
-      confirmLabel: 'Unsend',
+      confirmLabel: t('admin.unsend'),
       onConfirm: () => applyUnsendNotice(noticeID)
     });
   };
@@ -151,16 +153,16 @@ function AdminCustomersPanel() {
       await loadDetail(selectedUserID);
       await loadUsers();
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Project delete failed');
+      setActionError(err instanceof Error ? err.message : t('admin.projectDeleteFailed'));
     }
   };
   const deleteProject = async (projectID: string) => {
     if (!selectedUserID) return;
     setDialog({
-      title: 'Delete user project?',
-      body: 'This removes the project from Likeable and runs the workspace cleanup path.',
+      title: t('admin.deleteProjectDialog.title'),
+      body: t('admin.deleteProjectDialog.body'),
       tone: 'danger',
-      confirmLabel: 'Delete',
+      confirmLabel: t('common.delete'),
       onConfirm: () => applyDeleteProject(projectID)
     });
   };
@@ -169,47 +171,47 @@ function AdminCustomersPanel() {
     <section className="adminCard customersCard">
       {dialog && <AppDialog dialog={dialog} onClose={() => setDialog(null)} />}
       <div className="adminCardHeader">
-        <h3>Customers</h3>
-        <p>Search, filter, inspect usage, moderate access, message users, and clean up projects.</p>
+        <h3>{t('admin.customers.title')}</h3>
+        <p>{t('admin.customers.body')}</p>
       </div>
       <div className="customerFilters">
         <label className="configLabel">
-          <span>Search</span>
-          <input value={filters.q} placeholder="email, name, or user id" onChange={(event) => { setPage(1); setFilters({ ...filters, q: event.target.value }); }} />
+          <span>{t('admin.search')}</span>
+          <input value={filters.q} placeholder={t('admin.search.placeholder')} onChange={(event) => { setPage(1); setFilters({ ...filters, q: event.target.value }); }} />
         </label>
         <label className="configLabel">
-          <span>Access</span>
+          <span>{t('admin.access')}</span>
           <select className="adminSelect" value={filters.status} onChange={(event) => { setPage(1); setFilters({ ...filters, status: event.target.value }); }}>
-            <option value="">all</option>
-            <option value="active">active</option>
-            <option value="restricted">restricted</option>
+            <option value="">{t('common.all')}</option>
+            <option value="active">{t('common.active')}</option>
+            <option value="restricted">{t('common.restricted')}</option>
           </select>
         </label>
         <label className="configLabel">
-          <span>GitHub</span>
+          <span>{t('common.github')}</span>
           <select className="adminSelect" value={filters.github} onChange={(event) => { setPage(1); setFilters({ ...filters, github: event.target.value }); }}>
-            <option value="">all</option>
-            <option value="connected">connected</option>
-            <option value="missing">missing</option>
+            <option value="">{t('common.all')}</option>
+            <option value="connected">{t('common.connected')}</option>
+            <option value="missing">{t('common.missing')}</option>
           </select>
         </label>
         <label className="configLabel">
-          <span>Billing</span>
+          <span>{t('admin.billing')}</span>
           <select className="adminSelect" value={filters.billing} onChange={(event) => { setPage(1); setFilters({ ...filters, billing: event.target.value }); }}>
-            <option value="">all</option>
-            <option value="paid">paid</option>
-            <option value="unpaid">unpaid</option>
-            <option value="subscribed">legacy subscription</option>
+            <option value="">{t('common.all')}</option>
+            <option value="paid">{t('common.paid')}</option>
+            <option value="unpaid">{t('common.unpaid')}</option>
+            <option value="subscribed">{t('admin.subscriptionLegacy')}</option>
           </select>
         </label>
         <label className="configLabel">
-          <span>Sort</span>
+          <span>{t('admin.sort')}</span>
           <select className="adminSelect" value={filters.sort} onChange={(event) => setFilters({ ...filters, sort: event.target.value })}>
-            <option value="created_desc">newest</option>
-            <option value="messages_desc">messages</option>
-            <option value="paid_desc">paid</option>
-            <option value="projects_desc">projects</option>
-            <option value="email_asc">email</option>
+            <option value="created_desc">{t('admin.sort.newest')}</option>
+            <option value="messages_desc">{t('admin.sort.messages')}</option>
+            <option value="paid_desc">{t('admin.sort.paid')}</option>
+            <option value="projects_desc">{t('admin.sort.projects')}</option>
+            <option value="email_asc">{t('admin.sort.email')}</option>
           </select>
         </label>
       </div>
@@ -224,83 +226,83 @@ function AdminCustomersPanel() {
               </span>
               <span className="customerStats">
                 <b>{summary.dailyMessageCount}/{summary.freeMessageLimit}</b>
-                <small>{summary.messageCount} lifetime · {summary.projectCount}/{summary.projectLimit ?? summary.projectCount} projects</small>
+                <small>{summary.messageCount} {t('admin.lifetime')} · {summary.projectCount}/{summary.projectLimit ?? summary.projectCount} {t('common.projects')}</small>
               </span>
               <span className="customerBadges">
-                <i>{summary.githubConnected ? 'GitHub' : 'No GitHub'}</i>
-                <i>{summary.paidCreditBalance > 0 ? `${summary.paidCreditBalance} credits` : (summary.paidTotalCents > 0 ? 'paid' : 'unpaid')}</i>
-                {summary.user.accessStatus === 'restricted' && <i className="dangerBadge">restricted</i>}
+                <i>{summary.githubConnected ? t('common.github') : t('admin.noGithub')}</i>
+                <i>{summary.paidCreditBalance > 0 ? `${summary.paidCreditBalance} ${t('common.credits')}` : (summary.paidTotalCents > 0 ? t('common.paid') : t('common.unpaid'))}</i>
+                {summary.user.accessStatus === 'restricted' && <i className="dangerBadge">{t('common.restricted')}</i>}
               </span>
             </button>
           ))}
-          {users.length === 0 && <div className="emptyPool">{loading ? 'Loading users...' : 'No users match these filters.'}</div>}
+          {users.length === 0 && <div className="emptyPool">{loading ? t('admin.loadingUsers') : t('admin.noUsers')}</div>}
           <div className="paginationRow">
-            <button className="ghostButton" disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>Previous</button>
-            <span>{page}/{totalPages} · {total} users</span>
-            <button className="ghostButton" disabled={page >= totalPages} onClick={() => setPage((value) => Math.min(totalPages, value + 1))}>Next</button>
+            <button className="ghostButton" disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>{t('admin.previous')}</button>
+            <span>{t('admin.pagination', { page, totalPages, total })}</span>
+            <button className="ghostButton" disabled={page >= totalPages} onClick={() => setPage((value) => Math.min(totalPages, value + 1))}>{t('admin.next')}</button>
           </div>
         </div>
         <div className="customerDetail">
           {!selectedSummary ? (
-            <div className="emptyPool">Select a user to inspect projects, payments, notices, and access controls.</div>
+            <div className="emptyPool">{t('admin.selectUser')}</div>
           ) : (
             <>
               <div className="customerDetailHeader">
                 <div>
-                  <span className="eyebrow">Customer</span>
+                  <span className="eyebrow">{t('admin.customer')}</span>
                   <strong>{selectedSummary.user.email}</strong>
                   <em>{selectedSummary.user.id}</em>
                 </div>
-                <span className={`accessBadge ${selectedSummary.user.accessStatus === 'restricted' ? 'restricted' : ''}`}>{selectedSummary.user.accessStatus || 'active'}</span>
+                <span className={`accessBadge ${selectedSummary.user.accessStatus === 'restricted' ? 'restricted' : ''}`}>{selectedSummary.user.accessStatus === 'restricted' ? t('common.restricted') : t('common.active')}</span>
               </div>
               <div className="customerMetricGrid">
-                <Metric label="Free 5h" value={`${selectedSummary.dailyMessageCount}/${selectedSummary.freeMessageLimit}`} />
-                <Metric label="Lifetime Sent" value={String(selectedSummary.messageCount)} />
-                <Metric label="Paid Credits" value={String(selectedSummary.paidCreditBalance)} />
-                <Metric label="Projects" value={`${selectedSummary.projectCount}/${selectedSummary.projectLimit ?? selectedSummary.projectCount}`} />
-                <Metric label="Paid Slots" value={selectedSummary.paidProjectSlots ? `${selectedSummary.paidProjectSlots}${selectedSummary.projectSlotsExpire ? ` until ${formatShortDate(selectedSummary.projectSlotsExpire)}` : ''}` : '0'} />
-                <Metric label="GitHub" value={selectedSummary.githubConnected ? 'connected' : 'missing'} />
-                <Metric label="Paid" value={formatMoney(selectedSummary.paidTotalCents, selectedSummary.paidCurrency)} />
+                <Metric label={t('admin.metric.free5h')} value={`${selectedSummary.dailyMessageCount}/${selectedSummary.freeMessageLimit}`} />
+                <Metric label={t('admin.metric.lifetimeSent')} value={String(selectedSummary.messageCount)} />
+                <Metric label={t('admin.metric.paidCredits')} value={String(selectedSummary.paidCreditBalance)} />
+                <Metric label={t('admin.metric.projects')} value={`${selectedSummary.projectCount}/${selectedSummary.projectLimit ?? selectedSummary.projectCount}`} />
+                <Metric label={t('admin.metric.paidSlots')} value={selectedSummary.paidProjectSlots ? `${selectedSummary.paidProjectSlots}${selectedSummary.projectSlotsExpire ? ` ${t('common.until')} ${formatShortDate(selectedSummary.projectSlotsExpire, locale)}` : ''}` : '0'} />
+                <Metric label={t('admin.metric.github')} value={selectedSummary.githubConnected ? t('common.connected') : t('common.missing')} />
+                <Metric label={t('admin.metric.paid')} value={formatMoney(selectedSummary.paidTotalCents, selectedSummary.paidCurrency)} />
               </div>
               <div className="moderationBox">
                 <label className="configLabel">
-                  <span>Access note</span>
-                  <textarea className="adminTextarea compactTextarea" rows={3} value={accessNote} onChange={(event) => setAccessNote(event.target.value)} placeholder="Internal reason for restriction or follow-up" />
+                  <span>{t('admin.accessNote')}</span>
+                  <textarea className="adminTextarea compactTextarea" rows={3} value={accessNote} onChange={(event) => setAccessNote(event.target.value)} placeholder={t('admin.accessNote.placeholder')} />
                 </label>
                 <div className="dialogActions compactActions">
-                  <button className="ghostButton" onClick={() => void patchAccess('active')}>Restore access</button>
-                  <button className="dangerButton" onClick={() => void patchAccess('restricted')}>Restrict access</button>
+                  <button className="ghostButton" onClick={() => void patchAccess('active')}>{t('admin.restoreAccess')}</button>
+                  <button className="dangerButton" onClick={() => void patchAccess('restricted')}>{t('admin.restrictAccess')}</button>
                 </div>
               </div>
               <div className="adminMessageConsole">
                 <div className="adminCardHeader compactHeader">
-                  <h3>Messages</h3>
-                  <p>User support messages and system notices sent from admin stay in one timeline.</p>
+                  <h3>{t('admin.messages.title')}</h3>
+                  <p>{t('admin.messages.body')}</p>
                 </div>
                 <div className="adminNoticeList" ref={noticeListRef}>
                   {orderedNotices.map((notice) => (
                     <div className={`adminNoticeBubble ${notice.sender === 'user' ? 'incoming' : 'outgoing'} ${notice.severity} ${notice.unsentAt ? 'unsent' : ''}`} key={notice.id}>
                       <div className="adminNoticeBubbleMeta">
-                        <span>{notice.sender === 'user' ? 'User' : notice.sender === 'system' ? 'System' : 'Admin'}</span>
-                        <time dateTime={notice.createdAt}>{formatMessageTime(notice.createdAt)}</time>
+                        <span>{notice.sender === 'user' ? t('common.user') : notice.sender === 'system' ? t('common.system') : t('common.admin')}</span>
+                        <time dateTime={notice.createdAt}>{formatMessageTime(notice.createdAt, locale)}</time>
                         {notice.sender !== 'user' && !notice.unsentAt && (
-                          <button className="unsendNoticeButton" onClick={() => void unsendNotice(notice.id)}>Unsend</button>
+                          <button className="unsendNoticeButton" onClick={() => void unsendNotice(notice.id)}>{t('admin.unsend')}</button>
                         )}
                       </div>
                       <p>{notice.body}</p>
-                      {notice.dismissedAt && <em>Dismissed by user</em>}
-                      {notice.unsentAt && <em>Unsent</em>}
+                      {notice.dismissedAt && <em>{t('admin.dismissedByUser')}</em>}
+                      {notice.unsentAt && <em>{t('admin.unsent')}</em>}
                     </div>
                   ))}
-                  {orderedNotices.length === 0 && <div className="adminNoticeEmpty">No messages yet.</div>}
+                  {orderedNotices.length === 0 && <div className="adminNoticeEmpty">{t('admin.noMessages')}</div>}
                 </div>
                 <div className="adminNoticeComposer">
                   <label className="noticeSeverityControl">
-                    <span>Severity</span>
+                    <span>{t('admin.severity')}</span>
                     <select className="adminSelect" value={noticeSeverity} onChange={(event) => setNoticeSeverity(event.target.value)}>
-                      <option value="info">info</option>
-                      <option value="warning">warning</option>
-                      <option value="danger">danger</option>
+                      <option value="info">{t('common.info')}</option>
+                      <option value="warning">{t('common.warning')}</option>
+                      <option value="danger">{t('common.danger')}</option>
                     </select>
                   </label>
                   <textarea
@@ -309,27 +311,27 @@ function AdminCustomersPanel() {
                     value={noticeBody}
                     onChange={(event) => setNoticeBody(event.target.value)}
                     onKeyDown={handleNoticeKeyDown}
-                    placeholder="Write a system message to this user..."
+                    placeholder={t('admin.notice.placeholder')}
                   />
-                  <button className="primaryButton noticeSendButton" disabled={!noticeBody.trim()} onClick={() => void sendNotice()}><Send size={16} /> Send</button>
+                  <button className="primaryButton noticeSendButton" disabled={!noticeBody.trim()} onClick={() => void sendNotice()}><Send size={16} /> {t('admin.send')}</button>
                 </div>
               </div>
               <div className="adminProjects">
                 <div className="adminCardHeader compactHeader">
-                  <h3>Projects</h3>
-                  <p>Deletion uses the same workspace cleanup path as user-initiated deletion.</p>
+                  <h3>{t('admin.projects.title')}</h3>
+                  <p>{t('admin.projects.body')}</p>
                 </div>
                 {detail.projects.map((item) => (
                   <div className="adminProjectRow" key={item.project.id}>
                     <span>
                       <strong>{item.project.title}</strong>
-                      <em>{item.project.status} · {item.messageCount} messages</em>
+                      <em>{statusLabel(item.project.status, t)} · {item.messageCount} {t('common.messages')}</em>
                     </span>
-                    {item.project.previewUrl && <a className="ghostButton" href={item.project.previewUrl} target="_blank">Open</a>}
-                    <button className="projectDelete" onClick={() => void deleteProject(item.project.id)} aria-label={`Delete ${item.project.title}`}><Trash2 size={15} /></button>
+                    {item.project.previewUrl && <a className="ghostButton" href={item.project.previewUrl} target="_blank">{t('common.open')}</a>}
+                    <button className="projectDelete" onClick={() => void deleteProject(item.project.id)} aria-label={t('admin.deleteProject.aria', { title: item.project.title })}><Trash2 size={15} /></button>
                   </div>
                 ))}
-                {detail.projects.length === 0 && <div className="emptyPool">No active projects.</div>}
+                {detail.projects.length === 0 && <div className="emptyPool">{t('admin.noActiveProjects')}</div>}
               </div>
             </>
           )}
@@ -345,7 +347,22 @@ function formatMoney(cents: number, currency: string): string {
   return `${normalized} ${(cents / 100).toFixed(2)}`;
 }
 
+function adminConfigLabel(key: string, t: (key: TranslationKey) => string): string {
+  const labelKeys: Record<string, TranslationKey> = {
+    stripe_publishable_key: 'admin.config.stripe_publishable_key',
+    stripe_secret_key: 'admin.config.stripe_secret_key',
+    stripe_price_id_10: 'admin.config.stripe_price_id_10',
+    stripe_price_id_100: 'admin.config.stripe_price_id_100',
+    stripe_price_id_1000: 'admin.config.stripe_price_id_1000',
+    stripe_project_quota_price_id: 'admin.config.stripe_project_quota_price_id',
+    stripe_webhook_secret: 'admin.config.stripe_webhook_secret'
+  };
+  const labelKey = labelKeys[key];
+  return labelKey ? t(labelKey) : key;
+}
+
 export function Admin() {
+  const { t } = useI18n();
   const [config, setConfig] = useState<Record<string, AdminConfigEntry>>({});
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [signupMode, setSignupMode] = useState('forbidden');
@@ -378,7 +395,7 @@ export function Admin() {
       const pool = cleanPoolRows(poolRows);
       const incomplete = pool.find((row) => !row.agent_id || !row.server_id);
       if (incomplete) {
-        throw new Error('Every pool row needs both an agent ID and a server ID.');
+        throw new Error(t('admin.poolIncomplete'));
       }
       await api('/api/admin/config', {
         method: 'PUT',
@@ -390,9 +407,9 @@ export function Admin() {
         })
       });
       await loadConfig();
-      setStatus('Saved');
+      setStatus(t('common.saved'));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Save failed');
+      setError(err instanceof Error ? err.message : t('admin.saveFailed'));
     } finally {
       setSaving(false);
     }
@@ -400,18 +417,18 @@ export function Admin() {
 
   const renderConfigFields = (keys: string[]) => {
     const entries = keys.map((key) => [key, config[key] ?? { value: '', secret: false, set: false }] as const);
-    if (entries.length === 0) return <div className="emptyPool">No settings exposed for this section.</div>;
+    if (entries.length === 0) return <div className="emptyPool">{t('admin.noSettings')}</div>;
     return (
       <div className="configGrid">
         {entries.map(([key, meta]) => (
           <label key={key} className="configLabel">
             <span className="configLabelText">
-              <strong>{adminConfigLabel(key)}</strong>
-              {adminConfigLabel(key) !== key && <em>{key}</em>}
+              <strong>{adminConfigLabel(key, t)}</strong>
+              {adminConfigLabel(key, t) !== key && <em>{key}</em>}
             </span>
             <input
               type={meta.secret ? 'password' : 'text'}
-              placeholder={meta.secret && meta.set ? 'set' : meta.value}
+              placeholder={meta.secret && meta.set ? t('admin.config.set') : meta.value}
               value={draft[key] ?? (meta.secret ? '' : meta.value)}
               onChange={(event) => setDraft({ ...draft, [key]: event.target.value })}
             />
@@ -424,7 +441,7 @@ export function Admin() {
   return (
     <section className="panel adminPanel">
       <div className="panelTitleRow">
-        <h2>Admin</h2>
+        <h2>{t('admin.panel.title')}</h2>
         {status && <span className="adminStatus">{status}</span>}
         {error && <span className="adminError">{error}</span>}
       </div>
@@ -434,25 +451,25 @@ export function Admin() {
 
         <section className="adminCard">
           <div className="adminCardHeader">
-            <h3>Access</h3>
-            <p>Signup starts closed. Use allowlist mode with one email or domain per line, or set signup_mode to all.</p>
+            <h3>{t('admin.accessCard.title')}</h3>
+            <p>{t('admin.accessCard.body')}</p>
           </div>
           <label className="configLabel compactConfigLabel">
-            <span>signup_mode</span>
+            <span>{t('admin.signupMode.label')}</span>
             <select className="adminSelect" value={signupMode} onChange={(event) => setSignupMode(event.target.value)}>
-              <option value="forbidden">forbidden</option>
-              <option value="allowlist">allowlist</option>
-              <option value="all">all</option>
+              <option value="forbidden">{t('admin.signupMode.forbidden')}</option>
+              <option value="allowlist">{t('admin.signupMode.allowlist')}</option>
+              <option value="all">{t('admin.signupMode.all')}</option>
             </select>
           </label>
           {signupMode === 'allowlist' && (
             <label className="configLabel">
-              <span>signup_allowed_emails</span>
+              <span>{t('admin.signupAllowedEmails.label')}</span>
               <textarea
                 className="adminTextarea"
                 rows={7}
                 spellCheck={false}
-                placeholder={'pilot@gmail.com\nfounder@gmail.com\n@trusted.test'}
+                placeholder={t('admin.signupAllowedEmails.placeholder')}
                 value={allowedEmails}
                 onChange={(event) => setAllowedEmails(event.target.value)}
               />
@@ -462,36 +479,36 @@ export function Admin() {
 
         <section className="adminCard integrationCard">
           <div className="adminCardHeader">
-            <h3>Fibe Integration</h3>
-            <p>Connection used for project creation, workspace provisioning, and agent messaging.</p>
+            <h3>{t('admin.fibe.title')}</h3>
+            <p>{t('admin.fibe.body')}</p>
           </div>
           {renderConfigFields(['fibe_base_url', 'fibe_api_key'])}
           <div className="adminCardHeader withAction">
             <div>
-              <h3>Agent and Server Pool</h3>
-              <p>New projects store a deterministic pair selected from normalized email. Existing projects keep their stored pair.</p>
+              <h3>{t('admin.pool.title')}</h3>
+              <p>{t('admin.pool.body')}</p>
             </div>
             <button className="ghostButton" type="button" onClick={() => setPoolRows((rows) => [...rows, makePoolRow()])}>
-              <Plus size={17} /> Add pair
+              <Plus size={17} /> {t('admin.pool.add')}
             </button>
           </div>
           <div className="poolRows">
-            {poolRows.length === 0 && <div className="emptyPool">No pool pairs configured. Add one agent and server pair before onboarding users.</div>}
+            {poolRows.length === 0 && <div className="emptyPool">{t('admin.pool.empty')}</div>}
             {poolRows.map((row, index) => (
               <div className="poolRow" key={row.id}>
                 <label>
-                  <span>Label</span>
-                  <input value={row.label} placeholder={`Pair ${index + 1}`} onChange={(event) => setPoolRow(row.id, { label: event.target.value })} />
+                  <span>{t('admin.pool.label')}</span>
+                  <input value={row.label} placeholder={t('admin.pool.pair', { number: index + 1 })} onChange={(event) => setPoolRow(row.id, { label: event.target.value })} />
                 </label>
                 <label>
-                  <span>Agent ID</span>
-                  <input value={row.agentId} placeholder="agent_..." onChange={(event) => setPoolRow(row.id, { agentId: event.target.value })} />
+                  <span>{t('admin.pool.agentId')}</span>
+                  <input value={row.agentId} placeholder={t('admin.pool.agentPlaceholder')} onChange={(event) => setPoolRow(row.id, { agentId: event.target.value })} />
                 </label>
                 <label>
-                  <span>Server ID</span>
-                  <input value={row.serverId} placeholder="server_..." onChange={(event) => setPoolRow(row.id, { serverId: event.target.value })} />
+                  <span>{t('admin.pool.serverId')}</span>
+                  <input value={row.serverId} placeholder={t('admin.pool.serverPlaceholder')} onChange={(event) => setPoolRow(row.id, { serverId: event.target.value })} />
                 </label>
-                <button className="smallIconButton" type="button" aria-label="Remove pair" onClick={() => setPoolRows((rows) => rows.filter((candidate) => candidate.id !== row.id))}>
+                <button className="smallIconButton" type="button" aria-label={t('admin.pool.remove')} onClick={() => setPoolRows((rows) => rows.filter((candidate) => candidate.id !== row.id))}>
                   <Trash2 size={17} />
                 </button>
               </div>
@@ -500,10 +517,10 @@ export function Admin() {
         </section>
 
         {ADMIN_CONFIG_SECTIONS.slice(1).map((section) => (
-          <section className="adminCard integrationCard" key={section.title}>
+          <section className="adminCard integrationCard" key={section.titleKey}>
             <div className="adminCardHeader">
-              <h3>{section.title}</h3>
-              <p>{section.body} Secrets are write-only; leave them blank to keep the current value.</p>
+              <h3>{t(section.titleKey as TranslationKey)}</h3>
+              <p>{t(section.bodyKey as TranslationKey)} {t('admin.config.secretHelp')}</p>
             </div>
             {renderConfigFields(section.keys)}
           </section>
@@ -511,7 +528,7 @@ export function Admin() {
       </div>
 
       <button className="primaryButton adminSave" disabled={saving} onClick={save}>
-        {saving ? <><Loader2 size={17} className="spin" /> Saving</> : 'Save'}
+        {saving ? <><Loader2 size={17} className="spin" /> {t('common.saving')}</> : t('common.save')}
       </button>
     </section>
   );

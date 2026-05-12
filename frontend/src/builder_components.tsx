@@ -2,14 +2,16 @@ import { useState } from 'react';
 import { Check, Download, FileOutput, GitBranch, Loader2, MoreHorizontal, Paperclip, Pencil, Play, Plus, RotateCcw, Square, Trash2, X } from 'lucide-react';
 import type { AppDialogConfig, MessageAttachment, Project, UserFeedRow } from './domain';
 import { formatElapsedDuration, formatMessageTime } from './format';
+import { statusLabel, useI18n } from './i18n';
 
 export function ProjectList({ projects, activeID, projectCap, busy, exportingID, controllingID, onSelect, onNew, onRename, onDelete, onExport, onControlPlayground, onClose }: { projects: Project[]; activeID: string; projectCap: number | null; busy: boolean; exportingID: string; controllingID: string; onSelect: (id: string) => void; onNew: () => void; onRename: (project: Project, title: string) => Promise<void>; onDelete: (project: Project) => void; onExport: (project: Project) => void; onControlPlayground: (project: Project, action: 'start' | 'stop' | 'restart') => Promise<void>; onClose: () => void }) {
+  const { t } = useI18n();
   const [editingID, setEditingID] = useState('');
   const [draftTitle, setDraftTitle] = useState('');
   const [menuID, setMenuID] = useState('');
   const projectCountLabel = projectCap == null
-    ? `${projects.length} ${projects.length === 1 ? 'project' : 'projects'}`
-    : `${projects.length}/${projectCap} projects`;
+    ? t(projects.length === 1 ? 'projects.count.one' : 'projects.count.many', { count: projects.length })
+    : t('projects.count.cap', { count: projects.length, cap: projectCap });
   const startEdit = (project: Project) => {
     setEditingID(project.id);
     setDraftTitle(project.title);
@@ -38,10 +40,10 @@ export function ProjectList({ projects, activeID, projectCap, busy, exportingID,
     <div className="projectList">
       <div className="inlinePanelHeader projectPanelHeader">
         <div>
-          <span className="eyebrow">Projects</span>
+          <span className="eyebrow">{t('projects.title')}</span>
           <strong>{projectCountLabel}</strong>
         </div>
-        <button className="projectDelete" onClick={onClose} aria-label="Close projects"><X size={15} /></button>
+        <button className="projectDelete" onClick={onClose} aria-label={t('projects.close')}><X size={15} /></button>
       </div>
       <div className="projectRows">
         {projects.map((project) => (
@@ -60,46 +62,46 @@ export function ProjectList({ projects, activeID, projectCap, busy, exportingID,
                       cancelEdit();
                     }
                   }}
-                  aria-label="Project name"
+                  aria-label={t('builder.project.name')}
                 />
-                <button className="projectRowIcon" type="submit" disabled={busy || !draftTitle.trim()} aria-label="Save project name"><Check size={15} /></button>
-                <button className="projectRowIcon" type="button" onClick={cancelEdit} aria-label="Cancel rename"><X size={15} /></button>
+                <button className="projectRowIcon" type="submit" disabled={busy || !draftTitle.trim()} aria-label={t('projects.saveName')}><Check size={15} /></button>
+                <button className="projectRowIcon" type="button" onClick={cancelEdit} aria-label={t('projects.cancelRename')}><X size={15} /></button>
               </form>
             ) : (
               <>
                 <button className="projectSelect" onClick={() => onSelect(project.id)}>
                   <span>{project.title}</span>
-                  <em>{project.status}</em>
+                  <em>{statusLabel(project.status, t)}</em>
                 </button>
                 <div className="projectRowActions">
                   <button
                     className="projectRowIcon"
                     disabled={busy || exportingID === project.id || project.status === 'deleting'}
                     onClick={() => onExport(project)}
-                    aria-label={`Export ${project.title}`}
-                    title="Export project"
+                    aria-label={t('projects.export.aria', { title: project.title })}
+                    title={t('projects.export.title')}
                   >
                     {exportingID === project.id ? <Loader2 className="spinIcon" size={14} /> : <FileOutput size={14} />}
                   </button>
-                  <button className="projectRowIcon" onClick={() => startEdit(project)} aria-label={`Rename ${project.title}`}><Pencil size={14} /></button>
-                  <button className="projectDelete" onClick={() => onDelete(project)} aria-label={`Delete ${project.title}`}><Trash2 size={15} /></button>
+                  <button className="projectRowIcon" onClick={() => startEdit(project)} aria-label={t('projects.rename.aria', { title: project.title })}><Pencil size={14} /></button>
+                  <button className="projectDelete" onClick={() => onDelete(project)} aria-label={t('projects.delete.aria', { title: project.title })}><Trash2 size={15} /></button>
                   <div className="projectMenuAnchor">
                     <button
                       className="projectRowIcon"
                       disabled={busy || project.status === 'deleting'}
                       onClick={() => setMenuID((current) => current === project.id ? '' : project.id)}
-                      aria-label={`Project actions for ${project.title}`}
+                      aria-label={t('projects.actions.aria', { title: project.title })}
                       aria-haspopup="menu"
                       aria-expanded={menuID === project.id}
-                      title="Project actions"
+                      title={t('projects.actions.title')}
                     >
                       {controllingID === project.id ? <Loader2 className="spinIcon" size={14} /> : <MoreHorizontal size={16} />}
                     </button>
                     {menuID === project.id && (
                       <div className="projectActionMenu" role="menu">
-                        <button role="menuitem" disabled={busy || !canStartPlayground(project)} onClick={() => void runPlaygroundAction(project, 'start')}><Play size={14} /> Start playground</button>
-                        <button role="menuitem" disabled={busy || !canStopPlayground(project)} onClick={() => void runPlaygroundAction(project, 'stop')}><Square size={13} /> Stop playground</button>
-                        <button role="menuitem" disabled={busy || !canRestartPlayground(project)} onClick={() => void runPlaygroundAction(project, 'restart')}><RotateCcw size={14} /> Restart playground</button>
+                        <button role="menuitem" disabled={busy || !canStartPlayground(project)} onClick={() => void runPlaygroundAction(project, 'start')}><Play size={14} /> {t('projects.start')}</button>
+                        <button role="menuitem" disabled={busy || !canStopPlayground(project)} onClick={() => void runPlaygroundAction(project, 'stop')}><Square size={13} /> {t('projects.stop')}</button>
+                        <button role="menuitem" disabled={busy || !canRestartPlayground(project)} onClick={() => void runPlaygroundAction(project, 'restart')}><RotateCcw size={14} /> {t('projects.restart')}</button>
                       </div>
                     )}
                   </div>
@@ -109,18 +111,19 @@ export function ProjectList({ projects, activeID, projectCap, busy, exportingID,
           </div>
         ))}
       </div>
-      <button className="newProjectRow" onClick={onNew}><Plus size={15} /> New project</button>
+      <button className="newProjectRow" onClick={onNew}><Plus size={15} /> {t('projects.new')}</button>
     </div>
   );
 }
 
 export function UserMessageRow({ row }: { row: UserFeedRow }) {
-  const time = formatMessageTime(row.time);
-  const body = row.body.trim() || (row.attachments.length > 0 ? 'Attached files' : '');
+  const { locale, t } = useI18n();
+  const time = formatMessageTime(row.time, locale);
+  const body = row.body.trim() || (row.attachments.length > 0 ? t('message.attachedFiles') : '');
   return (
     <article className="messageCard">
       <div className="messageMeta">
-        <span>Sent</span>
+        <span>{t('message.sent')}</span>
         {time && <time dateTime={row.time}>{time}</time>}
       </div>
       {body && <div className="messageBody">{body}</div>}
@@ -130,8 +133,9 @@ export function UserMessageRow({ row }: { row: UserFeedRow }) {
 }
 
 function AttachmentGrid({ attachments }: { attachments: MessageAttachment[] }) {
+  const { t } = useI18n();
   return (
-    <div className="messageAttachments" aria-label="Attachments">
+    <div className="messageAttachments" aria-label={t('message.attachments')}>
       {attachments.map((attachment) => {
         const image = Boolean(attachment.url && attachment.contentType?.startsWith('image/'));
         return (
@@ -146,7 +150,8 @@ function AttachmentGrid({ attachments }: { attachments: MessageAttachment[] }) {
 }
 
 export function AgentNotificationRow({ body, active, elapsedMs }: { body: string; active?: boolean; elapsedMs?: number }) {
-  const text = body.trim() || (active ? 'Receiving update' : 'Canvas updated');
+  const { t } = useI18n();
+  const text = body.trim() || (active ? t('notification.receiving') : t('notification.canvasUpdated'));
   const elapsed = active ? '' : formatElapsedDuration(elapsedMs);
   return (
     <div className={`notificationRow ${active ? 'active' : ''}`} aria-live="polite">
@@ -159,6 +164,7 @@ export function AgentNotificationRow({ body, active, elapsedMs }: { body: string
 }
 
 export function EmptyCanvas() {
+  const { t } = useI18n();
   return (
     <div className="emptyPreview">
       <div className="corner tl" />
@@ -168,8 +174,8 @@ export function EmptyCanvas() {
       <div className="stars" />
       <div className="reticle" />
       <div className="emptyCopy">
-        <h1>Awaiting transmission</h1>
-        <p>The canvas is ready. Describe the scene and the agent will rebuild this view.</p>
+        <h1>{t('empty.awaitingTitle')}</h1>
+        <p>{t('empty.awaitingBody')}</p>
       </div>
     </div>
   );
@@ -193,11 +199,13 @@ export function CanvasLoader({ title, body, tone }: { title: string; body: strin
 }
 
 export function AppDialog({ dialog, onClose }: { dialog: AppDialogConfig; onClose: () => void }) {
+  const { t } = useI18n();
   const [working, setWorking] = useState(false);
   const isConfirm = Boolean(dialog.onConfirm);
   const tone = dialog.tone ?? 'info';
   const confirmClass = tone === 'danger' ? 'dangerButton' : 'primaryButton';
-  const confirmLabel = dialog.confirmLabel ?? (isConfirm ? 'Confirm' : 'Close');
+  const confirmLabel = dialog.confirmLabel ?? (isConfirm ? t('common.confirm') : t('common.close'));
+  const toneLabel = tone === 'danger' ? t('common.danger') : tone === 'warning' ? t('common.warning') : t('common.info');
 
   const handleConfirm = async () => {
     if (!dialog.onConfirm) {
@@ -216,14 +224,14 @@ export function AppDialog({ dialog, onClose }: { dialog: AppDialogConfig; onClos
   return (
     <div className="modalScrim appDialogScrim" role="presentation">
       <section className={`confirmDialog appDialog ${tone}`} role="dialog" aria-modal="true" aria-labelledby="app-dialog-title">
-        <button className="dialogClose" onClick={onClose} aria-label="Close dialog"><X size={16} /></button>
-        <span className="eyebrow">{tone}</span>
+        <button className="dialogClose" onClick={onClose} aria-label={t('dialog.close')}><X size={16} /></button>
+        <span className="eyebrow">{toneLabel}</span>
         <h2 id="app-dialog-title">{dialog.title}</h2>
         <p>{dialog.body}</p>
         <div className="dialogActions appDialogActions">
           {isConfirm && (
             <button className="ghostButton" disabled={working} onClick={onClose}>
-              {dialog.cancelLabel ?? 'Cancel'}
+              {dialog.cancelLabel ?? t('common.cancel')}
             </button>
           )}
           <button className={confirmClass} disabled={working} onClick={() => void handleConfirm()}>
@@ -237,23 +245,24 @@ export function AppDialog({ dialog, onClose }: { dialog: AppDialogConfig; onClos
 }
 
 export function ConfirmNewProject({ projectCap, projectCount, busy, onCancel, onConfirm }: { projectCap: number | null; projectCount: number; busy: boolean; onCancel: () => void; onConfirm: (title?: string) => void }) {
+  const { t } = useI18n();
   const [title, setTitle] = useState('');
   const capReached = projectCap != null && projectCount >= projectCap;
   return (
     <div className="modalScrim">
       <section className="confirmDialog">
         <button className="dialogClose" onClick={onCancel}><X size={16} /></button>
-        <span className="eyebrow">New project</span>
-        <h2>Create another project?</h2>
-        <p>Likeable will immediately start a fresh private workspace using the default starter.</p>
+        <span className="eyebrow">{t('newProject.eyebrow')}</span>
+        <h2>{t('newProject.title')}</h2>
+        <p>{t('newProject.body')}</p>
         <label className="dialogField">
-          <span>Project name</span>
-          <input className="dialogInput" value={title} maxLength={80} onChange={(event) => setTitle(event.target.value)} placeholder={`New playground ${projectCount + 1}`} />
+          <span>{t('builder.project.name')}</span>
+          <input className="dialogInput" value={title} maxLength={80} onChange={(event) => setTitle(event.target.value)} placeholder={t('newProject.placeholder', { number: projectCount + 1 })} />
         </label>
-        {projectCap != null && <p className="quotaLine">Projects: {projectCount}/{projectCap}</p>}
+        {projectCap != null && <p className="quotaLine">{t('newProject.quota', { count: projectCount, cap: projectCap })}</p>}
         <div className="dialogActions">
-          <button className="ghostButton" onClick={onCancel}>Cancel</button>
-          <button className="primaryButton" disabled={busy || capReached} onClick={() => onConfirm(title)}>{capReached ? 'Cap reached' : 'Create'}</button>
+          <button className="ghostButton" onClick={onCancel}>{t('common.cancel')}</button>
+          <button className="primaryButton" disabled={busy || capReached} onClick={() => onConfirm(title)}>{capReached ? t('newProject.capReached') : t('common.create')}</button>
         </div>
       </section>
     </div>
@@ -261,16 +270,17 @@ export function ConfirmNewProject({ projectCap, projectCount, busy, onCancel, on
 }
 
 export function ConfirmDeleteProject({ project, busy, onCancel, onConfirm }: { project: Project; busy: boolean; onCancel: () => void; onConfirm: () => void }) {
+  const { t } = useI18n();
   return (
     <div className="modalScrim">
       <section className="confirmDialog">
         <button className="dialogClose" onClick={onCancel}><X size={16} /></button>
-        <span className="eyebrow">Delete project</span>
-        <h2>Delete this project?</h2>
-        <p>{project.title} will be removed from Likeable, including its workspace and private source archive.</p>
+        <span className="eyebrow">{t('deleteProject.eyebrow')}</span>
+        <h2>{t('deleteProject.title')}</h2>
+        <p>{t('deleteProject.body', { title: project.title })}</p>
         <div className="dialogActions">
-          <button className="ghostButton" onClick={onCancel}>Cancel</button>
-          <button className="dangerButton" disabled={busy} onClick={onConfirm}>Delete</button>
+          <button className="ghostButton" onClick={onCancel}>{t('common.cancel')}</button>
+          <button className="dangerButton" disabled={busy} onClick={onConfirm}>{t('common.delete')}</button>
         </div>
       </section>
     </div>
@@ -278,32 +288,33 @@ export function ConfirmDeleteProject({ project, busy, onCancel, onConfirm }: { p
 }
 
 export function ConfirmExportProject({ project, busy, busyMode, githubConnected, githubNeedsReconnect, onCancel, onGithub, onZip, onConnectGithub }: { project: Project; busy: boolean; busyMode: 'github' | 'zip' | ''; githubConnected: boolean; githubNeedsReconnect: boolean; onCancel: () => void; onGithub: (repoName: string, privateRepo: boolean) => void; onZip: () => void; onConnectGithub: () => void }) {
+  const { t } = useI18n();
   const [repoName, setRepoName] = useState(defaultGithubRepoName(project.title));
   const [privateRepo, setPrivateRepo] = useState(true);
   const cleanName = repoName.trim();
   const valid = /^[A-Za-z0-9._-]{1,100}$/.test(cleanName);
-  const githubLabel = !githubConnected ? 'Connect GitHub' : githubNeedsReconnect ? 'Reconnect GitHub' : 'Export GitHub';
+  const githubLabel = !githubConnected ? t('exportProject.connectGithub') : githubNeedsReconnect ? t('exportProject.reconnectGithub') : t('exportProject.exportGithub');
   return (
     <div className="modalScrim">
       <section className="confirmDialog">
-        <button className="dialogClose" disabled={busy} onClick={onCancel} aria-label="Close dialog"><X size={16} /></button>
-        <span className="eyebrow">Project export</span>
-        <h2>Export project?</h2>
-        <p>Download a local zip or push the current source for {project.title} to GitHub.</p>
+        <button className="dialogClose" disabled={busy} onClick={onCancel} aria-label={t('dialog.close')}><X size={16} /></button>
+        <span className="eyebrow">{t('exportProject.eyebrow')}</span>
+        <h2>{t('exportProject.title')}</h2>
+        <p>{t('exportProject.body', { title: project.title })}</p>
         <label className="dialogField">
-          <span>Repository name</span>
+          <span>{t('exportProject.repositoryName')}</span>
           <input className="dialogInput" value={repoName} maxLength={100} onChange={(event) => setRepoName(event.target.value)} placeholder="likeable-project" />
         </label>
         <label className="dialogCheck">
           <input type="checkbox" checked={privateRepo} onChange={(event) => setPrivateRepo(event.target.checked)} />
-          <span>Private repository</span>
+          <span>{t('exportProject.privateRepo')}</span>
         </label>
-        {!valid && <p className="quotaLine">Use only letters, numbers, dots, underscores, and hyphens.</p>}
+        {!valid && <p className="quotaLine">{t('exportProject.invalidName')}</p>}
         <div className="dialogActions">
-          <button className="ghostButton" disabled={busy} onClick={onCancel}>Cancel</button>
+          <button className="ghostButton" disabled={busy} onClick={onCancel}>{t('common.cancel')}</button>
           <button className="ghostButton" disabled={busy} onClick={onZip}>
             {busy && busyMode === 'zip' ? <Loader2 className="spinIcon" size={15} /> : <Download size={15} />}
-            Zip
+            {t('common.zip')}
           </button>
           <button className="primaryButton" disabled={busy || (githubConnected && !githubNeedsReconnect && !valid)} onClick={() => {
             if (!githubConnected || githubNeedsReconnect) {
@@ -340,16 +351,17 @@ export function Metric({ label, value }: { label: string; value: string }) {
 }
 
 export function DeleteAllAccountDialog({ email, busy, onCancel, onConfirm }: { email: string; busy: boolean; onCancel: () => void; onConfirm: (email: string) => void }) {
+  const { t } = useI18n();
   const [typedEmail, setTypedEmail] = useState('');
   const confirmed = typedEmail.trim().toLowerCase() === email.trim().toLowerCase() && email.trim() !== '';
   return (
     <div className="modalScrim appDialogScrim" role="presentation">
       <section className="confirmDialog appDialog danger deleteAllDialog" role="dialog" aria-modal="true" aria-labelledby="delete-all-title">
-        <button className="dialogClose" disabled={busy} onClick={onCancel} aria-label="Close dialog"><X size={16} /></button>
-        <span className="eyebrow">danger zone</span>
-        <h2 id="delete-all-title">Delete everything?</h2>
-        <p>This permanently deletes every Likeable record for this account and first attempts to remove the related workspaces, conversations, source data, and private repositories.</p>
-        <p>Type <strong>{email}</strong> to confirm.</p>
+        <button className="dialogClose" disabled={busy} onClick={onCancel} aria-label={t('dialog.close')}><X size={16} /></button>
+        <span className="eyebrow">{t('deleteAll.eyebrow')}</span>
+        <h2 id="delete-all-title">{t('deleteAll.title')}</h2>
+        <p>{t('deleteAll.body')}</p>
+        <p>{t('deleteAll.confirmInstruction', { email })}</p>
         <input
           className="dangerConfirmInput"
           autoFocus
@@ -359,10 +371,10 @@ export function DeleteAllAccountDialog({ email, busy, onCancel, onConfirm }: { e
           disabled={busy}
         />
         <div className="dialogActions appDialogActions">
-          <button className="ghostButton" disabled={busy} onClick={onCancel}>Cancel</button>
+          <button className="ghostButton" disabled={busy} onClick={onCancel}>{t('common.cancel')}</button>
           <button className="dangerButton" disabled={!confirmed || busy} onClick={() => onConfirm(typedEmail)}>
             {busy ? <Loader2 className="spinIcon" size={15} /> : <Trash2 size={15} />}
-            DELETE ALL
+            {t('deleteAll.button')}
           </button>
         </div>
       </section>

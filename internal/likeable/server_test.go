@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -321,6 +322,62 @@ func TestMeIncludesGithubConnectionState(t *testing.T) {
 	connected, needsReconnect = readGithubState()
 	if !connected || needsReconnect {
 		t.Fatalf("github state=%t/%t with workflow scope, want connected without reconnect prompt", connected, needsReconnect)
+	}
+}
+
+func TestMeIncludesOnlyConfiguredBillingProducts(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	user, err := store.UpsertUser(t.Context(), "billing@example.com", "Billing User", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateSession(t.Context(), user.ID, "billing-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	readProducts := func() struct {
+		MessagePacks []int `json:"messagePacks"`
+		ProjectQuota bool  `json:"projectQuota"`
+	} {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "/api/me", nil)
+		req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "billing-token"})
+		rec := httptest.NewRecorder()
+		server.routes().ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("me returned %d, want 200; body=%s", rec.Code, rec.Body.String())
+		}
+		var body struct {
+			BillingProducts struct {
+				MessagePacks []int `json:"messagePacks"`
+				ProjectQuota bool  `json:"projectQuota"`
+			} `json:"billingProducts"`
+		}
+		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		return body.BillingProducts
+	}
+
+	products := readProducts()
+	if len(products.MessagePacks) != 0 || products.ProjectQuota {
+		t.Fatalf("billing products=%+v before Stripe config, want none", products)
+	}
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"stripe_secret_key":             "sk_test",
+		"stripe_price_id_10":            "price_10",
+		"stripe_price_id_1000":          "price_1000",
+		"stripe_project_quota_price_id": "price_project_slot",
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	products = readProducts()
+	if !reflect.DeepEqual(products.MessagePacks, []int{10, 1000}) || !products.ProjectQuota {
+		t.Fatalf("billing products=%+v, want configured packs and project quota", products)
 	}
 }
 

@@ -40,6 +40,41 @@ func stripeConfigFromMap(cfg map[string]string) map[string]string {
 	return out
 }
 
+func (s *Server) billingProducts(ctx context.Context) map[string]any {
+	cfg, err := s.store.ConfigMap(ctx)
+	if err != nil {
+		return emptyBillingProducts()
+	}
+	return billingProductsFromConfig(stripeConfigFromMap(cfg))
+}
+
+func billingProductsFromConfig(cfg map[string]string) map[string]any {
+	if strings.TrimSpace(cfg["secret"]) == "" {
+		return emptyBillingProducts()
+	}
+	messagePacks := make([]int, 0, 3)
+	if strings.TrimSpace(cfg["price_10"]) != "" {
+		messagePacks = append(messagePacks, 10)
+	}
+	if strings.TrimSpace(cfg["price_100"]) != "" {
+		messagePacks = append(messagePacks, 100)
+	}
+	if strings.TrimSpace(cfg["price_1000"]) != "" {
+		messagePacks = append(messagePacks, 1000)
+	}
+	return map[string]any{
+		"messagePacks": messagePacks,
+		"projectQuota": strings.TrimSpace(cfg["project_quota_price"]) != "",
+	}
+}
+
+func emptyBillingProducts() map[string]any {
+	return map[string]any{
+		"messagePacks": []int{},
+		"projectQuota": false,
+	}
+}
+
 func (s *Server) handleBillingCheckout(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")

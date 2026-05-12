@@ -1,14 +1,15 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { CircleStop, ExternalLink, FolderOpen, LayoutPanelLeft, Loader2, LogOut, Minimize2, MessageSquare, Paperclip, Send, Settings, UserRound, X } from 'lucide-react';
+import { CircleStop, ExternalLink, FolderOpen, Languages, LayoutPanelLeft, Loader2, LogOut, Minimize2, MessageSquare, Paperclip, Send, Settings, UserRound, X } from 'lucide-react';
 import './styles.css';
 import { Admin } from './admin';
 import { api } from './api';
 import { AgentNotificationRow, AppDialog, CanvasLoader, ConfirmDeleteProject, ConfirmExportProject, ConfirmNewProject, DeleteAllAccountDialog, EmptyCanvas, ProjectList, UserMessageRow } from './builder_components';
-import { BASIC_CHAT_COLLAPSED_KEY, BASIC_CHAT_HEIGHT_KEY, BUILDER_MODE_KEY, MAX_ATTACHMENTS, SINGLE_VIEW_QUERY } from './config';
+import { BASIC_CHAT_COLLAPSED_KEY, BASIC_CHAT_HEIGHT_KEY, BUILDER_MODE_KEY, COLLAPSED_CHAT_POSITION_KEY, MAX_ATTACHMENTS, SINGLE_VIEW_QUERY } from './config';
 import type { AppDialogConfig, BuilderMode, BusyPolicy, Feed, FeedRow, Message, MessageQuota, Me, PendingAttachment, PreviewStatus, Project, ProjectArchiveResponse, ProjectExportResponse, ProjectListResponse, ProjectService, UserNotice } from './domain';
 import { feedAwaitingAgent, feedHasAssistantAfterLatestUser, feedLiveIdle, feedRows } from './feed';
-import { formatResetCountdown, projectLaunchErrorMessage } from './format';
+import { formatResetCountdown } from './format';
+import { I18nProvider, resetCountdownLabels, useI18n } from './i18n';
 import { installPwa } from './pwa';
 import { ProfilePanel } from './profile_panel';
 import { clampBasicChatHeight, defaultBasicChatHeight, singleViewScreen } from './viewport';
@@ -17,6 +18,7 @@ installPwa();
 
 const LOCAL_AGENT_RUN_MAX_MS = 30 * 60_000;
 const LOCAL_AGENT_IDLE_GRACE_MS = 10_000;
+const COLLAPSED_CHAT_EDGE_MARGIN = 28;
 
 function App() {
   const [me, setMe] = useState<Me | null>(null);
@@ -34,7 +36,9 @@ function App() {
     setRoute(to);
   };
 
-  if (!me) return <div className="loading">Loading</div>;
+  const { t } = useI18n();
+
+  if (!me) return <div className="loading">{t('app.loading')}</div>;
 
   return (
     <Shell me={me} nav={nav}>
@@ -44,6 +48,7 @@ function App() {
 }
 
 function Shell({ me, nav, children }: { me: Me; nav: (to: string) => void; children: React.ReactNode }) {
+  const { t } = useI18n();
   const [notices, setNotices] = useState<UserNotice[]>(me.notices ?? []);
   const online = useOnlineStatus();
   const googleReady = me.auth?.googleConfigured !== false;
@@ -60,15 +65,16 @@ function Shell({ me, nav, children }: { me: Me; nav: (to: string) => void; child
   return (
     <div className="shell">
       <header className="topbar">
-        <button className="brand" onClick={() => nav('/')} aria-label="Likeable link stable">
+        <button className="brand" onClick={() => nav('/')} aria-label={t('builder.brand.tooltip')}>
           <span className="mark small statusMark"><span className="markGlyph">L</span><span className="brandStatusDot" /></span>
         </button>
         <nav>
-          <button onClick={() => nav('/')}><MessageSquare size={18} /> Builder</button>
-          {me.user && <button onClick={() => nav('/profile')}><UserRound size={18} /> Profile</button>}
-          {me.isAdmin && <button onClick={() => nav('/admin')}><Settings size={18} /> Admin</button>}
+          <button onClick={() => nav('/')}><MessageSquare size={18} /> {t('nav.builder')}</button>
+          {me.user && <button onClick={() => nav('/profile')}><UserRound size={18} /> {t('nav.profile')}</button>}
+          {me.isAdmin && <button onClick={() => nav('/admin')}><Settings size={18} /> {t('nav.admin')}</button>}
         </nav>
         <div className="account">
+          <LanguageToggle />
           {me.user ? (
             <>
               <span>{me.user.email}</span>
@@ -76,8 +82,8 @@ function Shell({ me, nav, children }: { me: Me; nav: (to: string) => void; child
             </>
           ) : (
             <>
-              <a className={!googleReady ? 'disabled' : ''} href="/api/auth/google/start">Sign in</a>
-              {me.auth?.devAuth && <button onClick={() => fetch('/api/dev/login?email=admin@example.com', { method: 'POST' }).then(() => location.reload())}>Dev</button>}
+              <a className={!googleReady ? 'disabled' : ''} href="/api/auth/google/start">{t('auth.signIn')}</a>
+              {me.auth?.devAuth && <button onClick={() => fetch('/api/dev/login?email=admin@example.com', { method: 'POST' }).then(() => location.reload())}>{t('auth.dev')}</button>}
             </>
           )}
         </div>
@@ -86,21 +92,40 @@ function Shell({ me, nav, children }: { me: Me; nav: (to: string) => void; child
         <div className="noticeStack">
           {!online && (
             <div className="systemNotice warning">
-              <strong>Offline</strong>
-              <span>Cached app shell is available; live projects and messages need the network.</span>
+              <strong>{t('notice.offlineTitle')}</strong>
+              <span>{t('notice.offlineBody')}</span>
             </div>
           )}
           {notice && (
             <div className={`systemNotice ${notice.severity}`}>
-              <strong>System</strong>
+              <strong>{t('notice.system')}</strong>
               <span>{notice.body}</span>
-              <button onClick={() => void dismissNotice(notice.id)} aria-label="Dismiss notice"><X size={14} /></button>
+              <button onClick={() => void dismissNotice(notice.id)} aria-label={t('notice.dismiss')}><X size={14} /></button>
             </div>
           )}
         </div>
       )}
       <main className="workspace">{children}</main>
     </div>
+  );
+}
+
+function LanguageToggle({ className = '' }: { className?: string }) {
+  const { locale, setLocale, t } = useI18n();
+  const nextLocale = locale === 'en' ? 'uk' : 'en';
+  const currentLanguage = locale === 'en' ? t('language.english') : t('language.ukrainian');
+  const tip = t('language.current', { language: currentLanguage });
+  return (
+    <button
+      className={className || 'languageToggle'}
+      onClick={() => setLocale(nextLocale)}
+      aria-label={t('language.switch')}
+      title={tip}
+      data-tip={tip}
+    >
+      <Languages size={16} />
+      <span>{locale === 'en' ? 'UA' : 'EN'}</span>
+    </button>
   );
 }
 
@@ -122,6 +147,7 @@ function useOnlineStatus() {
 }
 
 function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void; me: Me; profileRoute?: boolean }) {
+  const { t } = useI18n();
   const signedIn = Boolean(me.user);
   const googleReady = me.auth?.googleConfigured !== false;
   const [projects, setProjects] = useState<Project[]>([]);
@@ -150,6 +176,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     const stored = Number(localStorage.getItem(BASIC_CHAT_HEIGHT_KEY));
     return Number.isFinite(stored) && stored > 0 ? clampBasicChatHeight(stored) : defaultBasicChatHeight();
   });
+  const [collapsedChatPosition, setCollapsedChatPosition] = useState(() => initialCollapsedChatPosition());
   const [busyPolicy, setBusyPolicy] = useState<BusyPolicy>('queue');
   const [messageQuota, setMessageQuota] = useState<MessageQuota | null>(me.messageQuota ?? null);
   const [quotaNow, setQuotaNow] = useState(Date.now());
@@ -177,33 +204,33 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     && (pendingAgentAge < LOCAL_AGENT_IDLE_GRACE_MS || !feedLiveIdle(feed))
   );
   const agentWorking = Boolean(signedIn && activeProject?.status === 'ready' && activePreviewURL && (messageSubmitting || localAgentRunActive || feed?.live?.isProcessing || feedAwaitingAgent(feed)));
-  const agentWorkingLabel = messageSubmitting ? 'Transmitting request' : 'Synthesizing canvas';
+  const agentWorkingLabel = messageSubmitting ? t('builder.agent.transmitting') : t('builder.agent.synthesizing');
   const lastRow = rows.at(-1);
   const lastRowSignature = lastRow ? `${lastRow.id}:${lastRow.body}` : '';
-  const modeLabel = viewMode === 'overlay' ? 'Basic' : 'Split';
+  const modeLabel = viewMode === 'overlay' ? t('builder.mode.basic') : t('builder.mode.split');
   const projectCapLabel = projectCap == null ? `${projects.length}` : `${projects.length}/${projectCap}`;
   const messageQuotaLabel = messageQuota ? `${messageQuota.remaining}/${messageQuota.limit}` : '';
-  const messageQuotaTooltip = messageQuota ? `${messageQuota.paidRemaining ?? 0} paid credits · resets in ${formatResetCountdown(messageQuota.resetsAt, quotaNow)}` : '';
+  const messageQuotaTooltip = messageQuota ? t('builder.messageQuota.tooltip', { paid: messageQuota.paidRemaining ?? 0, reset: formatResetCountdown(messageQuota.resetsAt, quotaNow, resetCountdownLabels(t)) }) : '';
   const githubConnected = Boolean(me.githubConnected);
   const githubNeedsReconnect = Boolean(me.githubNeedsReconnect);
   const isProjectStarting = activeProject?.status === 'creating' || activeProject?.status === 'launching';
   const previewMaintenance = Boolean(activePreviewURL && previewStatus?.maintenance);
   const previewReady = Boolean(activePreviewURL && previewStatus?.ready);
   const previewDisplayable = Boolean(activePreviewURL && (previewReady || previewMaintenance));
-  const canvasStatusLabel = agentWorking ? 'Agent working' : previewMaintenance ? 'Maintenance' : activeProject?.status === 'ready' ? (previewReady ? 'Canvas live' : 'Canvas starting') : isProjectStarting ? 'Canvas starting' : activeProject?.status === 'stopped' ? 'Canvas stopped' : activeProject?.status === 'error' ? 'Canvas error' : 'Canvas idle';
+  const canvasStatusLabel = agentWorking ? t('builder.status.agentWorking') : previewMaintenance ? t('builder.status.maintenance') : activeProject?.status === 'ready' ? (previewReady ? t('builder.status.canvasLive') : t('builder.status.canvasStarting')) : isProjectStarting ? t('builder.status.canvasStarting') : activeProject?.status === 'stopped' ? t('builder.status.canvasStopped') : activeProject?.status === 'error' ? t('builder.status.canvasError') : t('builder.status.canvasIdle');
   const hasDraft = Boolean(prompt.trim()) || attachments.length > 0;
   const canSend = signedIn && hasDraft && !busy && !messageSubmitting && Boolean(activePreviewURL) && (activeProject?.status === 'ready' || previewReady);
   const hasActiveNotification = rows.some((row) => row.kind === 'notification' && row.active);
   const utilityScreenOpen = showProjects || showProfile;
   const inputPlaceholder = !signedIn
-    ? 'Sign in with Google to start building...'
+    ? t('builder.placeholder.signIn')
     : isProjectStarting
-    ? 'Canvas is starting...'
+    ? t('builder.placeholder.starting')
     : activeProject?.status === 'error'
-      ? 'Project needs attention...'
+      ? t('builder.placeholder.error')
       : singleView
-        ? 'Describe the canvas...'
-        : 'Describe what should appear on the canvas...';
+        ? t('builder.placeholder.single')
+        : t('builder.placeholder.default');
 
   const loadProjects = () => api<ProjectListResponse>('/api/projects').then((r) => {
     const nextProjects = Array.isArray(r.projects) ? r.projects : [];
@@ -265,7 +292,13 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     localStorage.setItem(BASIC_CHAT_HEIGHT_KEY, String(Math.round(basicChatHeight)));
   }, [basicChatHeight]);
   useEffect(() => {
-    const resize = () => setBasicChatHeight((height) => clampBasicChatHeight(height));
+    localStorage.setItem(COLLAPSED_CHAT_POSITION_KEY, JSON.stringify(collapsedChatPosition));
+  }, [collapsedChatPosition]);
+  useEffect(() => {
+    const resize = () => {
+      setBasicChatHeight((height) => clampBasicChatHeight(height));
+      setCollapsedChatPosition((position) => clampCollapsedChatPosition(position));
+    };
     addEventListener('resize', resize);
     return () => removeEventListener('resize', resize);
   }, []);
@@ -424,7 +457,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
           return { ...current, localMessages: (current.localMessages ?? []).filter((message) => message.id !== optimisticID) };
         });
       }
-      setDialog({ title: 'Request failed', body: err instanceof Error ? err.message : 'Request failed', confirmLabel: 'Close' });
+      setDialog({ title: t('dialog.requestFailed.title'), body: err instanceof Error ? err.message : t('dialog.requestFailed.title'), confirmLabel: t('common.close') });
     } finally {
       setMessageSubmitting(false);
       setBusy(false);
@@ -439,7 +472,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       setMessageSubmitting(false);
       setFeed(await api<Feed>(`/api/projects/${activeProject.id}/feed`));
     } catch (err) {
-      setDialog({ title: 'Stop failed', body: err instanceof Error ? err.message : 'Request failed', tone: 'warning', confirmLabel: 'Close' });
+      setDialog({ title: t('dialog.stopFailed.title'), body: err instanceof Error ? err.message : t('dialog.requestFailed.title'), tone: 'warning', confirmLabel: t('common.close') });
     } finally {
       setBusy(false);
     }
@@ -459,7 +492,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       setFeed({ project: res.project, localMessages: [], messages: [], activity: [], live: null });
       nav('/');
     } catch (err) {
-      setDialog({ title: 'Project failed', body: err instanceof Error ? err.message : 'Request failed', tone: 'warning', confirmLabel: 'Close' });
+      setDialog({ title: t('dialog.projectFailed.title'), body: err instanceof Error ? err.message : t('dialog.requestFailed.title'), tone: 'warning', confirmLabel: t('common.close') });
     } finally {
       setBusy(false);
     }
@@ -474,7 +507,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       setProjects((current) => current.map((item) => item.id === project.id ? res.project : item));
       setFeed((current) => current?.project.id === project.id ? { ...current, project: res.project } : current);
     } catch (err) {
-      setDialog({ title: 'Rename failed', body: err instanceof Error ? err.message : 'Request failed', tone: 'warning', confirmLabel: 'Close' });
+      setDialog({ title: t('dialog.renameFailed.title'), body: err instanceof Error ? err.message : t('dialog.requestFailed.title'), tone: 'warning', confirmLabel: t('common.close') });
     } finally {
       setBusy(false);
     }
@@ -489,7 +522,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       setProjects((current) => current.map((item) => item.id === res.project.id ? res.project : item));
       setFeed((current) => current?.project.id === res.project.id ? { ...current, project: res.project } : current);
     } catch (err) {
-      setDialog({ title: 'Service switch failed', body: err instanceof Error ? err.message : 'Request failed', tone: 'warning', confirmLabel: 'Close' });
+      setDialog({ title: t('dialog.serviceSwitchFailed.title'), body: err instanceof Error ? err.message : t('dialog.requestFailed.title'), tone: 'warning', confirmLabel: t('common.close') });
     } finally {
       setBusy(false);
     }
@@ -511,7 +544,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
         setFeed(null);
       }
     } catch (err) {
-      setDialog({ title: 'Delete failed', body: err instanceof Error ? err.message : 'Request failed', tone: 'danger', confirmLabel: 'Close' });
+      setDialog({ title: t('dialog.deleteFailed.title'), body: err instanceof Error ? err.message : t('dialog.requestFailed.title'), tone: 'danger', confirmLabel: t('common.close') });
     } finally {
       setBusy(false);
     }
@@ -527,7 +560,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       setProjects((current) => current.map((item) => item.id === project.id ? res.project : item));
       setFeed((current) => current?.project.id === project.id ? { ...current, project: res.project } : current);
     } catch (err) {
-      setDialog({ title: 'Playground action failed', body: err instanceof Error ? err.message : 'Request failed', tone: 'warning', confirmLabel: 'Close' });
+      setDialog({ title: t('dialog.playgroundActionFailed.title'), body: err instanceof Error ? err.message : t('dialog.requestFailed.title'), tone: 'warning', confirmLabel: t('common.close') });
     } finally {
       setControllingProjectID('');
       setBusy(false);
@@ -551,16 +584,16 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       });
       setExportTarget(null);
       setDialog({
-        title: 'Export ready',
-        body: `${project.title} was pushed to ${res.githubRepoUrl}.`,
-        confirmLabel: 'Open GitHub',
+        title: t('dialog.exportReady.title'),
+        body: t('dialog.exportReady.bodyProject', { title: project.title, url: res.githubRepoUrl }),
+        confirmLabel: t('dialog.exportReady.openGitHub'),
         onConfirm: () => {
           window.open(res.githubRepoUrl, '_blank', 'noopener,noreferrer');
         }
       });
     } catch (err) {
       setExportTarget(null);
-      setDialog({ title: 'Export failed', body: err instanceof Error ? err.message : 'Request failed', tone: 'warning', confirmLabel: 'Close' });
+      setDialog({ title: t('dialog.exportFailed.title'), body: err instanceof Error ? err.message : t('dialog.requestFailed.title'), tone: 'warning', confirmLabel: t('common.close') });
     } finally {
       setExportingID('');
       setExportingMode('');
@@ -581,7 +614,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       location.href = res.downloadUrl;
     } catch (err) {
       setExportTarget(null);
-      setDialog({ title: 'Zip export failed', body: err instanceof Error ? err.message : 'Request failed', tone: 'warning', confirmLabel: 'Close' });
+      setDialog({ title: t('dialog.zipExportFailed.title'), body: err instanceof Error ? err.message : t('dialog.requestFailed.title'), tone: 'warning', confirmLabel: t('common.close') });
     } finally {
       setExportingID('');
       setExportingMode('');
@@ -632,6 +665,45 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     addEventListener('pointerup', onUp);
     addEventListener('pointercancel', onUp);
   };
+  const startCollapsedChatDrag = (event: React.PointerEvent<HTMLButtonElement>) => {
+    if (viewMode !== 'overlay' || !basicChatCollapsed) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const startPosition = clampCollapsedChatPosition(collapsedChatPosition);
+    let moved = false;
+    document.documentElement.classList.add('draggingCollapsedChat');
+    const onMove = (moveEvent: PointerEvent) => {
+      moveEvent.preventDefault();
+      const dx = moveEvent.clientX - startX;
+      const dy = moveEvent.clientY - startY;
+      if (Math.hypot(dx, dy) > 5) moved = true;
+      setCollapsedChatPosition(clampCollapsedChatPosition({
+        x: startPosition.x + dx,
+        y: startPosition.y + dy
+      }));
+    };
+    const finish = (cancelled = false) => {
+      document.documentElement.classList.remove('draggingCollapsedChat');
+      removeEventListener('pointermove', onMove);
+      removeEventListener('pointerup', onUp);
+      removeEventListener('pointercancel', onCancel);
+      if (!moved && !cancelled) {
+        setBasicChatCollapsed(false);
+      }
+    };
+    const onUp = () => finish(false);
+    const onCancel = () => finish(true);
+    addEventListener('pointermove', onMove);
+    addEventListener('pointerup', onUp);
+    addEventListener('pointercancel', onCancel);
+  };
+  const handleCollapsedChatKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    setBasicChatCollapsed(false);
+  };
   const chatDragHandlers = {
     onDragEnter: (event: React.DragEvent) => {
       if (!event.dataTransfer.types.includes('Files')) return;
@@ -664,18 +736,15 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     <button
       className={`chromeIconButton splitToggle tooltip tooltipBottom ${viewMode === 'split' ? 'selected' : ''}`}
       onClick={() => setMode(viewMode === 'split' ? 'overlay' : 'split')}
-      aria-label={viewMode === 'split' ? 'Use basic view' : 'Use split view'}
-      data-tip={viewMode === 'split' ? 'Use basic view' : 'Use split view'}
+      aria-label={viewMode === 'split' ? t('builder.view.useBasic') : t('builder.view.useSplit')}
+      data-tip={viewMode === 'split' ? t('builder.view.useBasic') : t('builder.view.useSplit')}
     >
       <LayoutPanelLeft size={16} />
     </button>
   );
   const topOpenLink = activeProject?.status === 'ready' && activePreviewURL
-    ? <a className="chromeIconButton topOpenLink tooltip tooltipBottom" href={activePreviewURL} target="_blank" aria-label="Open preview" data-tip="Open preview"><ExternalLink size={16} /></a>
+    ? <a className="chromeIconButton topOpenLink tooltip tooltipBottom" href={activePreviewURL} target="_blank" aria-label={t('builder.preview.open')} data-tip={t('builder.preview.open')}><ExternalLink size={16} /></a>
     : null;
-  const expandBasicChat = () => {
-    setBasicChatCollapsed(false);
-  };
   const openProjectsPanel = () => {
     if (!signedIn) return;
     setShowProjects((open) => !open);
@@ -695,31 +764,31 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   };
   const builderChrome = (
     <div className="basicChatChrome">
-      <button className="brand chatBrand tooltip tooltipBottom" onClick={() => nav('/')} aria-label="Likeable link stable" data-tip="Link stable">
+      <button className="brand chatBrand tooltip tooltipBottom" onClick={() => nav('/')} aria-label={t('builder.brand.tooltip')} data-tip={t('builder.brand.tooltip')}>
         <span className={`mark small statusMark ${agentWorking ? 'working' : ''}`}><span className="markGlyph">L</span><span className="brandStatusDot" /></span>
       </button>
       {topOpenLink}
-      <button className="projectTitleButton tooltip tooltipBottom" onClick={openProjectsPanel} disabled={!signedIn} aria-label="Projects" data-tip={signedIn ? 'Projects' : 'Sign in to create projects'}>
-        <span className="projectTitleMain">{activeProject?.title ?? (signedIn ? 'New project' : 'Sign in to build')}</span>
+      <button className="projectTitleButton tooltip tooltipBottom" onClick={openProjectsPanel} disabled={!signedIn} aria-label={t('projects.title')} data-tip={signedIn ? t('builder.projects.tooltip') : t('auth.signInToCreateProjects')}>
+        <span className="projectTitleMain">{activeProject?.title ?? (signedIn ? t('builder.project.new') : t('auth.signInToBuild'))}</span>
         <span className="projectTitleCount"><FolderOpen size={15} /><span>{signedIn ? projectCapLabel : '-'}</span></span>
       </button>
       {!me.user && (
         <div className="account chatAccount">
-          <a className={!googleReady ? 'disabled' : ''} href="/api/auth/google/start">Sign in</a>
-          {me.auth?.devAuth && <button onClick={() => fetch('/api/dev/login?email=admin@example.com', { method: 'POST' }).then(() => location.reload())}>Dev</button>}
+          <a className={!googleReady ? 'disabled' : ''} href="/api/auth/google/start">{t('auth.signIn')}</a>
+          {me.auth?.devAuth && <button onClick={() => fetch('/api/dev/login?email=admin@example.com', { method: 'POST' }).then(() => location.reload())}>{t('auth.dev')}</button>}
         </div>
       )}
       <nav className="chatNav">
         {activeProject?.services && activeProject.services.length > 1 && (
-          <div className="chromePill serviceSelector" aria-label="Preview service">
+          <div className="chromePill serviceSelector" aria-label={t('service.preview')}>
             {activeProject.services.map((service) => (
               <button
                 key={service.name}
                 className={selectedService?.name === service.name ? 'chromeIconButton selected serviceButton tooltip tooltipBottom' : 'chromeIconButton serviceButton tooltip tooltipBottom'}
                 onClick={() => void selectService(service)}
                 disabled={!signedIn || busy}
-                aria-label={`Show ${service.name}`}
-                data-tip={`Show ${service.name}`}
+                aria-label={t('service.show', { name: service.name })}
+                data-tip={t('service.show', { name: service.name })}
               >
                 {service.name.slice(0, 2).toUpperCase()}
               </button>
@@ -729,28 +798,29 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
         <div className="chromePill identityPill">
           {agentWorking && (
             <>
-              <button className="chromeIconButton stopAgentButton tooltip tooltipBottom" onClick={interruptAgent} disabled={busy} aria-label="Stop agent" data-tip="Stop agent"><CircleStop size={16} /></button>
+              <button className="chromeIconButton stopAgentButton tooltip tooltipBottom" onClick={interruptAgent} disabled={busy} aria-label={t('builder.stopAgent')} data-tip={t('builder.stopAgent')}><CircleStop size={16} /></button>
               <button
                 className="chromeIconButton busyPolicyButton tooltip tooltipBottom"
                 onClick={() => setBusyPolicy((policy) => policy === 'queue' ? 'steer' : 'queue')}
-                aria-label={busyPolicy === 'queue' ? 'Queue new messages' : 'Steer current run'}
-                data-tip={busyPolicy === 'queue' ? 'Queue new messages' : 'Steer current run'}
+                aria-label={busyPolicy === 'queue' ? t('builder.busy.queue') : t('builder.busy.steer')}
+                data-tip={busyPolicy === 'queue' ? t('builder.busy.queue') : t('builder.busy.steer')}
               >
                 {busyPolicy === 'queue' ? 'Q' : 'S'}
               </button>
             </>
           )}
           {messageQuota && (
-            <span className="messageQuotaBadge tooltip tooltipBottom" data-tip={messageQuotaTooltip} aria-label="Messages left in this window">
+            <span className="messageQuotaBadge tooltip tooltipBottom" data-tip={messageQuotaTooltip} aria-label={t('builder.messages.left')}>
               {messageQuotaLabel}
             </span>
           )}
-          <button className={showProfile ? 'chromeIconButton selected tooltip tooltipBottom' : 'chromeIconButton tooltip tooltipBottom'} onClick={showProfile ? closeProfilePanel : openProfilePanel} disabled={!signedIn} aria-label="Profile" data-tip={signedIn ? 'Profile' : 'Sign in to open profile'}><UserRound size={16} /></button>
-          {me.isAdmin && <button className="chromeIconButton tooltip tooltipBottom" onClick={() => nav('/admin')} aria-label="Admin" data-tip="Admin"><Settings size={16} /></button>}
+          <LanguageToggle className="chromeIconButton tooltip tooltipBottom languageChromeButton" />
+          <button className={showProfile ? 'chromeIconButton selected tooltip tooltipBottom' : 'chromeIconButton tooltip tooltipBottom'} onClick={showProfile ? closeProfilePanel : openProfilePanel} disabled={!signedIn} aria-label={t('nav.profile')} data-tip={signedIn ? t('builder.profile.tooltip') : t('auth.signInToOpenProfile')}><UserRound size={16} /></button>
+          {me.isAdmin && <button className="chromeIconButton tooltip tooltipBottom" onClick={() => nav('/admin')} aria-label={t('nav.admin')} data-tip={t('builder.admin.tooltip')}><Settings size={16} /></button>}
         </div>
         <div className="chromePill">
           {modeToggle}
-          {viewMode === 'overlay' && <button className="chromeIconButton tooltip tooltipBottom" onClick={() => setBasicChatCollapsed(true)} aria-label="Collapse chat" data-tip="Collapse chat"><Minimize2 size={16} /></button>}
+          {viewMode === 'overlay' && <button className="chromeIconButton tooltip tooltipBottom" onClick={() => setBasicChatCollapsed(true)} aria-label={t('builder.chat.collapse')} data-tip={t('builder.chat.collapse')}><Minimize2 size={16} /></button>}
         </div>
       </nav>
     </div>
@@ -759,7 +829,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const chat = (
     <section className={`chatPane ${draggingFiles ? 'dragActive' : ''} ${utilityScreenOpen ? 'screenOpen' : ''}`} {...chatDragHandlers}>
       <a className="poweredBy" href="https://fibe.gg" target="_blank" rel="noopener noreferrer">
-        Powered by <span>fibe.gg</span>
+        {t('builder.poweredBy')} <span>fibe.gg</span>
       </a>
       {builderChrome}
       {showProjects && <ProjectList projects={projects} activeID={activeID} projectCap={projectCap} busy={busy} exportingID={exportingID} controllingID={controllingProjectID} onSelect={(id) => { setActiveID(id); setShowProjects(false); }} onNew={() => setConfirmNewProject(true)} onRename={renameProject} onDelete={setDeleteTarget} onExport={requestProjectExport} onControlPlayground={controlProjectPlayground} onClose={() => setShowProjects(false)} />}
@@ -773,7 +843,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
             )}
             {agentWorking && !hasActiveNotification && <AgentNotificationRow body={agentWorkingLabel} active />}
           </div>
-          {draggingFiles && <div className="dropOverlay"><Paperclip size={24} /> Drop files to attach</div>}
+          {draggingFiles && <div className="dropOverlay"><Paperclip size={24} /> {t('builder.dropFiles')}</div>}
           <div className={`composer ${attachments.length > 0 ? 'hasAttachments' : ''}`}>
             <input ref={fileInputRef} type="file" multiple hidden onChange={(event) => {
               if (event.currentTarget.files) addFiles(event.currentTarget.files);
@@ -785,12 +855,12 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
                   <span className="attachmentChip" key={attachment.id}>
                     <Paperclip size={14} />
                     <span>{attachment.file.name}</span>
-                    <button onClick={() => removeAttachment(attachment.id)} aria-label={`Remove ${attachment.file.name}`}><X size={13} /></button>
+                    <button onClick={() => removeAttachment(attachment.id)} aria-label={t('builder.removeAttachment', { name: attachment.file.name })}><X size={13} /></button>
                   </span>
                 ))}
               </div>
             )}
-            <button className="attachButton" type="button" onClick={() => fileInputRef.current?.click()} disabled={!signedIn || attachments.length >= MAX_ATTACHMENTS} aria-label="Attach files">
+            <button className="attachButton" type="button" onClick={() => fileInputRef.current?.click()} disabled={!signedIn || attachments.length >= MAX_ATTACHMENTS} aria-label={t('builder.attachFiles')}>
               <Paperclip size={20} />
             </button>
             <textarea ref={textareaRef} value={prompt} onChange={(e) => setPrompt(e.target.value)} onKeyDown={handleComposerKeyDown} placeholder={inputPlaceholder} rows={1} disabled={!signedIn} />
@@ -803,56 +873,64 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     </section>
   );
   const minimizedChatBar = (
-    <button className={`minimizedChatBar ${agentWorking ? 'working' : ''}`} onClick={expandBasicChat} aria-label="Expand chat" {...chatDragHandlers}>
+    <button
+      className={`minimizedChatBar ${agentWorking ? 'working' : ''}`}
+      aria-label={t('builder.expandChat')}
+      onPointerDown={startCollapsedChatDrag}
+      onKeyDown={handleCollapsedChatKeyDown}
+      {...chatDragHandlers}
+    >
       <span className={`mark small statusMark ${agentWorking ? 'working' : ''}`}><span className="markGlyph">L</span><span className="brandStatusDot" /></span>
     </button>
   );
 
-  const previewTitle = activeProject?.status === 'launching' ? 'Starting canvas' : 'Preparing canvas';
+  const previewTitle = activeProject?.status === 'launching' ? t('builder.preview.startingTitle') : t('builder.preview.preparingTitle');
   const previewBody = activeProject?.status === 'launching'
-    ? 'Likeable is preparing the project workspace. The canvas will appear when it is ready.'
-    : 'Likeable is creating a private project workspace from the default starter.';
+    ? t('builder.preview.launchingBody')
+    : t('builder.preview.preparingBody');
   const connectingCanvasBody = previewReady
-    ? 'The canvas responded. Opening the preview.'
-    : 'The canvas route is warming up. Likeable will open it automatically when it is ready.';
+    ? t('builder.preview.respondedBody')
+    : t('builder.preview.warmingBody');
   const preview = (
     <section className="previewPane">
       {activeProject?.status === 'error' && !previewMaintenance ? (
-        <CanvasLoader title="Canvas launch failed" body={projectLaunchErrorMessage(activeProject.errorMessage)} tone="error" />
+        <CanvasLoader title={t('builder.preview.launchFailedTitle')} body={t('builder.preview.launchFailedBody')} tone="error" />
       ) : activePreviewURL && previewDisplayable ? (
         <>
           <iframe
-            title="preview"
+            title={t('builder.preview.frameTitle')}
             src={activePreviewURL}
             className={previewDisplayable && iframeLoaded ? 'loaded' : ''}
             onLoad={() => {
               if (previewDisplayable) setIframeLoaded(true);
             }}
           />
-          {(!previewDisplayable || !iframeLoaded) && <CanvasLoader title="Connecting canvas" body={connectingCanvasBody} />}
+          {(!previewDisplayable || !iframeLoaded) && <CanvasLoader title={t('builder.preview.connectingTitle')} body={connectingCanvasBody} />}
         </>
       ) : isProjectStarting ? (
         <CanvasLoader title={previewTitle} body={previewBody} />
       ) : activeProject?.status === 'stopped' ? (
-        <CanvasLoader title="Canvas stopped" body="Likeable stopped this playground to save resources. Start it from the project menu when you need it again." />
+        <CanvasLoader title={t('builder.preview.stoppedTitle')} body={t('builder.preview.stoppedBody')} />
       ) : activeProject?.status === 'ready' && activePreviewURL ? (
         <>
           <iframe
-            title="preview"
+            title={t('builder.preview.frameTitle')}
             src="about:blank"
             className=""
             onLoad={() => undefined}
           />
-          <CanvasLoader title="Connecting canvas" body={connectingCanvasBody} />
+          <CanvasLoader title={t('builder.preview.connectingTitle')} body={connectingCanvasBody} />
         </>
       ) : <EmptyCanvas />}
       {viewMode === 'split' && <div className={`canvasStatus ${agentWorking ? 'working' : ''}`}><span /> {canvasStatusLabel}</div>}
       {viewMode === 'overlay' && (
         <div
           className={`overlayChat ${basicChatCollapsed ? 'collapsed minimized' : ''}`}
-          style={!basicChatCollapsed ? ({ '--basic-chat-height': `${basicChatHeight}px` } as React.CSSProperties) : undefined}
+          style={basicChatCollapsed
+            ? collapsedChatStyle(collapsedChatPosition)
+            : ({ '--basic-chat-height': `${basicChatHeight}px` } as React.CSSProperties)}
         >
-          {!basicChatCollapsed && <div className="chatResizeHandle" aria-label="Resize chat" onPointerDown={startBasicChatResize} />}
+          {!basicChatCollapsed && <div className="chatResizeHandle" aria-label={t('builder.resizeChat')} onPointerDown={startBasicChatResize} />}
           {basicChatCollapsed ? minimizedChatBar : chat}
         </div>
       )}
@@ -877,6 +955,52 @@ function selectedProjectService(project?: Project): ProjectService | undefined {
   return project.services.find((service) => service.name === selected)
     ?? project.services.find((service) => service.name === 'app')
     ?? project.services[0];
+}
+
+type CollapsedChatPosition = { x: number; y: number };
+
+function initialCollapsedChatPosition(): CollapsedChatPosition {
+  const stored = localStorage.getItem(COLLAPSED_CHAT_POSITION_KEY);
+  if (stored) {
+    try {
+      const parsed = JSON.parse(stored) as Partial<CollapsedChatPosition>;
+      if (typeof parsed.x === 'number' && typeof parsed.y === 'number') {
+        return clampCollapsedChatPosition({ x: parsed.x, y: parsed.y });
+      }
+    } catch {
+      localStorage.removeItem(COLLAPSED_CHAT_POSITION_KEY);
+    }
+  }
+  return defaultCollapsedChatPosition();
+}
+
+function defaultCollapsedChatPosition(): CollapsedChatPosition {
+  return clampCollapsedChatPosition({
+    x: Math.round(window.innerWidth / 2),
+    y: Math.round(window.innerHeight - 48)
+  });
+}
+
+function clampCollapsedChatPosition(position: CollapsedChatPosition): CollapsedChatPosition {
+  const minX = COLLAPSED_CHAT_EDGE_MARGIN;
+  const minY = COLLAPSED_CHAT_EDGE_MARGIN;
+  const maxX = Math.max(minX, window.innerWidth - COLLAPSED_CHAT_EDGE_MARGIN);
+  const maxY = Math.max(minY, window.innerHeight - COLLAPSED_CHAT_EDGE_MARGIN);
+  return {
+    x: Math.min(maxX, Math.max(minX, Math.round(position.x))),
+    y: Math.min(maxY, Math.max(minY, Math.round(position.y)))
+  };
+}
+
+function collapsedChatStyle(position: CollapsedChatPosition): React.CSSProperties {
+  const clamped = clampCollapsedChatPosition(position);
+  return {
+    left: `${clamped.x}px`,
+    top: `${clamped.y}px`,
+    right: 'auto',
+    bottom: 'auto',
+    transform: 'translate(-50%, -50%)'
+  };
 }
 
 function mergeFeedSnapshot(current: Feed | null, next: Feed): Feed {
@@ -919,4 +1043,8 @@ function normalizeActiveNotificationRows(rows: FeedRow[]): FeedRow[] {
   });
 }
 
-createRoot(document.getElementById('root')!).render(<App />);
+createRoot(document.getElementById('root')!).render(
+  <I18nProvider>
+    <App />
+  </I18nProvider>
+);

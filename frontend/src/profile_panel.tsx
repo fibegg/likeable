@@ -4,8 +4,10 @@ import { api } from './api';
 import { DeleteAllAccountDialog } from './builder_components';
 import type { Me, ProjectArchive, UserNotice } from './domain';
 import { formatMessageTime, formatResetCountdown, formatShortDate, userInitials } from './format';
+import { resetCountdownLabels, statusLabel, useI18n } from './i18n';
 
 export function ProfilePanel({ me, onClose }: { me: Me; onClose: () => void }) {
+  const { locale, t } = useI18n();
   const [messages, setMessages] = useState<UserNotice[]>([]);
   const [archives, setArchives] = useState<ProjectArchive[]>([]);
   const [supportBody, setSupportBody] = useState('');
@@ -26,7 +28,7 @@ export function ProfilePanel({ me, onClose }: { me: Me; onClose: () => void }) {
       const res = await api<{ messages: UserNotice[] }>('/api/messages?limit=80');
       setMessages(res.messages ?? []);
     } catch (err) {
-      setProfileError(err instanceof Error ? err.message : 'Could not load messages');
+      setProfileError(err instanceof Error ? err.message : t('profile.loadMessagesFailed'));
     }
   };
   const loadArchives = async () => {
@@ -34,7 +36,7 @@ export function ProfilePanel({ me, onClose }: { me: Me; onClose: () => void }) {
       const res = await api<{ archives: ProjectArchive[] }>('/api/profile/archives');
       setArchives(res.archives ?? []);
     } catch (err) {
-      setProfileError(err instanceof Error ? err.message : 'Could not load archives');
+      setProfileError(err instanceof Error ? err.message : t('profile.loadArchivesFailed'));
     }
   };
   useEffect(() => {
@@ -56,7 +58,7 @@ export function ProfilePanel({ me, onClose }: { me: Me; onClose: () => void }) {
       });
       location.href = res.url;
     } catch (err) {
-      setProfileError(err instanceof Error ? err.message : 'Checkout failed');
+      setProfileError(err instanceof Error ? err.message : t('profile.checkoutFailed'));
       setBusyPack(null);
     }
   };
@@ -70,7 +72,7 @@ export function ProfilePanel({ me, onClose }: { me: Me; onClose: () => void }) {
       });
       location.href = res.url;
     } catch (err) {
-      setProfileError(err instanceof Error ? err.message : 'Checkout failed');
+      setProfileError(err instanceof Error ? err.message : t('profile.checkoutFailed'));
       setBusyPack(null);
     }
   };
@@ -86,7 +88,7 @@ export function ProfilePanel({ me, onClose }: { me: Me; onClose: () => void }) {
       setSupportBody('');
       await loadMessages();
     } catch (err) {
-      setProfileError(err instanceof Error ? err.message : 'Message failed');
+      setProfileError(err instanceof Error ? err.message : t('profile.messageFailed'));
     } finally {
       setSendingSupport(false);
     }
@@ -106,104 +108,110 @@ export function ProfilePanel({ me, onClose }: { me: Me; onClose: () => void }) {
       });
       location.href = '/';
     } catch (err) {
-      setProfileError(err instanceof Error ? err.message : 'Delete all failed');
+      setProfileError(err instanceof Error ? err.message : t('profile.deleteAllFailed'));
       setDeletingAll(false);
     }
   };
-  const displayName = me.user?.name || me.user?.email || 'Signed in';
+  const displayName = me.user?.name || me.user?.email || t('profile.signedIn');
   const quota = me.messageQuota;
   const projectQuota = me.projectQuota;
-  const quotaResetLabel = quota ? formatResetCountdown(quota.resetsAt) : '5h';
+  const availableMessagePacks = me.billingProducts?.messagePacks ?? [];
+  const projectQuotaPurchasable = Boolean(me.billingProducts?.projectQuota);
+  const quotaResetLabel = quota ? formatResetCountdown(quota.resetsAt, Date.now(), resetCountdownLabels(t)) : t('duration.fiveHours');
   return (
     <section className="inlinePanel profileInline">
       <div className="inlinePanelHeader">
         <div>
-          <span className="eyebrow">Profile</span>
+          <span className="eyebrow">{t('profile.title')}</span>
           <strong>{me.user?.email}</strong>
         </div>
-        <button className="projectDelete" onClick={onClose} aria-label="Close profile"><X size={15} /></button>
+        <button className="projectDelete" onClick={onClose} aria-label={t('profile.close')}><X size={15} /></button>
       </div>
       {profileError && <div className="adminError inlineAdminError">{profileError}</div>}
       <div className="profileGrid">
         <div className="profileCard profileIdentityCard">
           <div className="profileAvatar">{userInitials(me.user)}</div>
           <div>
-            <span className="profileLabel">Signed in as</span>
+            <span className="profileLabel">{t('profile.signedInAs')}</span>
             <strong>{displayName}</strong>
             <em>{me.user?.email}</em>
           </div>
-          {me.isAdmin && <span className="profileBadge">Admin</span>}
+          {me.isAdmin && <span className="profileBadge">{t('common.admin')}</span>}
         </div>
         <div className="profileCard profileActionCard">
           <div>
-            <span className="profileLabel">GitHub</span>
-            <strong>Repository export</strong>
+            <span className="profileLabel">{t('common.github')}</span>
+            <strong>{t('profile.githubExport')}</strong>
           </div>
           {me.githubConnected && !me.githubNeedsReconnect
-            ? <span className="profileConnected"><Check size={15} /> Connected</span>
-            : <a className="ghostButton" href="/api/profile/github/start"><GitBranch size={18} /> {me.githubNeedsReconnect ? 'Reconnect' : 'Connect'}</a>}
+            ? <span className="profileConnected"><Check size={15} /> {t('profile.connected')}</span>
+            : <a className="ghostButton" href="/api/profile/github/start"><GitBranch size={18} /> {me.githubNeedsReconnect ? t('profile.reconnect') : t('profile.connect')}</a>}
         </div>
         <div className="profileCard profileActionCard">
           <div>
-            <span className="profileLabel">Messages</span>
-            <strong>{quota ? `${quota.remaining}/${quota.limit} free in 5h` : '5-hour free quota'}</strong>
-            <em>{quota?.paidRemaining ?? 0} paid credits · resets in {quotaResetLabel} · {quota?.lifetimeUsed ?? 0} lifetime sent</em>
+            <span className="profileLabel">{t('profile.messages')}</span>
+            <strong>{quota ? t('profile.freeInWindow', { remaining: quota.remaining, limit: quota.limit }) : t('profile.freeQuota')}</strong>
+            <em>{t('profile.quotaDetail', { paid: quota?.paidRemaining ?? 0, reset: quotaResetLabel, lifetime: quota?.lifetimeUsed ?? 0 })}</em>
           </div>
-          <div className="packButtons">
-            {[10, 100, 1000].map((pack) => (
-              <button className="primaryButton" key={pack} disabled={busyPack != null} onClick={() => void checkout(pack)}>
-                {busyPack === pack ? <Loader2 size={16} className="spin" /> : <Wallet size={16} />} {pack}
-              </button>
-            ))}
-          </div>
+          {availableMessagePacks.length > 0 && (
+            <div className="packButtons">
+              {availableMessagePacks.map((pack) => (
+                <button className="primaryButton" key={pack} disabled={busyPack != null} onClick={() => void checkout(pack)}>
+                  {busyPack === pack ? <Loader2 size={16} className="spin" /> : <Wallet size={16} />} {pack}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         <div className="profileCard profileActionCard">
           <div>
-            <span className="profileLabel">Projects</span>
-            <strong>{projectQuota ? `${projectQuota.used}/${projectQuota.limit} project slots` : 'Project quota'}</strong>
-            <em>{projectQuota?.paidSlots ?? 0} paid monthly slots{projectQuota?.nextExpiresAt ? ` · next reset ${formatShortDate(projectQuota.nextExpiresAt)}` : ''}</em>
+            <span className="profileLabel">{t('profile.projects')}</span>
+            <strong>{projectQuota ? t('profile.projectSlots', { used: projectQuota.used, limit: projectQuota.limit }) : t('profile.projectQuota')}</strong>
+            <em>{t('profile.projectSlotDetail', { paid: projectQuota?.paidSlots ?? 0, reset: projectQuota?.nextExpiresAt ? ` · ${t('common.nextReset', { date: formatShortDate(projectQuota.nextExpiresAt, locale) })}` : '' })}</em>
           </div>
-          <button className="primaryButton" disabled={busyPack != null} onClick={() => void checkoutProjectSlot()}>
-            {busyPack === -1 ? <Loader2 size={16} className="spin" /> : <FolderOpen size={16} />} +1 slot
-          </button>
+          {projectQuotaPurchasable && (
+            <button className="primaryButton" disabled={busyPack != null} onClick={() => void checkoutProjectSlot()}>
+              {busyPack === -1 ? <Loader2 size={16} className="spin" /> : <FolderOpen size={16} />} {t('profile.addSlot')}
+            </button>
+          )}
         </div>
         <div className="profileCard profileActionCard">
           <div>
-            <span className="profileLabel">Session</span>
-            <strong>Signed in</strong>
-            <em>End your current session on this device.</em>
+            <span className="profileLabel">{t('profile.session')}</span>
+            <strong>{t('profile.signedIn')}</strong>
+            <em>{t('profile.sessionBody')}</em>
           </div>
           <button className="ghostButton" onClick={() => fetch('/api/auth/logout', { method: 'POST' }).then(() => location.reload())}>
-            <LogOut size={16} /> Sign out
+            <LogOut size={16} /> {t('auth.signOut')}
           </button>
         </div>
         <div className="profileCard profileActionCard profileDangerCard">
           <div>
-            <span className="profileLabel">Danger zone</span>
-            <strong>Delete all account data</strong>
-            <em>Removes projects, workspaces, messages, OAuth connections, payments, sessions, and this profile.</em>
+            <span className="profileLabel">{t('profile.dangerZone')}</span>
+            <strong>{t('profile.deleteAllTitle')}</strong>
+            <em>{t('profile.deleteAllBody')}</em>
           </div>
           <button className="dangerButton" disabled={deletingAll} onClick={() => setDeleteAllOpen(true)}>
-            {deletingAll ? <Loader2 size={16} className="spin" /> : <Trash2 size={16} />} DELETE ALL
+            {deletingAll ? <Loader2 size={16} className="spin" /> : <Trash2 size={16} />} {t('deleteAll.button')}
           </button>
         </div>
       </div>
       {archives.length > 0 && (
         <div className="profileArchives">
           <div className="adminCardHeader compactHeader">
-            <h3>Archived Projects</h3>
-            <p>Archives are kept for 90 days after quota cleanup. Download them here if GitHub export was unavailable.</p>
+            <h3>{t('profile.archives.title')}</h3>
+            <p>{t('profile.archives.body')}</p>
           </div>
           <div className="archiveList">
             {archives.map((archive) => (
               <div className={`archiveRow ${archive.status}`} key={archive.id}>
                 <div>
                   <strong>{archive.projectTitle}</strong>
-                  <em>{archive.status}{archive.expiresAt ? ` · expires ${formatShortDate(archive.expiresAt)}` : ''}</em>
+                  <em>{statusLabel(archive.status, t)}{archive.expiresAt ? ` · ${t('common.expires', { date: formatShortDate(archive.expiresAt, locale) })}` : ''}</em>
                   {archive.error && <small>{archive.error}</small>}
                 </div>
-                {archive.githubRepoUrl && <a className="ghostButton" href={archive.githubRepoUrl} target="_blank" rel="noreferrer"><ExternalLink size={15} /> GitHub</a>}
-                {archive.downloadUrl && <a className="primaryButton" href={archive.downloadUrl}><FolderOpen size={15} /> Zip</a>}
+                {archive.githubRepoUrl && <a className="ghostButton" href={archive.githubRepoUrl} target="_blank" rel="noreferrer"><ExternalLink size={15} /> {t('common.github')}</a>}
+                {archive.downloadUrl && <a className="primaryButton" href={archive.downloadUrl}><FolderOpen size={15} /> {t('common.zip')}</a>}
               </div>
             ))}
           </div>
@@ -211,26 +219,26 @@ export function ProfilePanel({ me, onClose }: { me: Me; onClose: () => void }) {
       )}
       <div className="profileMailbox">
         <div className="adminCardHeader compactHeader">
-          <h3>Messages</h3>
-          <p>System messages from Likeable and your messages to admin support stay here.</p>
+          <h3>{t('profile.mailbox.title')}</h3>
+          <p>{t('profile.mailbox.body')}</p>
         </div>
         <div className="profileMessageList" ref={profileMessagesRef}>
           {orderedMessages.map((message) => (
             <div className={`profileMessage ${message.sender} ${message.severity}`} key={message.id}>
               <div className="messageMeta">
-                <span>{message.sender === 'user' ? 'You' : 'System'}</span>
-                <time dateTime={message.createdAt}>{formatMessageTime(message.createdAt)}</time>
+                <span>{message.sender === 'user' ? t('common.you') : t('common.system')}</span>
+                <time dateTime={message.createdAt}>{formatMessageTime(message.createdAt, locale)}</time>
               </div>
               <p>{message.body}</p>
-              {message.dismissedAt && <em>Dismissed</em>}
+              {message.dismissedAt && <em>{t('profile.dismissed')}</em>}
             </div>
           ))}
-          {messages.length === 0 && <div className="emptyPool">No system messages yet.</div>}
+          {messages.length === 0 && <div className="emptyPool">{t('profile.noMessages')}</div>}
         </div>
         <div className="supportComposer">
-          <textarea className="adminTextarea compactTextarea" rows={1} value={supportBody} onChange={(event) => setSupportBody(event.target.value)} onKeyDown={handleSupportKeyDown} placeholder="Message admin support..." />
-          <button className="primaryButton" disabled={!supportBody.trim() || sendingSupport} onClick={() => void sendSupportMessage()} aria-label="Send support message">
-            {sendingSupport ? <Loader2 size={16} className="spin" /> : <Send size={16} />} Send
+          <textarea className="adminTextarea compactTextarea" rows={1} value={supportBody} onChange={(event) => setSupportBody(event.target.value)} onKeyDown={handleSupportKeyDown} placeholder={t('profile.support.placeholder')} />
+          <button className="primaryButton" disabled={!supportBody.trim() || sendingSupport} onClick={() => void sendSupportMessage()} aria-label={t('profile.support.sendAria')}>
+            {sendingSupport ? <Loader2 size={16} className="spin" /> : <Send size={16} />} {t('profile.support.send')}
           </button>
         </div>
       </div>

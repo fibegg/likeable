@@ -1,23 +1,39 @@
 import type { User } from './domain';
 
-export function formatMessageTime(value?: string): string {
+export function formatMessageTime(value?: string, locale?: string): string {
   const date = new Date(value ?? '');
   if (Number.isNaN(date.getTime())) return '';
-  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return date.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
 }
 
-export function formatResetCountdown(value?: string, now = Date.now()): string {
+type ResetCountdownLabels = {
+  fallback: string;
+  lessThanMinute: string;
+  day: string;
+  hour: string;
+  minute: string;
+};
+
+const defaultResetCountdownLabels: ResetCountdownLabels = {
+  fallback: '5h',
+  lessThanMinute: 'less than 1m',
+  day: 'd',
+  hour: 'h',
+  minute: 'm'
+};
+
+export function formatResetCountdown(value?: string, now = Date.now(), labels: ResetCountdownLabels = defaultResetCountdownLabels): string {
   const target = Date.parse(value ?? '');
-  if (Number.isNaN(target)) return '5h';
+  if (Number.isNaN(target)) return labels.fallback;
   const remainingMs = Math.max(0, target - now);
-  if (remainingMs <= 0) return 'less than 1m';
+  if (remainingMs <= 0) return labels.lessThanMinute;
   const totalMinutes = Math.max(1, Math.ceil(remainingMs / 60000));
   const days = Math.floor(totalMinutes / 1440);
   const hours = Math.floor((totalMinutes % 1440) / 60);
   const minutes = totalMinutes % 60;
-  if (days > 0) return `${days}d ${hours}h`;
-  if (hours > 0) return `${hours}h ${minutes}m`;
-  return `${minutes}m`;
+  if (days > 0) return `${days}${labels.day} ${hours}${labels.hour}`;
+  if (hours > 0) return `${hours}${labels.hour} ${minutes}${labels.minute}`;
+  return `${minutes}${labels.minute}`;
 }
 
 export function formatElapsedDuration(ms?: number): string {
@@ -33,10 +49,10 @@ export function projectLaunchErrorMessage(_value?: string): string {
   return 'The canvas could not start. Check workspace settings in Admin, then create a new project.';
 }
 
-export function formatShortDate(value?: string): string {
+export function formatShortDate(value?: string, locale?: string): string {
   const date = new Date(value ?? '');
   if (Number.isNaN(date.getTime())) return '';
-  return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  return date.toLocaleDateString(locale, { month: 'short', day: 'numeric' });
 }
 
 export function userInitials(user?: User | null): string {
