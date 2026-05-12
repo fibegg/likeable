@@ -7,6 +7,8 @@ import (
 	"time"
 )
 
+const freeMessageWindow = 5 * time.Hour
+
 func (s *Server) canSendMessage(ctx context.Context, user *User) bool {
 	allowed, _, err := s.messageAllowance(ctx, user)
 	return err == nil && allowed
@@ -14,9 +16,11 @@ func (s *Server) canSendMessage(ctx context.Context, user *User) bool {
 
 func (s *Server) messageQuota(ctx context.Context, user *User) map[string]any {
 	limit := s.freeMessageLimit(ctx)
-	used, err := s.store.UserMessageCountSince(ctx, user.ID, dailyMessageWindowStart())
+	windowStart := messageAllowanceWindowStart(time.Now())
+	used, oldestAt, err := s.store.UserMessageWindow(ctx, user.ID, windowStart)
 	if err != nil {
 		used = 0
+		oldestAt = ""
 	}
 	lifetimeUsed, err := s.store.UserMessageCount(ctx, user.ID)
 	if err != nil {
@@ -30,7 +34,7 @@ func (s *Server) messageQuota(ctx context.Context, user *User) map[string]any {
 	if remaining < 0 {
 		remaining = 0
 	}
-	resetAt := dailyMessageWindowStart().Add(24 * time.Hour).Format(time.RFC3339)
+	resetAt := nextFreeMessageResetAt(oldestAt, time.Now()).Format(time.RFC3339)
 	return map[string]any{
 		"used":          used,
 		"limit":         limit,
@@ -43,7 +47,7 @@ func (s *Server) messageQuota(ctx context.Context, user *User) map[string]any {
 
 func (s *Server) messageAllowance(ctx context.Context, user *User) (bool, bool, error) {
 	limit := s.freeMessageLimit(ctx)
-	used, err := s.store.UserMessageCountSince(ctx, user.ID, dailyMessageWindowStart())
+	used, _, err := s.store.UserMessageWindow(ctx, user.ID, messageAllowanceWindowStart(time.Now()))
 	if err != nil {
 		return false, false, err
 	}
@@ -57,8 +61,21 @@ func (s *Server) messageAllowance(ctx context.Context, user *User) (bool, bool, 
 	return paidRemaining > 0, true, nil
 }
 
-func dailyMessageWindowStart() time.Time {
-	return time.Now().UTC().Truncate(24 * time.Hour)
+func messageAllowanceWindowStart(now time.Time) time.Time {
+	return now.UTC().Add(-freeMessageWindow)
+}
+
+func nextFreeMessageResetAt(oldestAt string, now time.Time) time.Time {
+	now = now.UTC()
+	oldest, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(oldestAt))
+	if err != nil || oldest.IsZero() {
+		return now
+	}
+	resetAt := oldest.UTC().Add(freeMessageWindow)
+	if resetAt.Before(now) {
+		return now
+	}
+	return resetAt
 }
 
 func (s *Server) freeMessageLimit(ctx context.Context) int {

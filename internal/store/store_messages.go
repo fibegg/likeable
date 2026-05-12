@@ -165,3 +165,18 @@ func (s *Store) UserMessageCountSince(ctx context.Context, userID string, since 
 	var count int
 	return count, row.Scan(&count)
 }
+
+func (s *Store) UserMessageWindow(ctx context.Context, userID string, since time.Time) (int, string, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT COUNT(messages.id), COALESCE(MIN(messages.created_at), '')
+		FROM messages
+		JOIN projects ON projects.id = messages.project_id
+		WHERE projects.user_id = ? AND messages.role = 'user' AND messages.created_at >= ?
+	`, userID, since.UTC().Format(time.RFC3339Nano))
+	var count int
+	var oldestAt string
+	if err := row.Scan(&count, &oldestAt); err != nil {
+		return 0, "", err
+	}
+	return count, oldestAt, nil
+}

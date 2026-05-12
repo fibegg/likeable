@@ -113,7 +113,7 @@ export function ProfilePanel({ me, onClose }: { me: Me; onClose: () => void }) {
   const displayName = me.user?.name || me.user?.email || 'Signed in';
   const quota = me.messageQuota;
   const projectQuota = me.projectQuota;
-  const quotaResetLabel = quota ? formatResetCountdown(quota.resetsAt) : 'daily';
+  const quotaResetLabel = quota ? formatResetCountdown(quota.resetsAt) : '5h';
   return (
     <section className="inlinePanel profileInline">
       <div className="inlinePanelHeader">
@@ -146,7 +146,7 @@ export function ProfilePanel({ me, onClose }: { me: Me; onClose: () => void }) {
         <div className="profileCard profileActionCard">
           <div>
             <span className="profileLabel">Messages</span>
-            <strong>{quota ? `${quota.remaining}/${quota.limit} free today` : 'Daily free quota'}</strong>
+            <strong>{quota ? `${quota.remaining}/${quota.limit} free in 5h` : '5-hour free quota'}</strong>
             <em>{quota?.paidRemaining ?? 0} paid credits · resets in {quotaResetLabel} · {quota?.lifetimeUsed ?? 0} lifetime sent</em>
           </div>
           <div className="packButtons">

@@ -93,6 +93,27 @@ func (c *Client) Interrupt(ctx context.Context, conversationID string) error {
 	return c.runCLI(ctx, args, nil, &out)
 }
 
+func (c *Client) StartPlayground(ctx context.Context, playgroundID string) error {
+	return c.controlPlayground(ctx, "start", playgroundID)
+}
+
+func (c *Client) StopPlayground(ctx context.Context, playgroundID string) error {
+	return c.controlPlayground(ctx, "stop", playgroundID)
+}
+
+func (c *Client) RestartPlayground(ctx context.Context, playgroundID string) error {
+	return c.controlPlayground(ctx, "hard-restart", playgroundID)
+}
+
+func (c *Client) controlPlayground(ctx context.Context, action, playgroundID string) error {
+	playgroundID = strings.TrimSpace(playgroundID)
+	if playgroundID == "" {
+		return errors.New("playground ID is required")
+	}
+	var out map[string]any
+	return c.runCLI(ctx, []string{"playgrounds", action, playgroundID}, nil, &out)
+}
+
 func (c *Client) Messages(ctx context.Context, conversationID string) ([]any, error) {
 	var out struct {
 		Content []any `json:"content"`

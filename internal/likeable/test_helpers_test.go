@@ -43,7 +43,7 @@ case "$*" in
   *"agents gitea-token"*)
     echo '{"token":"gitea-token","username":"agent"}'
     ;;
-  *"agents create-conversation"*|*"agents start-chat"*|*"agents delete-conversation"*|*"agents interrupt"*|*"agents messages"*|*"agents activity"*|*"playgrounds delete"*|*"playspecs delete"*|*"templates versions destroy"*|*"templates delete"*|*"props delete"*)
+  *"agents create-conversation"*|*"agents start-chat"*|*"agents delete-conversation"*|*"agents interrupt"*|*"agents messages"*|*"agents activity"*|*"playgrounds delete"*|*"playgrounds start"*|*"playgrounds stop"*|*"playgrounds hard-restart"*|*"playspecs delete"*|*"templates versions destroy"*|*"templates delete"*|*"props delete"*)
     echo '{"ok":true,"content":[]}'
     ;;
   *)

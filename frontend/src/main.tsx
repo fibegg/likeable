@@ -61,7 +61,7 @@ function Shell({ me, nav, children }: { me: Me; nav: (to: string) => void; child
     <div className="shell">
       <header className="topbar">
         <button className="brand" onClick={() => nav('/')} aria-label="Likeable link stable">
-          <span className="mark small statusMark">L<span className="brandStatusDot" /></span>
+          <span className="mark small statusMark"><span className="markGlyph">L</span><span className="brandStatusDot" /></span>
         </button>
         <nav>
           <button onClick={() => nav('/')}><MessageSquare size={18} /> Builder</button>
@@ -139,6 +139,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const [exportTarget, setExportTarget] = useState<Project | null>(null);
   const [exportingID, setExportingID] = useState('');
   const [exportingMode, setExportingMode] = useState<'github' | 'zip' | ''>('');
+  const [controllingProjectID, setControllingProjectID] = useState('');
   const [dialog, setDialog] = useState<AppDialogConfig | null>(null);
   const [iframeLoaded, setIframeLoaded] = useState(false);
   const [previewStatus, setPreviewStatus] = useState<PreviewStatus | null>(null);
@@ -189,7 +190,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const previewMaintenance = Boolean(activePreviewURL && previewStatus?.maintenance);
   const previewReady = Boolean(activePreviewURL && previewStatus?.ready);
   const previewDisplayable = Boolean(activePreviewURL && (previewReady || previewMaintenance));
-  const canvasStatusLabel = agentWorking ? 'Agent working' : previewMaintenance ? 'Maintenance' : activeProject?.status === 'ready' ? (previewReady ? 'Canvas live' : 'Canvas starting') : isProjectStarting ? 'Canvas starting' : activeProject?.status === 'error' ? 'Canvas error' : 'Canvas idle';
+  const canvasStatusLabel = agentWorking ? 'Agent working' : previewMaintenance ? 'Maintenance' : activeProject?.status === 'ready' ? (previewReady ? 'Canvas live' : 'Canvas starting') : isProjectStarting ? 'Canvas starting' : activeProject?.status === 'stopped' ? 'Canvas stopped' : activeProject?.status === 'error' ? 'Canvas error' : 'Canvas idle';
   const hasDraft = Boolean(prompt.trim()) || attachments.length > 0;
   const canSend = signedIn && hasDraft && !busy && !messageSubmitting && Boolean(activePreviewURL) && (activeProject?.status === 'ready' || previewReady);
   const hasActiveNotification = rows.some((row) => row.kind === 'notification' && row.active);
@@ -515,6 +516,23 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       setBusy(false);
     }
   };
+  const controlProjectPlayground = async (project: Project, action: 'start' | 'stop' | 'restart') => {
+    if (!signedIn) return;
+    setBusy(true);
+    setControllingProjectID(project.id);
+    try {
+      const res = await api<{ project: Project }>(`/api/projects/${project.id}/playground`, { method: 'POST', body: JSON.stringify({ action }) });
+      setPreviewStatus(null);
+      setIframeLoaded(false);
+      setProjects((current) => current.map((item) => item.id === project.id ? res.project : item));
+      setFeed((current) => current?.project.id === project.id ? { ...current, project: res.project } : current);
+    } catch (err) {
+      setDialog({ title: 'Playground action failed', body: err instanceof Error ? err.message : 'Request failed', tone: 'warning', confirmLabel: 'Close' });
+    } finally {
+      setControllingProjectID('');
+      setBusy(false);
+    }
+  };
   const requestProjectExport = (project: Project) => {
     setExportTarget(project);
   };
@@ -678,7 +696,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const builderChrome = (
     <div className="basicChatChrome">
       <button className="brand chatBrand tooltip tooltipBottom" onClick={() => nav('/')} aria-label="Likeable link stable" data-tip="Link stable">
-        <span className="mark small statusMark">L<span className="brandStatusDot" /></span>
+        <span className={`mark small statusMark ${agentWorking ? 'working' : ''}`}><span className="markGlyph">L</span><span className="brandStatusDot" /></span>
       </button>
       {topOpenLink}
       <button className="projectTitleButton tooltip tooltipBottom" onClick={openProjectsPanel} disabled={!signedIn} aria-label="Projects" data-tip={signedIn ? 'Projects' : 'Sign in to create projects'}>
@@ -723,7 +741,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
             </>
           )}
           {messageQuota && (
-            <span className="messageQuotaBadge tooltip tooltipBottom" data-tip={messageQuotaTooltip} aria-label="Messages left today">
+            <span className="messageQuotaBadge tooltip tooltipBottom" data-tip={messageQuotaTooltip} aria-label="Messages left in this window">
               {messageQuotaLabel}
             </span>
           )}
@@ -744,7 +762,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
         Powered by <span>fibe.gg</span>
       </a>
       {builderChrome}
-      {showProjects && <ProjectList projects={projects} activeID={activeID} projectCap={projectCap} busy={busy} exportingID={exportingID} onSelect={(id) => { setActiveID(id); setShowProjects(false); }} onNew={() => setConfirmNewProject(true)} onRename={renameProject} onDelete={setDeleteTarget} onExport={requestProjectExport} onClose={() => setShowProjects(false)} />}
+      {showProjects && <ProjectList projects={projects} activeID={activeID} projectCap={projectCap} busy={busy} exportingID={exportingID} controllingID={controllingProjectID} onSelect={(id) => { setActiveID(id); setShowProjects(false); }} onNew={() => setConfirmNewProject(true)} onRename={renameProject} onDelete={setDeleteTarget} onExport={requestProjectExport} onControlPlayground={controlProjectPlayground} onClose={() => setShowProjects(false)} />}
       {showProfile && <ProfilePanel me={me} onClose={closeProfilePanel} />}
       {!utilityScreenOpen && (
         <>
@@ -786,7 +804,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   );
   const minimizedChatBar = (
     <button className={`minimizedChatBar ${agentWorking ? 'working' : ''}`} onClick={expandBasicChat} aria-label="Expand chat" {...chatDragHandlers}>
-      <span className="mark small statusMark">L<span className="brandStatusDot" /></span>
+      <span className={`mark small statusMark ${agentWorking ? 'working' : ''}`}><span className="markGlyph">L</span><span className="brandStatusDot" /></span>
     </button>
   );
 
@@ -815,6 +833,8 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
         </>
       ) : isProjectStarting ? (
         <CanvasLoader title={previewTitle} body={previewBody} />
+      ) : activeProject?.status === 'stopped' ? (
+        <CanvasLoader title="Canvas stopped" body="Likeable stopped this playground to save resources. Start it from the project menu when you need it again." />
       ) : activeProject?.status === 'ready' && activePreviewURL ? (
         <>
           <iframe

@@ -31,7 +31,8 @@ func (s *Server) notifyMessageQuotaIfNeeded(ctx context.Context, user *User) {
 	if limit <= 0 {
 		return
 	}
-	used, err := s.store.UserMessageCountSince(ctx, user.ID, dailyMessageWindowStart())
+	windowStart := messageAllowanceWindowStart(time.Now())
+	used, _, err := s.store.UserMessageWindow(ctx, user.ID, windowStart)
 	if err != nil {
 		log.Printf("message quota notice count for %s: %v", user.Email, err)
 		return
@@ -50,20 +51,20 @@ func (s *Server) notifyMessageQuotaIfNeeded(ctx context.Context, user *User) {
 	paidRemaining, _ := s.store.PaidMessageCreditBalance(ctx, user.ID)
 	if remaining <= threshold {
 		prefix := "Message quota:"
-		exists, err := s.store.NoticeExistsSince(ctx, user.ID, "system", prefix, dailyMessageWindowStart())
+		exists, err := s.store.NoticeExistsSince(ctx, user.ID, "system", prefix, windowStart)
 		if err == nil && !exists {
-			body := fmt.Sprintf("%s You have %d/%d free messages remaining today.", prefix, remaining, limit)
+			body := fmt.Sprintf("%s You have %d/%d free messages remaining in this 5-hour window.", prefix, remaining, limit)
 			if paidRemaining > 0 {
-				body += fmt.Sprintf(" Your %d paid credits are used only after free daily messages are spent.", paidRemaining)
+				body += fmt.Sprintf(" Your %d paid credits are used only after free messages are spent.", paidRemaining)
 			} else {
-				body += " Buy a message pack if you need more before the UTC reset."
+				body += " Buy a message pack if you need more before the next reset."
 			}
 			s.addSystemNoticeAndEmail(ctx, user, "warning", body, "Likeable message quota running low", body+"\n\nManage credits:\n"+s.profileURL())
 		}
 	}
 	if remaining == 0 && paidRemaining > 0 && paidRemaining <= 3 {
 		prefix := "Paid credits:"
-		exists, err := s.store.NoticeExistsSince(ctx, user.ID, "system", prefix, dailyMessageWindowStart())
+		exists, err := s.store.NoticeExistsSince(ctx, user.ID, "system", prefix, windowStart)
 		if err == nil && !exists {
 			body := fmt.Sprintf("%s You have %d paid message credits left.", prefix, paidRemaining)
 			s.addSystemNoticeAndEmail(ctx, user, "warning", body, "Likeable paid credits running low", body+"\n\nBuy more credits:\n"+s.profileURL())

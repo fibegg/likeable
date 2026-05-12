@@ -134,6 +134,36 @@ func TestStartAgentChatUsesConfiguredMarquee(t *testing.T) {
 	}
 }
 
+func TestControlPlaygroundLifecycleUsesCLI(t *testing.T) {
+	cliPath, logPath, _ := fakeFibeCLI(t)
+	client := &Client{
+		apiKey:    "test",
+		agentID:   "agent-1",
+		cliPath:   cliPath,
+		cliDomain: testFibeCLIDomain(),
+		http:      http.DefaultClient,
+	}
+	if err := client.StartPlayground(t.Context(), "123"); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.StopPlayground(t.Context(), "123"); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.RestartPlayground(t.Context(), "123"); err != nil {
+		t.Fatal(err)
+	}
+	log := readFile(t, logPath)
+	for _, want := range []string{
+		"playgrounds start 123",
+		"playgrounds stop 123",
+		"playgrounds hard-restart 123",
+	} {
+		if !strings.Contains(log, want) {
+			t.Fatalf("missing CLI command %q; log=%s", want, log)
+		}
+	}
+}
+
 func TestCreateGreenfieldUsesTemplateVersionIDOnlyWhenConfigured(t *testing.T) {
 	for _, tc := range []struct {
 		name              string
@@ -784,7 +814,7 @@ case "$*" in
   *"agents gitea-token"*)
     echo '{"token":"gitea-token","username":"agent"}'
     ;;
-  *"agents create-conversation"*|*"agents start-chat"*|*"agents delete-conversation"*|*"agents interrupt"*|*"agents messages"*|*"agents activity"*|*"playgrounds delete"*|*"playspecs delete"*|*"templates versions destroy"*|*"templates delete"*|*"props delete"*)
+  *"agents create-conversation"*|*"agents start-chat"*|*"agents delete-conversation"*|*"agents interrupt"*|*"agents messages"*|*"agents activity"*|*"playgrounds delete"*|*"playgrounds start"*|*"playgrounds stop"*|*"playgrounds hard-restart"*|*"playspecs delete"*|*"templates versions destroy"*|*"templates delete"*|*"props delete"*)
     echo '{"ok":true,"content":[]}'
     ;;
   *)

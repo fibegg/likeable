@@ -1,11 +1,12 @@
 import { useState } from 'react';
-import { Check, Download, GitBranch, Loader2, Paperclip, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { Check, Download, GitBranch, Loader2, MoreHorizontal, Paperclip, Pencil, Play, Plus, RotateCcw, Square, Trash2, X } from 'lucide-react';
 import type { AppDialogConfig, MessageAttachment, Project, UserFeedRow } from './domain';
 import { formatMessageTime } from './format';
 
-export function ProjectList({ projects, activeID, projectCap, busy, exportingID, onSelect, onNew, onRename, onDelete, onExport, onClose }: { projects: Project[]; activeID: string; projectCap: number | null; busy: boolean; exportingID: string; onSelect: (id: string) => void; onNew: () => void; onRename: (project: Project, title: string) => Promise<void>; onDelete: (project: Project) => void; onExport: (project: Project) => void; onClose: () => void }) {
+export function ProjectList({ projects, activeID, projectCap, busy, exportingID, controllingID, onSelect, onNew, onRename, onDelete, onExport, onControlPlayground, onClose }: { projects: Project[]; activeID: string; projectCap: number | null; busy: boolean; exportingID: string; controllingID: string; onSelect: (id: string) => void; onNew: () => void; onRename: (project: Project, title: string) => Promise<void>; onDelete: (project: Project) => void; onExport: (project: Project) => void; onControlPlayground: (project: Project, action: 'start' | 'stop' | 'restart') => Promise<void>; onClose: () => void }) {
   const [editingID, setEditingID] = useState('');
   const [draftTitle, setDraftTitle] = useState('');
+  const [menuID, setMenuID] = useState('');
   const projectCountLabel = projectCap == null
     ? `${projects.length} ${projects.length === 1 ? 'project' : 'projects'}`
     : `${projects.length}/${projectCap} projects`;
@@ -26,6 +27,13 @@ export function ProjectList({ projects, activeID, projectCap, busy, exportingID,
     await onRename(project, title);
     cancelEdit();
   };
+  const runPlaygroundAction = async (project: Project, action: 'start' | 'stop' | 'restart') => {
+    setMenuID('');
+    await onControlPlayground(project, action);
+  };
+  const canStartPlayground = (project: Project) => project.status === 'stopped';
+  const canStopPlayground = (project: Project) => project.status === 'ready';
+  const canRestartPlayground = (project: Project) => project.status === 'ready';
   return (
     <div className="projectList">
       <div className="inlinePanelHeader projectPanelHeader">
@@ -64,6 +72,26 @@ export function ProjectList({ projects, activeID, projectCap, busy, exportingID,
                   <em>{project.status}</em>
                 </button>
                 <div className="projectRowActions">
+                  <div className="projectMenuAnchor">
+                    <button
+                      className="projectRowIcon"
+                      disabled={busy || project.status === 'deleting'}
+                      onClick={() => setMenuID((current) => current === project.id ? '' : project.id)}
+                      aria-label={`Project actions for ${project.title}`}
+                      aria-haspopup="menu"
+                      aria-expanded={menuID === project.id}
+                      title="Project actions"
+                    >
+                      {controllingID === project.id ? <Loader2 className="spinIcon" size={14} /> : <MoreHorizontal size={16} />}
+                    </button>
+                    {menuID === project.id && (
+                      <div className="projectActionMenu" role="menu">
+                        <button role="menuitem" disabled={busy || !canStartPlayground(project)} onClick={() => void runPlaygroundAction(project, 'start')}><Play size={14} /> Start playground</button>
+                        <button role="menuitem" disabled={busy || !canStopPlayground(project)} onClick={() => void runPlaygroundAction(project, 'stop')}><Square size={13} /> Stop playground</button>
+                        <button role="menuitem" disabled={busy || !canRestartPlayground(project)} onClick={() => void runPlaygroundAction(project, 'restart')}><RotateCcw size={14} /> Restart playground</button>
+                      </div>
+                    )}
+                  </div>
                   <button
                     className="projectRowIcon"
                     disabled={busy || exportingID === project.id || project.status === 'deleting'}

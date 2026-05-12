@@ -365,6 +365,68 @@ func (s *Store) DeletingProjects(ctx context.Context, limit int) ([]Project, err
 	return out, nil
 }
 
+func (s *Store) IdleProjectsForPlaygroundStop(ctx context.Context, cutoff time.Time, limit int) ([]Project, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 100
+	}
+	cutoffString := cutoff.UTC().Format(time.RFC3339Nano)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT projects.id, projects.user_id, projects.title, projects.conversation_id, projects.agent_id, projects.marquee_id,
+			projects.playground_id, projects.playground_name, projects.playspec_id, projects.prop_id, projects.repo_url, projects.preview_url,
+			projects.selected_service_name, projects.status, projects.error_message, projects.provisioning_lock_until, projects.cleanup_last_error, projects.created_at, projects.updated_at,
+			COALESCE(MAX(messages.created_at), projects.created_at) AS last_user_activity_at
+		FROM projects
+		LEFT JOIN messages ON messages.project_id = projects.id AND messages.role = 'user'
+		WHERE projects.status = 'ready' AND TRIM(projects.playground_id) != ''
+		GROUP BY projects.id
+		HAVING last_user_activity_at < ?
+		ORDER BY last_user_activity_at ASC
+		LIMIT ?
+	`, cutoffString, limit)
+	if err != nil {
+		return nil, err
+	}
+	var out []Project
+	for rows.Next() {
+		var project Project
+		var lastActivity string
+		if err := rows.Scan(&project.ID, &project.UserID, &project.Title, &project.ConversationID, &project.AgentID, &project.MarqueeID, &project.PlaygroundID, &project.PlaygroundName, &project.PlayspecID, &project.PropID, &project.RepoURL, &project.PreviewURL, &project.SelectedService, &project.Status, &project.ErrorMessage, &project.ProvisioningLockUntil, &project.CleanupLastError, &project.CreatedAt, &project.UpdatedAt, &lastActivity); err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		out = append(out, project)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := s.attachProjectResourcesForProjects(ctx, out); err != nil {
+		return nil, err
+	}
+	if out == nil {
+		out = []Project{}
+	}
+	return out, nil
+}
+
+func (s *Store) ProjectIdleForPlaygroundStop(ctx context.Context, projectID string, cutoff time.Time) (bool, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT projects.status, projects.playground_id, COALESCE(MAX(messages.created_at), projects.created_at) AS last_user_activity_at
+		FROM projects
+		LEFT JOIN messages ON messages.project_id = projects.id AND messages.role = 'user'
+		WHERE projects.id = ?
+		GROUP BY projects.id
+	`, projectID)
+	var status, playgroundID, lastActivity string
+	if err := row.Scan(&status, &playgroundID, &lastActivity); err != nil {
+		return false, err
+	}
+	return status == "ready" && strings.TrimSpace(playgroundID) != "" && lastActivity < cutoff.UTC().Format(time.RFC3339Nano), nil
+}
+
 func scanProject(scanner interface{ Scan(...any) error }) (*Project, error) {
 	var project Project
 	if err := scanner.Scan(&project.ID, &project.UserID, &project.Title, &project.ConversationID, &project.AgentID, &project.MarqueeID, &project.PlaygroundID, &project.PlaygroundName, &project.PlayspecID, &project.PropID, &project.RepoURL, &project.PreviewURL, &project.SelectedService, &project.Status, &project.ErrorMessage, &project.ProvisioningLockUntil, &project.CleanupLastError, &project.CreatedAt, &project.UpdatedAt); err != nil {

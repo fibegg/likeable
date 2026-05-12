@@ -15,6 +15,11 @@ import (
 	projecttext "github.com/fibegg/likeable/internal/project"
 )
 
+var (
+	errInvalidPlaygroundAction  = errors.New("invalid playground action")
+	errProjectPlaygroundMissing = errors.New("project has no playground")
+)
+
 func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 	user := userFromContext(r.Context())
 	switch r.Method {
@@ -144,6 +149,8 @@ func (s *Server) handleProjectRoute(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeError(w, http.StatusNotFound, "not found")
+	case "playground":
+		s.handleProjectPlaygroundAction(w, r, user, project)
 	case "attachments":
 		if len(parts) != 3 {
 			writeError(w, http.StatusNotFound, "not found")
@@ -235,6 +242,69 @@ func (s *Server) handleProjectAgentInterrupt(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
+}
+
+func (s *Server) handleProjectPlaygroundAction(w http.ResponseWriter, r *http.Request, user *User, project *Project) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var body struct {
+		Action string `json:"action"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	updated, err := s.controlProjectPlayground(r.Context(), user, project, strings.ToLower(strings.TrimSpace(body.Action)))
+	if err != nil {
+		if errors.Is(err, errInvalidPlaygroundAction) || errors.Is(err, errProjectPlaygroundMissing) {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		log.Printf("project playground action %s for project %s: %v", body.Action, project.ID, err)
+		writeError(w, http.StatusBadGateway, "could not update the playground")
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"project": updated})
+}
+
+func (s *Server) controlProjectPlayground(ctx context.Context, user *User, project *Project, action string) (*Project, error) {
+	if user == nil || project == nil {
+		return nil, sql.ErrNoRows
+	}
+	if project.Status == "deleting" {
+		return nil, errInvalidPlaygroundAction
+	}
+	playgroundID := strings.TrimSpace(project.PlaygroundID)
+	if playgroundID == "" {
+		return nil, errProjectPlaygroundMissing
+	}
+	fibeClient, err := s.fibeClientForProject(ctx, project, user.Email)
+	if err != nil {
+		return nil, err
+	}
+	actionCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	defer cancel()
+	nextStatus := "launching"
+	switch action {
+	case "start":
+		err = fibeClient.StartPlayground(actionCtx, playgroundID)
+	case "stop":
+		nextStatus = "stopped"
+		err = fibeClient.StopPlayground(actionCtx, playgroundID)
+	case "restart":
+		err = fibeClient.RestartPlayground(actionCtx, playgroundID)
+	default:
+		return nil, errInvalidPlaygroundAction
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := s.store.UpdateProjectStatus(ctx, project.ID, user.ID, nextStatus); err != nil {
+		return nil, err
+	}
+	return s.store.ProjectForUser(ctx, user.ID, project.ID)
 }
 
 func (s *Server) handleProjectFeed(w http.ResponseWriter, r *http.Request, user *User, project *Project) {

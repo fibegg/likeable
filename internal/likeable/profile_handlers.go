@@ -106,11 +106,14 @@ func (s *Server) handleProfileArchives(w http.ResponseWriter, r *http.Request) {
 
 func projectHasFibeResources(project *Project) bool {
 	return strings.TrimSpace(project.PlaygroundID) != "" ||
+		strings.TrimSpace(project.PlaygroundName) != "" ||
 		strings.TrimSpace(project.PlayspecID) != "" ||
 		strings.TrimSpace(project.PropID) != "" ||
 		strings.TrimSpace(project.RepoURL) != "" ||
+		strings.TrimSpace(project.PreviewURL) != "" ||
 		strings.TrimSpace(project.ConversationID) != "" ||
-		len(project.Repositories) > 0
+		len(project.Repositories) > 0 ||
+		len(project.Services) > 0
 }
 
 func (s *Server) deleteLocalProjectAttachmentDirs(projects []Project) error {

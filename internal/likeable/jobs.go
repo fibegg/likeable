@@ -16,6 +16,7 @@ import (
 )
 
 const projectProvisionRetryDelay = 2 * time.Minute
+const idleProjectStopAfter = 8 * time.Hour
 
 const (
 	taskProvisionProject       = "likeable:project:provision"
@@ -23,6 +24,8 @@ const (
 	taskDeleteProjectResources = "likeable:project:delete_resources"
 	taskProjectDeletionSweep   = "likeable:project:deletion_sweep"
 	taskArchiveDeleteProject   = "likeable:project:archive_delete"
+	taskStopIdleProjectsSweep  = "likeable:project:stop_idle_sweep"
+	taskStopIdleProject        = "likeable:project:stop_idle"
 	taskSendEmail              = "likeable:email:send"
 	taskProjectQuotaSweep      = "likeable:project_quota:sweep"
 )
@@ -54,6 +57,8 @@ func newJobSystem(redisOpt asynq.RedisClientOpt, s *Server) *JobSystem {
 	mux.HandleFunc(taskDeleteProjectResources, s.handleDeleteProjectResourcesTask)
 	mux.HandleFunc(taskProjectDeletionSweep, s.handleProjectDeletionSweepTask)
 	mux.HandleFunc(taskArchiveDeleteProject, s.handleArchiveDeleteProjectTask)
+	mux.HandleFunc(taskStopIdleProjectsSweep, s.handleStopIdleProjectsSweepTask)
+	mux.HandleFunc(taskStopIdleProject, s.handleStopIdleProjectTask)
 	mux.HandleFunc(taskSendEmail, s.handleSendEmailTask)
 	mux.HandleFunc(taskProjectQuotaSweep, s.handleProjectQuotaSweepTask)
 	server := asynq.NewServer(redisOpt, asynq.Config{
@@ -179,12 +184,27 @@ func (s *Server) enqueueProjectDeletionSweep(ctx context.Context, delay time.Dur
 	}
 }
 
+func (s *Server) enqueueStopIdleProjectsSweep(ctx context.Context, delay time.Duration) {
+	if s.jobs == nil {
+		return
+	}
+	opts := []asynq.Option{asynq.Queue("low"), asynq.MaxRetry(2), asynq.Timeout(15 * time.Minute), asynq.Unique(30 * time.Minute)}
+	if delay > 0 {
+		opts = append(opts, asynq.ProcessIn(delay))
+	}
+	_, err := s.jobs.client.EnqueueContext(ctx, asynq.NewTask(taskStopIdleProjectsSweep, nil), opts...)
+	if err != nil && !errors.Is(err, asynq.ErrDuplicateTask) {
+		log.Printf("enqueue idle playground stop sweep: %v", err)
+	}
+}
+
 func (s *Server) startRecurringJobs(ctx context.Context) {
 	if s.jobs == nil {
 		return
 	}
 	s.enqueueProjectQuotaSweep(ctx, 0)
 	s.enqueueProjectDeletionSweep(ctx, 0)
+	s.enqueueStopIdleProjectsSweep(ctx, 0)
 	go func() {
 		ticker := time.NewTicker(time.Hour)
 		defer ticker.Stop()
@@ -195,6 +215,7 @@ func (s *Server) startRecurringJobs(ctx context.Context) {
 			case <-ticker.C:
 				s.enqueueProjectQuotaSweep(context.Background(), 0)
 				s.enqueueProjectDeletionSweep(context.Background(), 0)
+				s.enqueueStopIdleProjectsSweep(context.Background(), 0)
 			}
 		}
 	}()
@@ -394,6 +415,62 @@ func (s *Server) handleProjectQuotaSweepTask(ctx context.Context, _ *asynq.Task)
 		}
 	}
 	return s.cleanupExpiredArchives(ctx)
+}
+
+func (s *Server) handleStopIdleProjectsSweepTask(ctx context.Context, _ *asynq.Task) error {
+	cutoff := time.Now().UTC().Add(-idleProjectStopAfter)
+	projects, err := s.store.IdleProjectsForPlaygroundStop(ctx, cutoff, 100)
+	if err != nil {
+		return err
+	}
+	for i := range projects {
+		project := &projects[i]
+		user, err := s.store.UserByID(ctx, project.UserID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				continue
+			}
+			return err
+		}
+		if err := s.enqueueProjectJob(ctx, taskStopIdleProject, projectJobPayload{UserID: user.ID, UserEmail: user.Email, ProjectID: project.ID, Reason: "idle for 8 hours"}, asynq.Queue("low"), asynq.MaxRetry(6), asynq.Timeout(2*time.Minute), asynq.Unique(30*time.Minute)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Server) handleStopIdleProjectTask(ctx context.Context, task *asynq.Task) error {
+	payload, err := decodeTaskPayload[projectJobPayload](task)
+	if err != nil {
+		return err
+	}
+	project, err := s.store.ProjectForUser(ctx, payload.UserID, payload.ProjectID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+	idle, err := s.store.ProjectIdleForPlaygroundStop(ctx, project.ID, time.Now().UTC().Add(-idleProjectStopAfter))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+	if !idle {
+		return nil
+	}
+	user, err := s.store.UserByID(ctx, payload.UserID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+	log.Printf("stop idle playground for project %s: no user messages for %s", project.ID, idleProjectStopAfter)
+	_, err = s.controlProjectPlayground(ctx, user, project, "stop")
+	return err
 }
 
 func (s *Server) cleanupExpiredArchives(ctx context.Context) error {

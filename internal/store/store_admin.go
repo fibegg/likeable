@@ -15,13 +15,13 @@ func (s *Store) AdminUsers(ctx context.Context, filters AdminUserFilters) ([]Adm
 		filters.PerPage = 25
 	}
 	where, args := adminUserWhere(filters)
-	dayStart := time.Now().UTC().Truncate(24 * time.Hour).Format(time.RFC3339Nano)
+	windowStart := time.Now().UTC().Add(-5 * time.Hour).Format(time.RFC3339Nano)
 	cte := `
 		WITH stats AS (
 			SELECT users.id AS user_id,
 				COUNT(DISTINCT projects.id) AS project_count,
 				COUNT(messages.id) AS message_count,
-				SUM(CASE WHEN messages.created_at >= '` + dayStart + `' THEN 1 ELSE 0 END) AS daily_message_count,
+				SUM(CASE WHEN messages.created_at >= '` + windowStart + `' THEN 1 ELSE 0 END) AS daily_message_count,
 				MAX(messages.created_at) AS last_message_at,
 				MAX(projects.updated_at) AS last_project_at
 			FROM users

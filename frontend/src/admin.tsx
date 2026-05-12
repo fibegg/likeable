@@ -254,7 +254,7 @@ function AdminCustomersPanel() {
                 <span className={`accessBadge ${selectedSummary.user.accessStatus === 'restricted' ? 'restricted' : ''}`}>{selectedSummary.user.accessStatus || 'active'}</span>
               </div>
               <div className="customerMetricGrid">
-                <Metric label="Free Today" value={`${selectedSummary.dailyMessageCount}/${selectedSummary.freeMessageLimit}`} />
+                <Metric label="Free 5h" value={`${selectedSummary.dailyMessageCount}/${selectedSummary.freeMessageLimit}`} />
                 <Metric label="Lifetime Sent" value={String(selectedSummary.messageCount)} />
                 <Metric label="Paid Credits" value={String(selectedSummary.paidCreditBalance)} />
                 <Metric label="Projects" value={`${selectedSummary.projectCount}/${selectedSummary.projectLimit ?? selectedSummary.projectCount}`} />

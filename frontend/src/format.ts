@@ -8,7 +8,7 @@ export function formatMessageTime(value?: string): string {
 
 export function formatResetCountdown(value?: string, now = Date.now()): string {
   const target = Date.parse(value ?? '');
-  if (Number.isNaN(target)) return 'daily';
+  if (Number.isNaN(target)) return '5h';
   const remainingMs = Math.max(0, target - now);
   if (remainingMs <= 0) return 'less than 1m';
   const totalMinutes = Math.max(1, Math.ceil(remainingMs / 60000));

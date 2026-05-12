@@ -23,6 +23,7 @@ import (
 	"github.com/fibegg/likeable/internal/fibe"
 	projecttext "github.com/fibegg/likeable/internal/project"
 	"github.com/fibegg/likeable/internal/store"
+	"github.com/hibiken/asynq"
 )
 
 type captureEmailSender struct {
@@ -1909,6 +1910,8 @@ func TestProfileDeleteAllDeletesFibeResourcesAndLocalData(t *testing.T) {
 	for _, want := range []string{
 		"playgrounds delete playground-1",
 		"playspecs delete playspec-1",
+		"templates versions destroy 321 654",
+		"templates delete 321",
 		"props delete prop-1",
 		"agents delete-conversation agent-1 --conversation-id conv-delete-all",
 	} {
@@ -2052,6 +2055,107 @@ esac
 		t.Fatal(err)
 	}
 	t.Fatalf("cleanup_last_error=%q, want hydration error recorded", stored.CleanupLastError)
+}
+
+func TestProjectPlaygroundLifecycleActions(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	cliPath, logPath, _ := fakeFibeCLI(t)
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url": "server.test:3000",
+		"fibe_api_key":  "test-key",
+		"fibe_cli_path": cliPath,
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	user, err := store.UpsertUser(t.Context(), "pilot@example.com", "Pilot", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateSession(t.Context(), user.ID, "project-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{ID: "project-control", UserID: user.ID, Title: "Control", ConversationID: "conv-control", AgentID: "agent-1", PlaygroundID: "playground-1", Status: "ready"}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		action string
+		status string
+		cmd    string
+	}{
+		{action: "stop", status: "stopped", cmd: "playgrounds stop playground-1"},
+		{action: "start", status: "launching", cmd: "playgrounds start playground-1"},
+		{action: "restart", status: "launching", cmd: "playgrounds hard-restart playground-1"},
+	} {
+		req := httptest.NewRequest(http.MethodPost, "/api/projects/project-control/playground", strings.NewReader(`{"action":"`+tc.action+`"}`))
+		req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "project-token"})
+		rec := httptest.NewRecorder()
+
+		server.routes().ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusAccepted {
+			t.Fatalf("%s returned %d, want 202; body=%s", tc.action, rec.Code, rec.Body.String())
+		}
+		stored, err := store.ProjectForUser(t.Context(), user.ID, project.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if stored.Status != tc.status {
+			t.Fatalf("%s status=%q, want %q", tc.action, stored.Status, tc.status)
+		}
+		if log := readFile(t, logPath); !strings.Contains(log, tc.cmd) {
+			t.Fatalf("%s missing command %q; log=%s", tc.action, tc.cmd, log)
+		}
+	}
+}
+
+func TestIdleProjectStopTaskStopsPlayground(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	cliPath, logPath, _ := fakeFibeCLI(t)
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url": "server.test:3000",
+		"fibe_api_key":  "test-key",
+		"fibe_cli_path": cliPath,
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	user, err := store.UpsertUser(t.Context(), "idle@example.com", "Idle", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{ID: "project-idle", UserID: user.ID, Title: "Idle", ConversationID: "conv-idle", AgentID: "agent-1", PlaygroundID: "playground-idle", Status: "ready"}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AddMessageAt(t.Context(), project.ID, "user", "old", time.Now().UTC().Add(-idleProjectStopAfter-time.Minute).Format(time.RFC3339Nano)); err != nil {
+		t.Fatal(err)
+	}
+	payload, _ := json.Marshal(projectJobPayload{UserID: user.ID, UserEmail: user.Email, ProjectID: project.ID})
+
+	if err := server.handleStopIdleProjectTask(t.Context(), asynq.NewTask(taskStopIdleProject, payload)); err != nil {
+		t.Fatal(err)
+	}
+
+	stored, err := store.ProjectForUser(t.Context(), user.ID, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != "stopped" {
+		t.Fatalf("status=%q, want stopped", stored.Status)
+	}
+	if log := readFile(t, logPath); !strings.Contains(log, "playgrounds stop playground-idle") {
+		t.Fatalf("missing stop command; log=%s", log)
+	}
 }
 
 func TestAgentProjectPromptIncludesTargetContext(t *testing.T) {
@@ -2442,7 +2546,7 @@ func TestAdminNoticeSendsEmailWhenSMTPConfigured(t *testing.T) {
 	}
 }
 
-func TestDailyFreeMessagesAndPaidCredits(t *testing.T) {
+func TestRollingFreeMessagesAndPaidCredits(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -2460,8 +2564,8 @@ func TestDailyFreeMessagesAndPaidCredits(t *testing.T) {
 	if err := store.UpsertConfig(t.Context(), map[string]string{"free_messages": "1"}, secretConfigKeys); err != nil {
 		t.Fatal(err)
 	}
-	oldTime := dailyMessageWindowStart().Add(-time.Hour).Format(time.RFC3339Nano)
-	if _, err := store.AddMessageAt(t.Context(), project.ID, "user", "yesterday", oldTime); err != nil {
+	oldTime := time.Now().UTC().Add(-freeMessageWindow - time.Minute).Format(time.RFC3339Nano)
+	if _, err := store.AddMessageAt(t.Context(), project.ID, "user", "expired", oldTime); err != nil {
 		t.Fatal(err)
 	}
 	today, err := store.AddMessage(t.Context(), project.ID, "user", "today")
@@ -2470,7 +2574,7 @@ func TestDailyFreeMessagesAndPaidCredits(t *testing.T) {
 	}
 	quota := server.messageQuota(t.Context(), user)
 	if quota["used"] != 1 || quota["remaining"] != 0 || quota["lifetimeUsed"] != 2 {
-		t.Fatalf("quota=%+v, want daily used 1, remaining 0, lifetime 2", quota)
+		t.Fatalf("quota=%+v, want 5-hour used 1, remaining 0, lifetime 2", quota)
 	}
 	allowed, paid, err := server.messageAllowance(t.Context(), user)
 	if err != nil {
