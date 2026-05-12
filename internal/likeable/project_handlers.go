@@ -326,7 +326,12 @@ func (s *Server) handleProjectFeed(w http.ResponseWriter, r *http.Request, user 
 	fibe, err := s.fibeClientForProject(r.Context(), project, user.Email)
 	if err != nil {
 		log.Printf("load project feed workspace client for project %s: %v", project.ID, err)
-		writeJSON(w, http.StatusOK, map[string]any{"project": project, "localMessages": local, "messages": []any{}, "activity": []any{}, "warning": "Live updates are temporarily unavailable."})
+		timings, timingErr := s.store.ProjectNotificationTimingMap(r.Context(), project.ID)
+		if timingErr != nil {
+			log.Printf("load project notification timings for project %s: %v", project.ID, timingErr)
+			timings = map[string]ProjectNotificationTiming{}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"project": project, "localMessages": local, "messages": []any{}, "activity": []any{}, "notificationTimings": timings, "warning": "Live updates are temporarily unavailable."})
 		return
 	}
 	messages, messagesErr := fibe.Messages(r.Context(), project.ConversationID)
@@ -358,7 +363,15 @@ func (s *Server) handleProjectFeed(w http.ResponseWriter, r *http.Request, user 
 	}
 	messages = sanitizeAgentProtocolMessages(messages)
 	sanitizeAgentProtocolLiveState(live)
-	response := map[string]any{"project": project, "localMessages": local, "messages": messages, "activity": activity, "live": live}
+	timings, shouldMonitor, err := s.syncProjectNotificationTimings(r.Context(), project, local, messages, activity, live)
+	if err != nil {
+		log.Printf("sync project notification timings for project %s: %v", project.ID, err)
+		timings = map[string]ProjectNotificationTiming{}
+	}
+	if shouldMonitor {
+		s.enqueueProjectNotificationMonitor(context.Background(), user.ID, user.Email, project.ID, 3*time.Second)
+	}
+	response := map[string]any{"project": project, "localMessages": local, "messages": messages, "activity": activity, "live": live, "notificationTimings": timings}
 	if len(warnings) > 0 {
 		response["warning"] = strings.Join(warnings, " ")
 	}

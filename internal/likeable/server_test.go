@@ -1682,6 +1682,89 @@ esac
 	}
 }
 
+func TestProjectNotificationTimingsPersistAcrossRefresh(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "likeable.db")
+	appStore, err := store.Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: appStore, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	user, _ := appStore.UpsertUser(t.Context(), "a@example.com", "A", "")
+	project := &Project{
+		ID:             "project-notification-timings",
+		UserID:         user.ID,
+		Title:          "Notification timings",
+		ConversationID: "conv-notification-timings",
+		AgentID:        "agent-1",
+		PreviewURL:     "http://preview.example.test",
+		Status:         "ready",
+	}
+	if err := appStore.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+	userAt := time.Date(2026, 5, 12, 10, 0, 0, 0, time.UTC)
+	if _, err := appStore.AddMessageAt(t.Context(), project.ID, "user", "make changes", userAt.Format(time.RFC3339Nano)); err != nil {
+		t.Fatal(err)
+	}
+	local, err := appStore.MessagesForProject(t.Context(), project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstLive := &fibe.ConversationLiveState{
+		ConversationID: project.ConversationID,
+		IsProcessing:   true,
+		StreamText:     likeableNotificationStart + "Inspecting the app" + likeableNotificationEnd,
+		QueuedTurns:    1,
+		StartedAt:      userAt.Add(time.Second).Format(time.RFC3339Nano),
+	}
+	timings, shouldContinue, err := server.syncProjectNotificationTimingsAt(t.Context(), project, local, nil, nil, firstLive, userAt.Add(13*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !shouldContinue {
+		t.Fatal("sync should keep monitoring while live state is processing")
+	}
+	firstID := notificationTurnKey(userAt) + "-notification-0"
+	secondID := notificationTurnKey(userAt) + "-notification-1"
+	if timings[firstID].ElapsedMs != 0 {
+		t.Fatalf("first elapsed after initial observation=%d, want 0", timings[firstID].ElapsedMs)
+	}
+
+	secondLive := &fibe.ConversationLiveState{
+		ConversationID: project.ConversationID,
+		IsProcessing:   true,
+		StreamText:     likeableNotificationStart + "Inspecting the app" + likeableNotificationEnd + likeableNotificationStart + "Checking the preview" + likeableNotificationEnd,
+		QueuedTurns:    1,
+		StartedAt:      userAt.Add(time.Second).Format(time.RFC3339Nano),
+	}
+	timings, _, err = server.syncProjectNotificationTimingsAt(t.Context(), project, local, nil, nil, secondLive, userAt.Add(47*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := timings[firstID].ElapsedMs; got != 34_000 {
+		t.Fatalf("first elapsed=%d, want 34000", got)
+	}
+	if got := timings[secondID].ElapsedMs; got != 0 {
+		t.Fatalf("second elapsed=%d, want 0 until another notification arrives", got)
+	}
+	if err := appStore.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := store.Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	persisted, err := reopened.ProjectNotificationTimingMap(t.Context(), project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := persisted[firstID].ElapsedMs; got != 34_000 {
+		t.Fatalf("persisted first elapsed=%d, want 34000", got)
+	}
+}
+
 func TestProjectFeedRefreshesTransformedServiceLayout(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {

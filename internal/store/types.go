@@ -8,6 +8,7 @@ type ProjectRepository = domain.ProjectRepository
 type ProjectService = domain.ProjectService
 type Message = domain.Message
 type MessageAttachment = domain.MessageAttachment
+type ProjectNotificationTiming = domain.ProjectNotificationTiming
 type SocialConnection = domain.SocialConnection
 type Subscription = domain.Subscription
 type Payment = domain.Payment

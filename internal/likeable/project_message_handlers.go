@@ -147,6 +147,7 @@ func (s *Server) handleProjectMessages(w http.ResponseWriter, r *http.Request, u
 			return
 		}
 	}
+	s.enqueueProjectNotificationMonitor(context.Background(), user.ID, user.Email, project.ID, 0)
 	s.notifyMessageQuotaIfNeeded(r.Context(), user)
 	writeJSON(w, http.StatusAccepted, map[string]any{"message": msg})
 }

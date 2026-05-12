@@ -83,6 +83,16 @@ type MessageAttachment struct {
 	CreatedAt   string `json:"createdAt,omitempty"`
 }
 
+type ProjectNotificationTiming struct {
+	ProjectID      string `json:"-"`
+	NotificationID string `json:"-"`
+	Body           string `json:"body,omitempty"`
+	StartedAt      string `json:"startedAt,omitempty"`
+	CompletedAt    string `json:"completedAt,omitempty"`
+	ElapsedMs      int64  `json:"elapsedMs,omitempty"`
+	UpdatedAt      string `json:"updatedAt,omitempty"`
+}
+
 type SocialConnection struct {
 	ID             string
 	UserID         string

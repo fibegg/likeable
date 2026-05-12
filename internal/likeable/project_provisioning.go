@@ -177,6 +177,8 @@ func (s *Server) provisionProject(ctx context.Context, userID, userEmail string,
 		}
 		if err := fibeClient.SendMessage(ctx, project.ConversationID, projecttext.AgentPrompt(project, prompt), nil, "queue"); err != nil {
 			log.Printf("send initial prompt for project %s: %v", project.ID, err)
+		} else {
+			s.enqueueProjectNotificationMonitor(context.Background(), userID, userEmail, project.ID, 0)
 		}
 	}
 	return nil

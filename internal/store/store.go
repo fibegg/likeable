@@ -130,6 +130,17 @@ func (s *Store) migrate(ctx context.Context) error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_message_attachments_message ON message_attachments(message_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_message_attachments_project ON message_attachments(project_id)`,
+		`CREATE TABLE IF NOT EXISTS project_notification_timings (
+			project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+			notification_id TEXT NOT NULL,
+			body TEXT NOT NULL DEFAULT '',
+			started_at TEXT NOT NULL,
+			completed_at TEXT NOT NULL DEFAULT '',
+			elapsed_ms INTEGER NOT NULL DEFAULT 0,
+			updated_at TEXT NOT NULL,
+			PRIMARY KEY(project_id, notification_id)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_project_notification_timings_project ON project_notification_timings(project_id, started_at)`,
 		`CREATE TABLE IF NOT EXISTS social_connections (
 			id TEXT PRIMARY KEY,
 			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

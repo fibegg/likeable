@@ -1,5 +1,5 @@
 import { LIKEABLE_NOTIFICATION_END, LIKEABLE_NOTIFICATION_START } from './config';
-import type { Feed, FeedRow, Message, MessageAttachment, NotificationFeedRow } from './domain';
+import type { Feed, FeedRow, Message, MessageAttachment, NotificationFeedRow, NotificationTiming } from './domain';
 
 const TURN_TIME_SLOP_MS = 5000;
 const RECENT_UNANSWERED_TURN_MS = 30 * 60_000;
@@ -14,7 +14,7 @@ export function feedRows(feed: Feed | null): FeedRow[] {
     rows.push({ kind: 'user', id: msg.id, role: 'user', body: normalized.body, attachments: normalized.attachments, time: msg.createdAt });
   }
   rows.push(...notificationFeedRows(feed));
-  return rows.sort(compareFeedRows);
+  return applyNotificationTimings(rows.sort(compareFeedRows), feed.notificationTimings);
 }
 
 function normalizeLocalMessage(msg: Message): { body: string; attachments: MessageAttachment[] } {
@@ -244,4 +244,14 @@ function latestTimestamp(values: Array<string | undefined>): number | null {
 
 function normalizeBody(body: string): string {
   return body.trim().replace(/\s+/g, ' ');
+}
+
+function applyNotificationTimings(rows: FeedRow[], timings?: Record<string, NotificationTiming>): FeedRow[] {
+  if (!timings) return rows;
+  return rows.map((row) => {
+    if (row.kind !== 'notification') return row;
+    const elapsedMs = timings[row.id]?.elapsedMs;
+    if (elapsedMs == null || elapsedMs <= 0) return row;
+    return { ...row, elapsedMs };
+  });
 }

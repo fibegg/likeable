@@ -19,15 +19,16 @@ const projectProvisionRetryDelay = 2 * time.Minute
 const idleProjectStopAfter = 8 * time.Hour
 
 const (
-	taskProvisionProject       = "likeable:project:provision"
-	taskRecoverProject         = "likeable:project:recover"
-	taskDeleteProjectResources = "likeable:project:delete_resources"
-	taskProjectDeletionSweep   = "likeable:project:deletion_sweep"
-	taskArchiveDeleteProject   = "likeable:project:archive_delete"
-	taskStopIdleProjectsSweep  = "likeable:project:stop_idle_sweep"
-	taskStopIdleProject        = "likeable:project:stop_idle"
-	taskSendEmail              = "likeable:email:send"
-	taskProjectQuotaSweep      = "likeable:project_quota:sweep"
+	taskProvisionProject            = "likeable:project:provision"
+	taskRecoverProject              = "likeable:project:recover"
+	taskDeleteProjectResources      = "likeable:project:delete_resources"
+	taskProjectDeletionSweep        = "likeable:project:deletion_sweep"
+	taskArchiveDeleteProject        = "likeable:project:archive_delete"
+	taskStopIdleProjectsSweep       = "likeable:project:stop_idle_sweep"
+	taskStopIdleProject             = "likeable:project:stop_idle"
+	taskMonitorProjectNotifications = "likeable:project:monitor_notifications"
+	taskSendEmail                   = "likeable:email:send"
+	taskProjectQuotaSweep           = "likeable:project_quota:sweep"
 )
 
 type JobSystem struct {
@@ -59,6 +60,7 @@ func newJobSystem(redisOpt asynq.RedisClientOpt, s *Server) *JobSystem {
 	mux.HandleFunc(taskArchiveDeleteProject, s.handleArchiveDeleteProjectTask)
 	mux.HandleFunc(taskStopIdleProjectsSweep, s.handleStopIdleProjectsSweepTask)
 	mux.HandleFunc(taskStopIdleProject, s.handleStopIdleProjectTask)
+	mux.HandleFunc(taskMonitorProjectNotifications, s.handleMonitorProjectNotificationsTask)
 	mux.HandleFunc(taskSendEmail, s.handleSendEmailTask)
 	mux.HandleFunc(taskProjectQuotaSweep, s.handleProjectQuotaSweepTask)
 	server := asynq.NewServer(redisOpt, asynq.Config{
