@@ -650,8 +650,11 @@ func greenfieldVariables(project *Project) map[string]string {
 	subdomains := projecttext.ServiceSubdomains(project)
 	return map[string]string{
 		"subdomain":       subdomains["app"],
+		"SUBDOMAIN":       subdomains["app"],
 		"app_subdomain":   subdomains["app"],
+		"APP_SUBDOMAIN":   subdomains["app"],
 		"admin_subdomain": subdomains["admin"],
+		"ADMIN_SUBDOMAIN": subdomains["admin"],
 	}
 }
 

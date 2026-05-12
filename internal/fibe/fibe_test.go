@@ -228,6 +228,9 @@ func TestCreateGreenfieldUsesTemplateVersionIDOnlyWhenConfigured(t *testing.T) {
 			if !strings.Contains(log, "--var subdomain=lk-0123456789abcdef") {
 				t.Fatalf("log=%s, want generic subdomain variable", log)
 			}
+			if !strings.Contains(log, "--var SUBDOMAIN=lk-0123456789abcdef") {
+				t.Fatalf("log=%s, want uppercase generic subdomain variable", log)
+			}
 			if !strings.Contains(log, "--var admin_subdomain=lk-0123456789abcdef-admin") {
 				t.Fatalf("log=%s, want admin subdomain variable", log)
 			}
