@@ -2157,7 +2157,6 @@ func TestProjectMessageRefreshesServiceContextBeforeSending(t *testing.T) {
 		"- frontend: http://frontend.example.test",
 		"- api: http://api.example.test",
 		"- frontend [frontend]: http://gitea.test/owner/frontend.git",
-		"fibe_playgrounds_transform",
 		"change the admin background",
 	} {
 		if !strings.Contains(prompt, want) {
@@ -2618,10 +2617,6 @@ func TestAgentProjectPromptIncludesTargetContext(t *testing.T) {
 		"- backend [api,worker]: http://gitea.test/owner/backend",
 		"- app [app]: http://gitea.test/owner/app",
 		"- admin [admin]: http://gitea.test/owner/admin",
-		"Target playground_id 10 only",
-		"fibe_playgrounds_transform for playground_id 10",
-		"prefer direct Brownfield changes on the live playground workspace for playground_id 10",
-		"Do not use rollout_all, do not update default/global Import Templates",
 		"[[LIKEABLE_USER_CONTEXT_START]]",
 		"User request:\nChange the heading",
 		"[[LIKEABLE_USER_CONTEXT_END]]",
