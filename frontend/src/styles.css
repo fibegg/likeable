@@ -446,6 +446,16 @@ html[data-builder-mode="split"] .account {
   overflow: hidden;
   background: #05090c;
 }
+.previewTopChrome {
+  display: none;
+}
+.previewContent {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
 .previewPane iframe {
   width: 100%;
   height: 100%;
@@ -564,9 +574,10 @@ html[data-builder-mode="split"] .account {
   min-height: 0;
   overflow: visible;
   display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto auto auto minmax(0, 1fr) auto;
   grid-template-areas:
     "powered"
+    "projectTitle"
     "chrome"
     "projects"
     "messages"
@@ -649,6 +660,40 @@ html[data-builder-mode="split"] .account {
   width: 28px;
   height: 26px;
 }
+.actionChromePill {
+  gap: 3px;
+}
+.chromeAuthLink {
+  width: auto;
+  min-width: 0;
+  min-height: 26px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(216, 228, 231, .8);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .2px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  white-space: nowrap;
+}
+.chatNav button.chromeAuthLink {
+  width: auto;
+  height: 26px;
+  min-width: 0;
+  border: 0;
+}
+.chromeAuthLink:hover {
+  color: var(--text);
+  background: rgba(213, 141, 45, .1);
+}
 .chromePill .chromeIconButton.languageChromeButton {
   width: auto;
   min-width: 44px;
@@ -702,6 +747,15 @@ html[data-builder-mode="split"] .account {
   padding: 3px 4px;
   text-align: left;
   overflow: visible;
+}
+.chatProjectTitle {
+  grid-area: projectTitle;
+  display: none;
+  width: calc(100% - 20px);
+  margin: 8px 10px 0;
+  padding: 7px 8px;
+  border-color: rgba(199, 137, 45, .26);
+  background: rgba(7, 14, 17, .48);
 }
 .projectTitleButton:hover {
   border-color: rgba(199, 137, 45, .22);
@@ -810,9 +864,10 @@ html[data-builder-mode="split"] .account {
   box-shadow: none;
 }
 .chatPane.screenOpen {
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto minmax(0, 1fr);
   grid-template-areas:
     "powered"
+    "projectTitle"
     "chrome"
     "projects";
 }
@@ -2707,6 +2762,29 @@ html.draggingCollapsedChat * {
     padding: 12px 13px;
     font-size: 13.5px;
   }
+  .previewPane.chatExpanded {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .previewPane.chatExpanded .previewTopChrome {
+    position: relative;
+    z-index: 11;
+    display: block;
+    min-width: 0;
+  }
+  .previewPane.chatExpanded .previewTopChrome .basicChatChrome {
+    justify-content: space-between;
+    padding: calc(7px + env(safe-area-inset-top)) 8px 7px;
+    border-bottom: 1px solid rgba(199, 137, 45, .22);
+    background: linear-gradient(180deg, rgba(5, 11, 14, .96), rgba(5, 11, 14, .78));
+    backdrop-filter: blur(18px);
+  }
+  .previewPane.chatExpanded .previewTopChrome .chromeProjectTitle {
+    display: none;
+  }
+  .previewPane.chatExpanded .previewContent {
+    height: auto;
+  }
   .overlayChat {
     bottom: calc(18px + env(safe-area-inset-bottom));
     width: min(720px, calc(100vw - 22px));
@@ -2722,24 +2800,38 @@ html.draggingCollapsedChat * {
   }
   .overlayChat:not(.collapsed):not(.minimized) .chatPane {
     width: 100%;
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "powered"
+      "projectTitle"
+      "messages"
+      "composer";
     border-radius: 12px 12px 0 0;
     border-width: 1px 0 0 0;
     backdrop-filter: none;
     background: rgba(6, 12, 15, .92);
   }
+  .overlayChat:not(.collapsed):not(.minimized) .chatPane.screenOpen {
+    grid-template-rows: auto auto minmax(0, 1fr);
+    grid-template-areas:
+      "powered"
+      "projectTitle"
+      "projects";
+  }
   .overlayChat:not(.collapsed):not(.minimized) .composer {
     padding-bottom: env(safe-area-inset-bottom);
   }
-  .overlayChat:not(.collapsed):not(.minimized) .basicChatChrome {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    z-index: 100;
-    padding-top: calc(7px + env(safe-area-inset-top));
-    background: linear-gradient(180deg, rgba(5, 11, 14, .96), rgba(5, 11, 14, .78));
-    backdrop-filter: blur(18px);
-    border-bottom: 1px solid rgba(199, 137, 45, .22);
+  .overlayChat:not(.collapsed):not(.minimized) .chatPane > .basicChatChrome {
+    display: none;
+  }
+  .overlayChat:not(.collapsed):not(.minimized) .chatProjectTitle {
+    display: inline-flex;
+    width: 100%;
+    margin: 0;
+    padding: 9px 10px;
+    border-width: 0 0 1px;
+    border-radius: 0;
+    background: rgba(7, 14, 17, .46);
   }
   .overlayChat .composer {
     padding: 0;
@@ -2928,6 +3020,10 @@ html.draggingCollapsedChat * {
   .chatHeaderActions { gap: 4px; }
   .basicChatChrome { gap: 6px; padding: 7px 6px; }
   .basicChatChrome .messageQuotaBadge { display: none; }
+  .chatProjectTitle {
+    width: calc(100% - 16px);
+    margin: 7px 8px 0;
+  }
   .composer { grid-template-columns: 36px minmax(0, 1fr) 42px; padding: 8px; gap: 7px; }
   .attachButton { width: 36px; height: 46px; min-height: 0; }
   .sendButton,

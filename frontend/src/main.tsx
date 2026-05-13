@@ -772,22 +772,19 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     setShowProfile(false);
     if (location.pathname.startsWith('/profile')) nav('/');
   };
+  const projectTitleButton = (slotClass: string) => (
+    <button className={`projectTitleButton ${slotClass} tooltip tooltipBottom`} onClick={openProjectsPanel} disabled={!signedIn} aria-label={t('projects.title')} data-tip={signedIn ? t('builder.projects.tooltip') : t('auth.signInToCreateProjects')}>
+      <span className="projectTitleMain">{activeProject?.title ?? (signedIn ? t('builder.project.new') : t('auth.signInToBuild'))}</span>
+      <span className="projectTitleCount"><FolderOpen size={15} /><span>{signedIn ? projectCapLabel : '-'}</span></span>
+    </button>
+  );
   const builderChrome = (
     <div className="basicChatChrome">
       <button className="brand chatBrand tooltip tooltipBottom" onClick={() => nav('/')} aria-label={t('builder.brand.tooltip')} data-tip={t('builder.brand.tooltip')}>
         <span className={`mark small statusMark ${agentWorking ? 'working' : ''}`}><span className="markGlyph">L</span><span className="brandStatusDot" /></span>
       </button>
       {topOpenLink}
-      <button className="projectTitleButton tooltip tooltipBottom" onClick={openProjectsPanel} disabled={!signedIn} aria-label={t('projects.title')} data-tip={signedIn ? t('builder.projects.tooltip') : t('auth.signInToCreateProjects')}>
-        <span className="projectTitleMain">{activeProject?.title ?? (signedIn ? t('builder.project.new') : t('auth.signInToBuild'))}</span>
-        <span className="projectTitleCount"><FolderOpen size={15} /><span>{signedIn ? projectCapLabel : '-'}</span></span>
-      </button>
-      {!me.user && (
-        <div className="account chatAccount">
-          <a className={!googleReady ? 'disabled' : ''} href="/api/auth/google/start">{t('auth.signIn')}</a>
-          {me.auth?.devAuth && <button onClick={() => fetch('/api/dev/login?email=admin@example.com', { method: 'POST' }).then(() => location.reload())}>{t('auth.dev')}</button>}
-        </div>
-      )}
+      {projectTitleButton('chromeProjectTitle')}
       <nav className="chatNav">
         {activeProject?.services && activeProject.services.length > 1 && (
           <div className="chromePill serviceSelector" aria-label={t('service.preview')}>
@@ -828,7 +825,13 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
           <button className={showProfile ? 'chromeIconButton selected tooltip tooltipBottom' : 'chromeIconButton tooltip tooltipBottom'} onClick={showProfile ? closeProfilePanel : openProfilePanel} disabled={!signedIn} aria-label={t('nav.profile')} data-tip={signedIn ? t('builder.profile.tooltip') : t('auth.signInToOpenProfile')}><UserRound size={16} /></button>
           {me.isAdmin && <button className="chromeIconButton tooltip tooltipBottom" onClick={() => nav('/admin')} aria-label={t('nav.admin')} data-tip={t('builder.admin.tooltip')}><Settings size={16} /></button>}
         </div>
-        <div className="chromePill">
+        <div className="chromePill actionChromePill">
+          {!me.user && (
+            <>
+              <a className={`chromeAuthLink ${!googleReady ? 'disabled' : ''}`} href="/api/auth/google/start">{t('auth.signIn')}</a>
+              {me.auth?.devAuth && <button className="chromeAuthLink chromeAuthButton" onClick={() => fetch('/api/dev/login?email=admin@example.com', { method: 'POST' }).then(() => location.reload())}>{t('auth.dev')}</button>}
+            </>
+          )}
           {modeToggle}
           {viewMode === 'overlay' && <button className="chromeIconButton tooltip tooltipBottom" onClick={() => setBasicChatCollapsed(true)} aria-label={t('builder.chat.collapse')} data-tip={t('builder.chat.collapse')}><Minimize2 size={16} /></button>}
         </div>
@@ -841,6 +844,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       <a className="poweredBy" href="https://fibe.gg" target="_blank" rel="noopener noreferrer">
         {t('builder.poweredBy')} <span>fibe.gg</span>
       </a>
+      {projectTitleButton('chatProjectTitle')}
       {builderChrome}
       {showProjects && <ProjectList projects={projects} activeID={activeID} projectCap={projectCap} busy={busy} exportingID={exportingID} controllingID={controllingProjectID} onSelect={(id) => { setActiveID(id); setShowProjects(false); }} onNew={() => setConfirmNewProject(true)} onRename={renameProject} onDelete={setDeleteTarget} onExport={requestProjectExport} onControlPlayground={controlProjectPlayground} onClose={() => setShowProjects(false)} />}
       {showProfile && <ProfilePanel me={me} onClose={closeProfilePanel} />}
@@ -901,8 +905,8 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const connectingCanvasBody = previewReady
     ? t('builder.preview.respondedBody')
     : t('builder.preview.warmingBody');
-  const preview = (
-    <section className="previewPane">
+  const previewContent = (
+    <>
       {activeProject?.status === 'error' && !previewMaintenance ? (
         <CanvasLoader title={t('builder.preview.launchFailedTitle')} body={t('builder.preview.launchFailedBody')} tone="error" />
       ) : activeProject?.status === 'stopped' ? (
@@ -933,6 +937,12 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
         </>
       ) : <EmptyCanvas />}
       {viewMode === 'split' && <div className={`canvasStatus ${agentWorking ? 'working' : ''}`}><span /> {canvasStatusLabel}</div>}
+    </>
+  );
+  const preview = (
+    <section className={`previewPane ${viewMode === 'overlay' && !basicChatCollapsed ? 'chatExpanded' : ''}`}>
+      <div className="previewTopChrome">{builderChrome}</div>
+      <div className="previewContent">{previewContent}</div>
       {viewMode === 'overlay' && (
         <div
           className={`overlayChat ${basicChatCollapsed ? 'collapsed minimized' : ''}`}
