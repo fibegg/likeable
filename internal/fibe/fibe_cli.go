@@ -45,10 +45,13 @@ func (e *PlatformError) Unwrap() error {
 }
 
 func (e *PlatformError) PublicProjectErrorKind() string {
+	message := strings.ToLower(strings.TrimSpace(e.Message + "\n" + e.Stderr))
 	switch {
 	case e.Code == platformCodeCLINotConfigured || e.Code == platformCodeCLINotFound:
 		return "configuration"
 	case e.Status == 401 || e.Status == 403:
+		return "configuration"
+	case isProvisioningConfigurationPlatformError(e, message):
 		return "configuration"
 	default:
 		return ""
@@ -69,6 +72,9 @@ func IsRetryableProvisioningError(err error) bool {
 	}
 	code := strings.ToUpper(strings.TrimSpace(platform.Code))
 	message := strings.ToLower(strings.TrimSpace(platform.Message + "\n" + platform.Stderr))
+	if isProvisioningConfigurationPlatformError(platform, message) {
+		return false
+	}
 	switch code {
 	case platformCodeCLINotConfigured, platformCodeCLINotFound:
 		return false
@@ -96,6 +102,28 @@ func IsRetryableProvisioningError(err error) bool {
 		"timed out",
 		"unexpected eof",
 		"unavailable",
+	)
+}
+
+func isProvisioningConfigurationPlatformError(err *PlatformError, message string) bool {
+	if err == nil {
+		return false
+	}
+	code := strings.ToUpper(strings.TrimSpace(err.Code))
+	switch code {
+	case "GREENFIELD_DEFAULT_TEMPLATE_VERSION_MISSING",
+		"GREENFIELD_DEFAULT_TEMPLATE_VERSION_UNAVAILABLE",
+		"SYSTEM_TEMPLATE_MIRROR_UNAVAILABLE",
+		"TEMPLATE_VERSION_NOT_FOUND":
+		return true
+	}
+	return containsAny(message,
+		"greenfield_default_template_version_missing",
+		"greenfield_default_template_version_unavailable",
+		"system_template_mirror_unavailable",
+		"no default greenfield template version is configured",
+		"default greenfield template version is configured but is not available",
+		"system template source mirror is not available",
 	)
 }
 

@@ -334,22 +334,56 @@ func (s *Server) refreshProjectResources(ctx context.Context, user *User, projec
 	if err != nil {
 		return project, err
 	}
-	if !greenfieldHasResourceSnapshot(result) {
+	hasSnapshot := greenfieldHasResourceSnapshot(result)
+	if hasSnapshot {
+		applyProjectGreenfieldSnapshot(project, result)
+	}
+	oldStatus := project.Status
+	status := project.Status
+	if nextStatus := projectStatusFromFibePlayground(result.PlaygroundStatus); nextStatus != "" {
+		status = nextStatus
+		project.Status = nextStatus
+	}
+	if !hasSnapshot && status == "" {
 		return project, nil
 	}
-	applyProjectGreenfieldSnapshot(project, result)
-	status := project.Status
 	if status == "" {
 		status = "ready"
 	}
-	if err := s.store.SaveProjectProvisioningSnapshot(ctx, project, status); err != nil {
-		return project, err
+	if hasSnapshot {
+		if err := s.store.SaveProjectProvisioningSnapshot(ctx, project, status); err != nil {
+			return project, err
+		}
+	}
+	if status == "error" {
+		if err := s.store.UpdateProjectError(ctx, project.ID, user.ID, result.PlaygroundError); err != nil {
+			return project, err
+		}
+	} else if !hasSnapshot && status != oldStatus {
+		if err := s.store.UpdateProjectStatus(ctx, project.ID, user.ID, status); err != nil {
+			return project, err
+		}
 	}
 	updated, err := s.store.ProjectForUser(ctx, user.ID, project.ID)
 	if err != nil {
 		return project, err
 	}
 	return updated, nil
+}
+
+func projectStatusFromFibePlayground(status string) string {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "running", "ready", "has_changes":
+		return "ready"
+	case "pending", "in_progress", "starting", "creating":
+		return "launching"
+	case "stopping", "stopped":
+		return "stopped"
+	case "error", "failed":
+		return "error"
+	default:
+		return ""
+	}
 }
 
 func (s *Server) applyCurrentProjectAssignment(ctx context.Context, user *User, project *Project) error {

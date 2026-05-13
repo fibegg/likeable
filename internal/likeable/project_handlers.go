@@ -29,6 +29,7 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		projects = s.refreshProjectListResources(r.Context(), user, projects)
 		s.recoverProjectsAsync(user.ID, user.Email, projects)
 		projectQuota := s.projectQuota(r.Context(), user)
 		writeJSON(w, http.StatusOK, map[string]any{"projects": projects, "projectCap": projectQuota["limit"], "projectQuota": projectQuota})
@@ -37,6 +38,32 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
+}
+
+func (s *Server) refreshProjectListResources(ctx context.Context, user *User, projects []Project) []Project {
+	if user == nil || len(projects) == 0 {
+		return projects
+	}
+	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	out := append([]Project(nil), projects...)
+	for i := range out {
+		if strings.TrimSpace(out[i].PlaygroundID) == "" || out[i].Status == "deleting" {
+			continue
+		}
+		updated, err := s.refreshProjectResourcesNow(ctx, user, &out[i])
+		if err != nil {
+			log.Printf("refresh project resources for list %s: %v", out[i].ID, err)
+			continue
+		}
+		if updated != nil {
+			out[i] = *updated
+		}
+		if ctx.Err() != nil {
+			break
+		}
+	}
+	return out
 }
 
 func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request, user *User) {
@@ -384,22 +411,44 @@ func (s *Server) handleProjectPreviewStatus(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	user := userFromContext(r.Context())
+	readinessRefreshed := false
 	if projectNeedsReadinessRecovery(project) && user != nil {
 		ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 		updated, err := s.refreshProjectReadiness(ctx, user, project)
 		cancel()
 		if err == nil && updated != nil {
 			project = updated
+			readinessRefreshed = true
 		} else {
 			log.Printf("preview status recovery for project %s is still pending: %v", project.ID, err)
 			s.recoverProjectAsync(user.ID, user.Email, project)
 		}
+	}
+	if user != nil && !readinessRefreshed && strings.TrimSpace(project.PlaygroundID) != "" && project.Status != "deleting" {
+		ctx, cancel := context.WithTimeout(r.Context(), 6*time.Second)
+		updated, err := s.refreshProjectResourcesIfDue(ctx, user, project)
+		cancel()
+		if err == nil && updated != nil {
+			project = updated
+		} else if err != nil {
+			log.Printf("preview status project resource refresh %s: %v", project.ID, err)
+		}
+	}
+	if project.Status == "stopped" {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ready":     false,
+			"status":    "stopped",
+			"checkedAt": nowString(),
+			"project":   project,
+		})
+		return
 	}
 	if strings.TrimSpace(project.PreviewURL) == "" {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"ready":     false,
 			"status":    publicPreviewProbeStatus(project.Status),
 			"checkedAt": nowString(),
+			"project":   project,
 		})
 		return
 	}
@@ -417,6 +466,7 @@ func (s *Server) handleProjectPreviewStatus(w http.ResponseWriter, r *http.Reque
 		"maintenance": maintenance,
 		"status":      publicPreviewProbeStatus(status),
 		"checkedAt":   nowString(),
+		"project":     project,
 	})
 }
 

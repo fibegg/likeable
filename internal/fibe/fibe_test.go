@@ -55,6 +55,16 @@ func TestIsRetryableProvisioningError(t *testing.T) {
 			want: false,
 		},
 		{
+			name: "greenfield default missing through remote request",
+			err:  &PlatformError{Code: "REMOTE_REQUEST_FAILED", Status: 422, Message: "fibe: REMOTE_REQUEST_FAILED (422): No default greenfield template version is configured"},
+			want: false,
+		},
+		{
+			name: "greenfield default unavailable",
+			err:  &PlatformError{Code: "GREENFIELD_DEFAULT_TEMPLATE_VERSION_UNAVAILABLE", Status: 422, Message: "Default greenfield template version is configured but is not available"},
+			want: false,
+		},
+		{
 			name: "configuration failure",
 			err:  &PlatformError{Code: platformCodeCLINotConfigured, Message: "Fibe CLI path is not configured"},
 			want: false,
@@ -70,6 +80,18 @@ func TestIsRetryableProvisioningError(t *testing.T) {
 				t.Fatalf("IsRetryableProvisioningError()=%v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestPlatformErrorPublicProjectErrorKindClassifiesGreenfieldConfiguration(t *testing.T) {
+	for _, err := range []*PlatformError{
+		{Code: "GREENFIELD_DEFAULT_TEMPLATE_VERSION_UNAVAILABLE", Status: 422, Message: "Default greenfield template version is configured but is not available"},
+		{Code: "REMOTE_REQUEST_FAILED", Status: 422, Message: "fibe: REMOTE_REQUEST_FAILED (422): No default greenfield template version is configured"},
+		{Code: "REMOTE_REQUEST_FAILED", Status: 422, Message: "fibe: SYSTEM_TEMPLATE_MIRROR_UNAVAILABLE (503): System template source mirror is not available for https://github.com/fibegg/app"},
+	} {
+		if got := err.PublicProjectErrorKind(); got != "configuration" {
+			t.Fatalf("PublicProjectErrorKind(%v)=%q, want configuration", err, got)
+		}
 	}
 }
 

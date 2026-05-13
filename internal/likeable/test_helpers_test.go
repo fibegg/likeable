@@ -1,6 +1,7 @@
 package likeable
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -96,6 +97,31 @@ esac
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	return path, stdinPath
+}
+
+func fakeProjectStateFibeCLI(t *testing.T, status, previewURL string) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "fibe")
+	script := fmt.Sprintf(`#!/bin/sh
+case "$*" in
+  *"playgrounds debug 321"*)
+    echo '{"diagnostics":{"playground":{"id":321,"playspec_id":654,"status":%q},"routes":[{"service":"app","type":"dynamic","visibility":"external","url":%q}]}}'
+    ;;
+  *"playspecs get 654"*)
+    echo '{"id":654,"services":[{"name":"app","prop_id":81,"repo_url":"http://gitea.test/owner/app.git","source_repo_url":"https://github.com/fibegg/go-fibe-app"}]}'
+    ;;
+  *)
+    echo "unexpected command: $*" >&2
+    exit 64
+    ;;
+esac
+`, status, previewURL)
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return path
 }
 
 func readFile(t *testing.T, path string) string {

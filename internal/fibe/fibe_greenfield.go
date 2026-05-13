@@ -15,6 +15,8 @@ import (
 type GreenfieldResult struct {
 	PlaygroundID        string
 	PlaygroundName      string
+	PlaygroundStatus    string
+	PlaygroundError     string
 	PlayspecID          string
 	PropID              string
 	RepoURL             string
@@ -267,9 +269,11 @@ func (c *Client) listPlaygrounds(ctx context.Context, page, perPage int) ([]map[
 
 func greenfieldResultFromPlayground(playground map[string]any) *GreenfieldResult {
 	return &GreenfieldResult{
-		PlaygroundID:   numberString(firstAny(playground["id"], playground["ID"])),
-		PlaygroundName: firstNonEmpty(fmt.Sprint(firstAny(playground["name"], playground["Name"]))),
-		PlayspecID:     numberString(firstAny(playground["playspec_id"], playground["playspecID"], playground["PlayspecID"])),
+		PlaygroundID:     numberString(firstAny(playground["id"], playground["ID"])),
+		PlaygroundName:   firstNonEmpty(fmt.Sprint(firstAny(playground["name"], playground["Name"]))),
+		PlaygroundStatus: firstNonEmpty(fmt.Sprint(firstAny(playground["status"], playground["Status"]))),
+		PlaygroundError:  playgroundErrorFromMap(playground),
+		PlayspecID:       numberString(firstAny(playground["playspec_id"], playground["playspecID"], playground["PlayspecID"])),
 	}
 }
 
@@ -279,6 +283,8 @@ func greenfieldResultFromDebug(debug map[string]any) *GreenfieldResult {
 	playground := anyMap(firstAny(diagnostics["playground"], debug["playground"]))
 	result.PlaygroundID = numberString(playground["id"])
 	result.PlaygroundName = firstNonEmpty(fmt.Sprint(playground["name"]), fmt.Sprint(diagnostics["name"]), fmt.Sprint(debug["name"]))
+	result.PlaygroundStatus = firstNonEmpty(fmt.Sprint(playground["status"]), fmt.Sprint(debug["status"]))
+	result.PlaygroundError = firstNonEmpty(playgroundErrorFromMap(playground), playgroundErrorFromMap(debug))
 	result.PlayspecID = numberString(firstAny(playground["playspec_id"], playground["playspecID"]))
 
 	for _, route := range objectSlice(firstAny(diagnostics["routes"], debug["routes"])) {
@@ -295,6 +301,14 @@ func greenfieldResultFromDebug(debug map[string]any) *GreenfieldResult {
 	}
 	result.selectPrimary()
 	return result
+}
+
+func playgroundErrorFromMap(raw map[string]any) string {
+	return firstNonEmpty(
+		fmt.Sprint(firstAny(raw["error_message"], raw["errorMessage"])),
+		fmt.Sprint(firstAny(raw["state_reason"], raw["stateReason"])),
+		firstStringFromSlice(firstAny(raw["state_reasons"], raw["stateReasons"])),
+	)
 }
 
 func (c *Client) hydrateGreenfieldSource(ctx context.Context, result *GreenfieldResult) error {

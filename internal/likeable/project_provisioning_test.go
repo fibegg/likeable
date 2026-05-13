@@ -1,15 +1,18 @@
 package likeable
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/fibegg/likeable/internal/fibe"
 	"github.com/fibegg/likeable/internal/store"
+	"github.com/hibiken/asynq"
 )
 
 func TestRetryProjectProvisionLaterRequiresProvisionedResources(t *testing.T) {
@@ -100,6 +103,74 @@ func TestRecordProjectProvisionFailureKeepsTransientPreGreenfieldFailureCreating
 	}
 	if stored.ErrorMessage != "" {
 		t.Fatalf("error_message=%q, want empty", stored.ErrorMessage)
+	}
+}
+
+func TestProvisionProjectTaskDoesNotRetryDefaultTemplateConfigurationFailure(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	dir := t.TempDir()
+	cliPath := filepath.Join(dir, "fibe")
+	script := `#!/bin/sh
+case "$*" in
+  *"greenfield"*)
+    echo '{"error":{"code":"REMOTE_REQUEST_FAILED","status":422,"message":"fibe: GREENFIELD_DEFAULT_TEMPLATE_VERSION_UNAVAILABLE (422): Default greenfield template version is configured but is not available"}}' >&2
+    exit 1
+    ;;
+  *)
+    echo "unexpected command: $*" >&2
+    exit 64
+    ;;
+esac
+`
+	if err := os.WriteFile(cliPath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url": "server.test:3000",
+		"fibe_api_key":  "test-key",
+		"fibe_cli_path": cliPath,
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	user, err := store.UpsertUser(t.Context(), "pilot@example.com", "Pilot", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{
+		ID:             "project-default-template-unavailable",
+		UserID:         user.ID,
+		Title:          "Default Template Unavailable",
+		ConversationID: "conv-default-template-unavailable",
+		AgentID:        "agent-1",
+		MarqueeID:      "marquee-1",
+		Status:         "creating",
+	}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store}
+	payload, err := json.Marshal(projectJobPayload{UserID: user.ID, UserEmail: user.Email, ProjectID: project.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := server.handleProvisionProjectTask(t.Context(), asynq.NewTask(taskProvisionProject, payload)); err != nil {
+		t.Fatalf("handleProvisionProjectTask returned retryable error: %v", err)
+	}
+
+	stored, err := store.ProjectForUser(t.Context(), user.ID, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != "error" {
+		t.Fatalf("status=%q, want error", stored.Status)
+	}
+	if !strings.Contains(stored.ErrorMessage, "Workspace settings are incomplete") {
+		t.Fatalf("error_message=%q, want configuration guidance", stored.ErrorMessage)
 	}
 }
 

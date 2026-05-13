@@ -214,9 +214,10 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const githubConnected = Boolean(me.githubConnected);
   const githubNeedsReconnect = Boolean(me.githubNeedsReconnect);
   const isProjectStarting = activeProject?.status === 'creating' || activeProject?.status === 'launching';
-  const previewMaintenance = Boolean(activePreviewURL && previewStatus?.maintenance);
-  const previewReady = Boolean(activePreviewURL && previewStatus?.ready);
-  const previewDisplayable = Boolean(activePreviewURL && (previewReady || previewMaintenance));
+  const previewRuntimeActive = activeProject?.status === 'ready';
+  const previewMaintenance = Boolean(activePreviewURL && previewRuntimeActive && previewStatus?.maintenance);
+  const previewReady = Boolean(activePreviewURL && previewRuntimeActive && previewStatus?.ready);
+  const previewDisplayable = Boolean(activePreviewURL && previewRuntimeActive && (previewReady || previewMaintenance));
   const canvasStatusLabel = agentWorking ? t('builder.status.agentWorking') : previewMaintenance ? t('builder.status.maintenance') : activeProject?.status === 'ready' ? (previewReady ? t('builder.status.canvasLive') : t('builder.status.canvasStarting')) : isProjectStarting ? t('builder.status.canvasStarting') : activeProject?.status === 'stopped' ? t('builder.status.canvasStopped') : activeProject?.status === 'error' ? t('builder.status.canvasError') : t('builder.status.canvasIdle');
   const hasDraft = Boolean(prompt.trim()) || attachments.length > 0;
   const canSend = signedIn && hasDraft && !busy && !messageSubmitting && Boolean(activePreviewURL) && (activeProject?.status === 'ready' || previewReady);
@@ -370,8 +371,13 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       .then((status) => {
         if (cancelled) return;
         setPreviewStatus(status);
+        const projectSnapshot = status.project;
+        if (projectSnapshot) {
+          setProjects((current) => current.map((project) => project.id === projectSnapshot.id ? projectSnapshot : project));
+          setFeed((current) => current?.project.id === projectSnapshot.id ? { ...current, project: projectSnapshot } : current);
+        }
         if (!status.ready && !status.maintenance) setIframeLoaded(false);
-        if (status.ready && activeProject.status !== 'ready') {
+        if (status.ready && projectSnapshot?.status !== 'stopped' && activeProject.status !== 'ready') {
           setProjects((current) => current.map((project) => project.id === activeProject.id ? { ...project, status: 'ready', errorMessage: '' } : project));
           setFeed((current) => current?.project.id === activeProject.id ? { ...current, project: { ...current.project, status: 'ready', errorMessage: '' } } : current);
         }
@@ -747,7 +753,11 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     : null;
   const openProjectsPanel = () => {
     if (!signedIn) return;
-    setShowProjects((open) => !open);
+    setShowProjects((open) => {
+      const next = !open;
+      if (next) void loadProjects().catch(() => undefined);
+      return next;
+    });
     setShowProfile(false);
     if (location.pathname.startsWith('/profile')) nav('/');
   };
@@ -895,6 +905,8 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     <section className="previewPane">
       {activeProject?.status === 'error' && !previewMaintenance ? (
         <CanvasLoader title={t('builder.preview.launchFailedTitle')} body={t('builder.preview.launchFailedBody')} tone="error" />
+      ) : activeProject?.status === 'stopped' ? (
+        <CanvasLoader title={t('builder.preview.stoppedTitle')} body={t('builder.preview.stoppedBody')} />
       ) : activePreviewURL && previewDisplayable ? (
         <>
           <iframe
@@ -909,8 +921,6 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
         </>
       ) : isProjectStarting ? (
         <CanvasLoader title={previewTitle} body={previewBody} />
-      ) : activeProject?.status === 'stopped' ? (
-        <CanvasLoader title={t('builder.preview.stoppedTitle')} body={t('builder.preview.stoppedBody')} />
       ) : activeProject?.status === 'ready' && activePreviewURL ? (
         <>
           <iframe

@@ -244,11 +244,15 @@ func (s *Server) handleProvisionProjectTask(ctx context.Context, task *asynq.Tas
 		return err
 	}
 	if err := s.provisionProject(ctx, payload.UserID, payload.UserEmail, project, payload.Prompt); err != nil {
+		retryLater := retryProjectProvisionLater(project, err)
 		retriesRemaining := taskRetriesRemaining(ctx)
-		if !retriesRemaining && retryProjectProvisionLater(project, err) {
+		if !retriesRemaining && retryLater {
 			retriesRemaining = s.enqueueDeferredProjectProvisionRetry(context.Background(), payload, projectProvisionRetryDelay)
 		}
 		s.recordProjectProvisionFailure(ctx, payload.UserID, project, err, retriesRemaining)
+		if !retryLater {
+			return nil
+		}
 		return err
 	}
 	return nil
