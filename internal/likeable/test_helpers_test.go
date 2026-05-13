@@ -124,6 +124,31 @@ esac
 	return path
 }
 
+func fakeAlreadyStoppedFibeCLI(t *testing.T) (string, string) {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "fibe")
+	logPath := filepath.Join(dir, "commands.log")
+	script := `#!/bin/sh
+printf '%s\n' "$*" >> "` + logPath + `"
+case "$*" in
+  *"playgrounds stop"*)
+    echo '{"error":{"code":"INVALID_STATE","status":422,"message":"Cannot stop playground from current status"}}' >&2
+    exit 1
+    ;;
+  *)
+    echo "unexpected command: $*" >&2
+    exit 64
+    ;;
+esac
+`
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return path, logPath
+}
+
 func readFile(t *testing.T, path string) string {
 	t.Helper()
 	data, err := os.ReadFile(path)

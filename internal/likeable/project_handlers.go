@@ -326,6 +326,12 @@ func (s *Server) controlProjectPlayground(ctx context.Context, user *User, proje
 		return nil, errInvalidPlaygroundAction
 	}
 	if err != nil {
+		if action == "stop" && fibegateway.IsPlaygroundAlreadyStoppedError(err) {
+			if updateErr := s.store.UpdateProjectStatus(ctx, project.ID, user.ID, "stopped"); updateErr != nil {
+				return nil, updateErr
+			}
+			return s.store.ProjectForUser(ctx, user.ID, project.ID)
+		}
 		return nil, err
 	}
 	if err := s.store.UpdateProjectStatus(ctx, project.ID, user.ID, nextStatus); err != nil {

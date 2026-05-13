@@ -136,6 +136,20 @@ func IsIdempotentConversationCreateError(err error) bool {
 	return (platform.Status == 409 || platform.Status == 422) && containsAny(message, "already exists", "conversation exists", "duplicate")
 }
 
+func IsPlaygroundAlreadyStoppedError(err error) bool {
+	var platform *PlatformError
+	if !errors.As(err, &platform) {
+		return false
+	}
+	code := strings.ToUpper(strings.TrimSpace(platform.Code))
+	message := strings.ToLower(strings.TrimSpace(platform.Message + "\n" + platform.Stderr))
+	return code == "INVALID_STATE" && (platform.Status == 409 || platform.Status == 422) && containsAny(message,
+		"cannot stop playground from current status",
+		"already stopped",
+		"current status stopped",
+	)
+}
+
 func (c *Client) runCLI(ctx context.Context, args []string, input any, out any) error {
 	if strings.TrimSpace(c.cliPath) == "" {
 		return &PlatformError{

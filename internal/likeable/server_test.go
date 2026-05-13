@@ -2385,6 +2385,53 @@ func TestProjectPlaygroundLifecycleActions(t *testing.T) {
 	}
 }
 
+func TestProjectPlaygroundStopTreatsAlreadyStoppedAsSuccess(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	cliPath, logPath := fakeAlreadyStoppedFibeCLI(t)
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url": "server.test:3000",
+		"fibe_api_key":  "test-key",
+		"fibe_cli_path": cliPath,
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	user, err := store.UpsertUser(t.Context(), "pilot@example.com", "Pilot", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateSession(t.Context(), user.ID, "project-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{ID: "project-already-stopped-control", UserID: user.ID, Title: "Control", ConversationID: "conv-already-stopped-control", AgentID: "agent-1", PlaygroundID: "playground-1", Status: "ready"}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/projects/project-already-stopped-control/playground", strings.NewReader(`{"action":"stop"}`))
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "project-token"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("stop returned %d, want 202; body=%s", rec.Code, rec.Body.String())
+	}
+	stored, err := store.ProjectForUser(t.Context(), user.ID, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != "stopped" {
+		t.Fatalf("status=%q, want stopped", stored.Status)
+	}
+	if log := readFile(t, logPath); !strings.Contains(log, "playgrounds stop playground-1") {
+		t.Fatalf("missing stop command; log=%s", log)
+	}
+}
+
 func TestIdleProjectStopTaskStopsPlayground(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {
@@ -2405,6 +2452,50 @@ func TestIdleProjectStopTaskStopsPlayground(t *testing.T) {
 		t.Fatal(err)
 	}
 	project := &Project{ID: "project-idle", UserID: user.ID, Title: "Idle", ConversationID: "conv-idle", AgentID: "agent-1", PlaygroundID: "playground-idle", Status: "ready"}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AddMessageAt(t.Context(), project.ID, "user", "old", time.Now().UTC().Add(-idleProjectStopAfter-time.Minute).Format(time.RFC3339Nano)); err != nil {
+		t.Fatal(err)
+	}
+	payload, _ := json.Marshal(projectJobPayload{UserID: user.ID, UserEmail: user.Email, ProjectID: project.ID})
+
+	if err := server.handleStopIdleProjectTask(t.Context(), asynq.NewTask(taskStopIdleProject, payload)); err != nil {
+		t.Fatal(err)
+	}
+
+	stored, err := store.ProjectForUser(t.Context(), user.ID, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != "stopped" {
+		t.Fatalf("status=%q, want stopped", stored.Status)
+	}
+	if log := readFile(t, logPath); !strings.Contains(log, "playgrounds stop playground-idle") {
+		t.Fatalf("missing stop command; log=%s", log)
+	}
+}
+
+func TestIdleProjectStopTaskTreatsAlreadyStoppedAsSuccess(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	cliPath, logPath := fakeAlreadyStoppedFibeCLI(t)
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url": "server.test:3000",
+		"fibe_api_key":  "test-key",
+		"fibe_cli_path": cliPath,
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	user, err := store.UpsertUser(t.Context(), "idle@example.com", "Idle", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{ID: "project-idle-already-stopped", UserID: user.ID, Title: "Idle", ConversationID: "conv-idle-already-stopped", AgentID: "agent-1", PlaygroundID: "playground-idle", Status: "ready"}
 	if err := store.CreateProject(t.Context(), project); err != nil {
 		t.Fatal(err)
 	}

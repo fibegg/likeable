@@ -107,6 +107,18 @@ func TestIsIdempotentConversationCreateError(t *testing.T) {
 	}
 }
 
+func TestIsPlaygroundAlreadyStoppedError(t *testing.T) {
+	if !IsPlaygroundAlreadyStoppedError(&PlatformError{Code: "INVALID_STATE", Status: 422, Message: "Cannot stop playground from current status"}) {
+		t.Fatal("already-stopped invalid state should be idempotent")
+	}
+	if IsPlaygroundAlreadyStoppedError(&PlatformError{Code: "INVALID_STATE", Status: 422, Message: "Cannot start playground from current status"}) {
+		t.Fatal("start invalid state must not look like an already-stopped stop")
+	}
+	if IsPlaygroundAlreadyStoppedError(&PlatformError{Code: "VALIDATION_FAILED", Status: 422, Message: "Cannot stop playground from current status"}) {
+		t.Fatal("unrelated error code must not be idempotent")
+	}
+}
+
 func TestIsAgentRuntimeUnavailableError(t *testing.T) {
 	for _, err := range []error{
 		&PlatformError{Code: "UNPROCESSABLE_ENTITY", Status: 422, Message: "No running AgentChat for Agent#1"},
