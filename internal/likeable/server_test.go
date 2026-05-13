@@ -2035,6 +2035,71 @@ func TestPreviewStatusReturnsRefreshedProjectStatus(t *testing.T) {
 	}
 }
 
+func TestPreviewStatusMarksLaunchingProjectStoppedWhenPlatformStopped(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	cliPath := fakeProjectStateFibeCLI(t, "stopped", "http://127.0.0.1:1")
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url": "server.test:3000",
+		"fibe_api_key":  "test-key",
+		"fibe_cli_path": cliPath,
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	user, _ := store.UpsertUser(t.Context(), "a@example.com", "A", "")
+	if err := store.CreateSession(t.Context(), user.ID, "token-a", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{
+		ID:              "project-launching-stopped-preview",
+		UserID:          user.ID,
+		Title:           "Stopped",
+		ConversationID:  "conv-stopped",
+		AgentID:         "agent-1",
+		PlaygroundID:    "321",
+		PlayspecID:      "654",
+		PreviewURL:      "http://127.0.0.1:1",
+		SelectedService: "app",
+		Status:          "launching",
+	}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/projects/project-launching-stopped-preview/preview-status", nil)
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "token-a"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("preview-status returned %d: %s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Ready   bool    `json:"ready"`
+		Status  string  `json:"status"`
+		Project Project `json:"project"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Ready || body.Status != "stopped" {
+		t.Fatalf("ready=%v status=%q, want stopped preview state", body.Ready, body.Status)
+	}
+	if body.Project.Status != "stopped" {
+		t.Fatalf("project status=%q, want stopped", body.Project.Status)
+	}
+	stored, err := store.ProjectForUser(t.Context(), user.ID, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != "stopped" {
+		t.Fatalf("stored status=%q, want stopped", stored.Status)
+	}
+}
+
 func TestProjectMessageRefreshesServiceContextBeforeSending(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {

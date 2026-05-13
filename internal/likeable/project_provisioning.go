@@ -261,6 +261,16 @@ func (s *Server) recoverProjectReadiness(ctx context.Context, userID string, pro
 		return err
 	}
 	if !ready {
+		switch projectStatusFromFibePlayground(status) {
+		case "stopped":
+			project.Status = "stopped"
+			return s.store.UpdateProjectStatus(ctx, project.ID, userID, project.Status)
+		case "error":
+			if err := s.store.UpdateProjectError(ctx, project.ID, userID, "The linked Fibe playground is in an error state."); err != nil {
+				return err
+			}
+			return nil
+		}
 		if strings.TrimSpace(project.PreviewURL) != "" {
 			_ = s.store.UpdateProjectStatus(ctx, project.ID, userID, "launching")
 			return fmt.Errorf("workspace is still converging: %s", status)
@@ -408,7 +418,7 @@ func projectNeedsReadinessRecovery(project *Project) bool {
 		return false
 	}
 	switch project.Status {
-	case "ready", "deleting":
+	case "ready", "stopped", "deleting":
 		return false
 	}
 	return strings.TrimSpace(project.PlaygroundID) != ""

@@ -106,3 +106,11 @@ func TestSaveProjectProvisioningSnapshotDoesNotResurrectDeletingProject(t *testi
 		t.Fatalf("deleting project was resurrected: %+v", stored)
 	}
 }
+
+func TestPublicProjectErrorMessageExplainsLinkedFibePlaygroundError(t *testing.T) {
+	got := publicProjectErrorMessage("The linked Fibe playground is in an error state.")
+	want := "The linked Fibe playground is in an error state. Check it in Fibe, then restart the project playground from the project menu."
+	if got != want {
+		t.Fatalf("message=%q, want %q", got, want)
+	}
+}

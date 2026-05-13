@@ -105,6 +105,9 @@ func fakeProjectStateFibeCLI(t *testing.T, status, previewURL string) string {
 	path := filepath.Join(dir, "fibe")
 	script := fmt.Sprintf(`#!/bin/sh
 case "$*" in
+  *"playgrounds get 321"*)
+    echo '{"id":321,"status":%q}'
+    ;;
   *"playgrounds debug 321"*)
     echo '{"diagnostics":{"playground":{"id":321,"playspec_id":654,"status":%q},"routes":[{"service":"app","type":"dynamic","visibility":"external","url":%q}]}}'
     ;;
@@ -116,7 +119,7 @@ case "$*" in
     exit 64
     ;;
 esac
-`, status, previewURL)
+`, status, status, previewURL)
 	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
