@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fibegg/likeable/internal/fibe"
 	"github.com/fibegg/likeable/internal/store"
@@ -103,6 +104,29 @@ func TestRecordProjectProvisionFailureKeepsTransientPreGreenfieldFailureCreating
 	}
 	if stored.ErrorMessage != "" {
 		t.Fatalf("error_message=%q, want empty", stored.ErrorMessage)
+	}
+}
+
+func TestProjectNeedsProvisioningRecoveryWaitsForFreshOrLockedProject(t *testing.T) {
+	now := time.Now().UTC()
+	project := &Project{
+		Status:    "creating",
+		CreatedAt: now.Format(time.RFC3339Nano),
+		UpdatedAt: now.Format(time.RFC3339Nano),
+	}
+	if projectNeedsProvisioningRecovery(project) {
+		t.Fatal("freshly created project should let the original provisioning job run first")
+	}
+
+	project.CreatedAt = now.Add(-projectProvisioningRecoveryGrace - time.Second).Format(time.RFC3339Nano)
+	project.UpdatedAt = project.CreatedAt
+	if !projectNeedsProvisioningRecovery(project) {
+		t.Fatal("stale project without playground should be recoverable")
+	}
+
+	project.ProvisioningLockUntil = now.Add(time.Minute).Format(time.RFC3339Nano)
+	if projectNeedsProvisioningRecovery(project) {
+		t.Fatal("active provisioning lease should suppress recovery")
 	}
 }
 

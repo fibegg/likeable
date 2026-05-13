@@ -110,8 +110,7 @@ func (c *Client) controlPlayground(ctx context.Context, action, playgroundID str
 	if playgroundID == "" {
 		return errors.New("playground ID is required")
 	}
-	var out map[string]any
-	return c.runCLI(ctx, []string{"playgrounds", action, playgroundID}, nil, &out)
+	return c.runCLI(ctx, []string{"playgrounds", action, playgroundID}, nil, nil)
 }
 
 func (c *Client) Messages(ctx context.Context, conversationID string) ([]any, error) {

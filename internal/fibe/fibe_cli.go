@@ -75,6 +75,9 @@ func IsRetryableProvisioningError(err error) bool {
 	if isProvisioningConfigurationPlatformError(platform, message) {
 		return false
 	}
+	if greenfieldDefaultUnavailableBecauseMirrors(platform) || systemTemplateMirrorUnavailable(platform, message) {
+		return true
+	}
 	switch code {
 	case platformCodeCLINotConfigured, platformCodeCLINotFound:
 		return false
@@ -109,22 +112,44 @@ func isProvisioningConfigurationPlatformError(err *PlatformError, message string
 	if err == nil {
 		return false
 	}
+	if greenfieldDefaultUnavailableBecauseMirrors(err) {
+		return false
+	}
 	code := strings.ToUpper(strings.TrimSpace(err.Code))
 	switch code {
 	case "GREENFIELD_DEFAULT_TEMPLATE_VERSION_MISSING",
-		"GREENFIELD_DEFAULT_TEMPLATE_VERSION_UNAVAILABLE",
-		"SYSTEM_TEMPLATE_MIRROR_UNAVAILABLE",
 		"TEMPLATE_VERSION_NOT_FOUND":
+		return true
+	case "GREENFIELD_DEFAULT_TEMPLATE_VERSION_UNAVAILABLE":
 		return true
 	}
 	return containsAny(message,
 		"greenfield_default_template_version_missing",
-		"greenfield_default_template_version_unavailable",
-		"system_template_mirror_unavailable",
 		"no default greenfield template version is configured",
 		"default greenfield template version is configured but is not available",
-		"system template source mirror is not available",
 	)
+}
+
+func greenfieldDefaultUnavailableBecauseMirrors(err *PlatformError) bool {
+	if err == nil || err.Details == nil {
+		return false
+	}
+	if value, ok := err.Details["mirrors_ready"].(bool); ok && !value {
+		return true
+	}
+	if _, ok := err.Details["missing_sources"]; ok {
+		return true
+	}
+	return false
+}
+
+func systemTemplateMirrorUnavailable(err *PlatformError, message string) bool {
+	if err == nil {
+		return false
+	}
+	code := strings.ToUpper(strings.TrimSpace(err.Code))
+	return code == "SYSTEM_TEMPLATE_MIRROR_UNAVAILABLE" ||
+		containsAny(message, "system_template_mirror_unavailable", "system template source mirror is not available")
 }
 
 func IsIdempotentConversationCreateError(err error) bool {

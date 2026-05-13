@@ -16,6 +16,7 @@ import (
 )
 
 const projectResourceRefreshInterval = 10 * time.Second
+const projectProvisioningRecoveryGrace = 2 * time.Minute
 
 func (s *Server) ensureDefaultProject(ctx context.Context, user *User) {
 	if user == nil {
@@ -430,10 +431,33 @@ func projectNeedsProvisioningRecovery(project *Project) bool {
 	}
 	switch project.Status {
 	case "creating", "launching":
-		return strings.TrimSpace(project.PlaygroundID) == ""
+		return strings.TrimSpace(project.PlaygroundID) == "" &&
+			!projectProvisioningLeaseActive(project) &&
+			!projectProvisioningRecentlyTouched(project)
 	default:
 		return false
 	}
+}
+
+func projectProvisioningLeaseActive(project *Project) bool {
+	if project == nil || strings.TrimSpace(project.ProvisioningLockUntil) == "" {
+		return false
+	}
+	lockUntil, err := time.Parse(time.RFC3339Nano, project.ProvisioningLockUntil)
+	return err == nil && lockUntil.After(time.Now().UTC())
+}
+
+func projectProvisioningRecentlyTouched(project *Project) bool {
+	if project == nil {
+		return false
+	}
+	for _, raw := range []string{project.UpdatedAt, project.CreatedAt} {
+		changedAt, err := time.Parse(time.RFC3339Nano, raw)
+		if err == nil && time.Since(changedAt) >= 0 && time.Since(changedAt) < projectProvisioningRecoveryGrace {
+			return true
+		}
+	}
+	return false
 }
 
 func ensureProjectPlaygroundName(project *Project) string {
