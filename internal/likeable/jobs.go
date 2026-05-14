@@ -291,6 +291,9 @@ func (s *Server) handleRecoverProjectTask(ctx context.Context, task *asynq.Task)
 	if err != nil || !projectNeedsReadinessRecovery(project) {
 		return nil
 	}
+	if blocked, err := s.projectIsExportOnly(ctx, &User{ID: payload.UserID, Email: payload.UserEmail}, project); err != nil || blocked {
+		return err
+	}
 	fibe, err := s.fibeClientForProject(ctx, project, payload.UserEmail)
 	if err != nil {
 		return err
@@ -311,6 +314,14 @@ func (s *Server) handleDeleteProjectResourcesTask(ctx context.Context, task *asy
 		return err
 	}
 	log.Printf("delete project %s resources: started", project.ID)
+	if project.Status == "archived" {
+		if err := s.deleteProjectLocally(ctx, project, payload.UserID); err != nil {
+			_ = s.store.UpdateProjectCleanupError(ctx, project.ID, payload.UserID, err.Error())
+			return err
+		}
+		log.Printf("delete archived project %s locally: completed", project.ID)
+		return nil
+	}
 	fibeClient, err := s.completeProjectResourceSnapshot(ctx, payload.UserEmail, project)
 	if err != nil {
 		_ = s.store.UpdateProjectCleanupError(ctx, project.ID, payload.UserID, err.Error())

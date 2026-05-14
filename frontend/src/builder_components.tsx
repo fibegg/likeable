@@ -9,9 +9,10 @@ export function ProjectList({ projects, activeID, projectCap, busy, exportingID,
   const [editingID, setEditingID] = useState('');
   const [draftTitle, setDraftTitle] = useState('');
   const [menuID, setMenuID] = useState('');
+  const quotaProjectCount = projects.filter((project) => project.status !== 'archived' && project.status !== 'deleting').length;
   const projectCountLabel = projectCap == null
-    ? t(projects.length === 1 ? 'projects.count.one' : 'projects.count.many', { count: projects.length })
-    : t('projects.count.cap', { count: projects.length, cap: projectCap });
+    ? t(quotaProjectCount === 1 ? 'projects.count.one' : 'projects.count.many', { count: quotaProjectCount })
+    : t('projects.count.cap', { count: quotaProjectCount, cap: projectCap });
   const startEdit = (project: Project) => {
     setEditingID(project.id);
     setDraftTitle(project.title);
@@ -293,6 +294,7 @@ export function ConfirmExportProject({ project, busy, busyMode, githubConnected,
   const [privateRepo, setPrivateRepo] = useState(true);
   const cleanName = repoName.trim();
   const valid = /^[A-Za-z0-9._-]{1,100}$/.test(cleanName);
+  const archived = project.status === 'archived';
   const githubLabel = !githubConnected ? t('exportProject.connectGithub') : githubNeedsReconnect ? t('exportProject.reconnectGithub') : t('exportProject.exportGithub');
   return (
     <div className="modalScrim">
@@ -300,32 +302,38 @@ export function ConfirmExportProject({ project, busy, busyMode, githubConnected,
         <button className="dialogClose" disabled={busy} onClick={onCancel} aria-label={t('dialog.close')}><X size={16} /></button>
         <span className="eyebrow">{t('exportProject.eyebrow')}</span>
         <h2>{t('exportProject.title')}</h2>
-        <p>{t('exportProject.body', { title: project.title })}</p>
-        <label className="dialogField">
-          <span>{t('exportProject.repositoryName')}</span>
-          <input className="dialogInput" value={repoName} maxLength={100} onChange={(event) => setRepoName(event.target.value)} placeholder="likeable-project" />
-        </label>
-        <label className="dialogCheck">
-          <input type="checkbox" checked={privateRepo} onChange={(event) => setPrivateRepo(event.target.checked)} />
-          <span>{t('exportProject.privateRepo')}</span>
-        </label>
-        {!valid && <p className="quotaLine">{t('exportProject.invalidName')}</p>}
+        <p>{t(archived ? 'exportProject.archivedBody' : 'exportProject.body', { title: project.title })}</p>
+        {!archived && (
+          <>
+            <label className="dialogField">
+              <span>{t('exportProject.repositoryName')}</span>
+              <input className="dialogInput" value={repoName} maxLength={100} onChange={(event) => setRepoName(event.target.value)} placeholder="likeable-project" />
+            </label>
+            <label className="dialogCheck">
+              <input type="checkbox" checked={privateRepo} onChange={(event) => setPrivateRepo(event.target.checked)} />
+              <span>{t('exportProject.privateRepo')}</span>
+            </label>
+            {!valid && <p className="quotaLine">{t('exportProject.invalidName')}</p>}
+          </>
+        )}
         <div className="dialogActions">
           <button className="ghostButton" disabled={busy} onClick={onCancel}>{t('common.cancel')}</button>
           <button className="ghostButton" disabled={busy} onClick={onZip}>
             {busy && busyMode === 'zip' ? <Loader2 className="spinIcon" size={15} /> : <Download size={15} />}
             {t('common.zip')}
           </button>
-          <button className="primaryButton" disabled={busy || (githubConnected && !githubNeedsReconnect && !valid)} onClick={() => {
-            if (!githubConnected || githubNeedsReconnect) {
-              onConnectGithub();
-              return;
-            }
-            onGithub(cleanName, privateRepo);
-          }}>
-            {busy && busyMode === 'github' ? <Loader2 className="spinIcon" size={15} /> : <GitBranch size={15} />}
-            {githubLabel}
-          </button>
+          {!archived && (
+            <button className="primaryButton" disabled={busy || (githubConnected && !githubNeedsReconnect && !valid)} onClick={() => {
+              if (!githubConnected || githubNeedsReconnect) {
+                onConnectGithub();
+                return;
+              }
+              onGithub(cleanName, privateRepo);
+            }}>
+              {busy && busyMode === 'github' ? <Loader2 className="spinIcon" size={15} /> : <GitBranch size={15} />}
+              {githubLabel}
+            </button>
+          )}
         </div>
       </section>
     </div>

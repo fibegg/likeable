@@ -24,6 +24,10 @@ func (s *Server) handleProjectMessages(w http.ResponseWriter, r *http.Request, u
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
+	if err := s.ensureProjectDevelopmentAllowed(r.Context(), user, project); err != nil {
+		writeError(w, http.StatusConflict, developmentBlockedMessage(err))
+		return
+	}
 	text, attachmentHeaders, busyPolicy, err := parseProjectMessageRequest(w, r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())

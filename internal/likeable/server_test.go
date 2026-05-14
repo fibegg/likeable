@@ -1187,13 +1187,12 @@ func TestProjectMessagePromotesLaunchingReadyWorkspace(t *testing.T) {
 	}
 }
 
-func TestProjectMessageRefreshesStaleAssignmentFromCurrentPool(t *testing.T) {
+func TestProjectMessageBlocksProjectBoundToMissingPoolPair(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	_, logPath, _ := fakeFibeCLI(t)
 	if err := store.UpsertConfig(t.Context(), map[string]string{
 		"fibe_base_url":          "server.test:3000",
 		"fibe_api_key":           "test-key",
@@ -1226,22 +1225,62 @@ func TestProjectMessageRefreshesStaleAssignmentFromCurrentPool(t *testing.T) {
 	rec := httptest.NewRecorder()
 	server.routes().ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusAccepted {
-		t.Fatalf("message returned %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("message returned %d, want 409: %s", rec.Code, rec.Body.String())
 	}
 	updated, err := store.ProjectForUser(t.Context(), user.ID, project.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated.AgentID != "current-agent" || updated.MarqueeID != "current-marquee" {
-		t.Fatalf("assignment=%s/%s, want current-agent/current-marquee", updated.AgentID, updated.MarqueeID)
+	if updated.Status != "archived" {
+		t.Fatalf("status=%q, want archived", updated.Status)
 	}
-	log := readFile(t, logPath)
-	if !strings.Contains(log, "agents create-conversation current-agent") || !strings.Contains(log, "agents send-message current-agent") {
-		t.Fatalf("commands=%s, want current assignment", log)
+}
+
+func TestProjectMessageAllowsDrainingPoolPair(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	if strings.Contains(log, "stale-agent") {
-		t.Fatalf("commands=%s, stale assignment should not be used", log)
+	defer store.Close()
+	_, logPath, _ := fakeFibeCLI(t)
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url":          "server.test:3000",
+		"fibe_api_key":           "test-key",
+		"fibe_agent_server_pool": `[{"agent_id":"draining-agent","server_id":"draining-marquee","status":"draining"},{"agent_id":"new-agent","server_id":"new-marquee","status":"active"}]`,
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	user, _ := store.UpsertUser(t.Context(), "a@example.com", "A", "")
+	if err := store.CreateSession(t.Context(), user.ID, "token-draining", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{
+		ID:             "project-draining-assignment",
+		UserID:         user.ID,
+		Title:          "Draining",
+		ConversationID: "conv-draining",
+		AgentID:        "draining-agent",
+		MarqueeID:      "draining-marquee",
+		PlaygroundID:   "123",
+		PreviewURL:     "http://preview.example.test",
+		Status:         "ready",
+	}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/projects/project-draining-assignment/messages", strings.NewReader(`{"text":"keep working"}`))
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "token-draining"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("message returned %d: %s", rec.Code, rec.Body.String())
+	}
+	if log := readFile(t, logPath); !strings.Contains(log, "agents send-message draining-agent") {
+		t.Fatalf("commands=%s, want draining agent used", log)
 	}
 }
 
@@ -2449,6 +2488,49 @@ func TestProjectPlaygroundLifecycleActions(t *testing.T) {
 	}
 }
 
+func TestProjectPlaygroundBlocksRetiredPoolPair(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url":          "server.test:3000",
+		"fibe_api_key":           "test-key",
+		"fibe_agent_server_pool": `[{"agent_id":"old-agent","server_id":"old-marquee","status":"retired"}]`,
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	user, err := store.UpsertUser(t.Context(), "pilot@example.com", "Pilot", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateSession(t.Context(), user.ID, "retired-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{ID: "project-retired-control", UserID: user.ID, Title: "Control", ConversationID: "conv-retired-control", AgentID: "old-agent", MarqueeID: "old-marquee", PlaygroundID: "playground-1", Status: "ready"}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/projects/project-retired-control/playground", strings.NewReader(`{"action":"stop"}`))
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "retired-token"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("stop returned %d, want 409; body=%s", rec.Code, rec.Body.String())
+	}
+	updated, err := store.ProjectForUser(t.Context(), user.ID, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Status != "archived" {
+		t.Fatalf("status=%q, want archived", updated.Status)
+	}
+}
+
 func TestProjectPlaygroundStopTreatsAlreadyStoppedAsSuccess(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {
@@ -2725,6 +2807,122 @@ func TestNormalizeAdminConfigRejectsIncompletePoolRows(t *testing.T) {
 	}
 }
 
+func TestNormalizeAdminConfigRejectsInvalidPoolStatus(t *testing.T) {
+	_, err := normalizeAdminConfigValues(map[string]string{
+		"fibe_agent_server_pool": `[{"agent_id":"agent-1","server_id":"server-1","status":"paused"}]`,
+	})
+	if err == nil || !strings.Contains(err.Error(), "invalid status") {
+		t.Fatalf("err=%v, want invalid status error", err)
+	}
+}
+
+func TestAdminRetireAgentPoolArchivesProjectsAndMarksPairRetired(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test", AdminEmail: "admin@example.com"}, http: http.DefaultClient}
+	admin, err := store.UpsertUser(t.Context(), "admin@example.com", "Admin", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	user, err := store.UpsertUser(t.Context(), "pilot@example.com", "Pilot", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateSession(t.Context(), admin.ID, "admin-pool-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateSession(t.Context(), user.ID, "pilot-pool-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_agent_server_pool": `[{"label":"Old","agent_id":"old-agent","server_id":"old-server","status":"draining"},{"label":"New","agent_id":"new-agent","server_id":"new-server","status":"active"}]`,
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{ID: "project-retire", UserID: user.ID, Title: "Retire", ConversationID: "conv-retire", AgentID: "old-agent", MarqueeID: "old-server", Status: "ready"}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/agent-pool/retire", strings.NewReader(`{"agent_id":"old-agent","server_id":"old-server"}`))
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "admin-pool-token"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("retire returned %d: %s", rec.Code, rec.Body.String())
+	}
+	cfg, err := store.ConfigMap(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool, err := fibe.ParseAssignmentPool(cfg["fibe_agent_server_pool"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pool) != 2 || pool[0].Status != fibe.AssignmentStatusRetired || pool[1].Status != fibe.AssignmentStatusActive {
+		t.Fatalf("pool=%+v, want old retired and new active", pool)
+	}
+	updated, err := store.ProjectForUser(t.Context(), user.ID, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Status != "archived" {
+		t.Fatalf("status=%q, want archived", updated.Status)
+	}
+	archive, err := store.LatestProjectArchive(t.Context(), user.ID, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if archive.StoragePath == "" || archive.Status != "ready" {
+		t.Fatalf("archive=%+v, want ready stored archive", archive)
+	}
+	exportReq := httptest.NewRequest(http.MethodPost, "/api/projects/project-retire/archive", strings.NewReader(`{}`))
+	exportReq.AddCookie(&http.Cookie{Name: "likeable_session", Value: "pilot-pool-token"})
+	exportRec := httptest.NewRecorder()
+	server.routes().ServeHTTP(exportRec, exportReq)
+	if exportRec.Code != http.StatusOK {
+		t.Fatalf("archived project zip export returned %d: %s", exportRec.Code, exportRec.Body.String())
+	}
+}
+
+func TestArchivedProjectsDoNotCountTowardProjectQuota(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	user, err := store.UpsertUser(t.Context(), "pilot@example.com", "Pilot", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, project := range []*Project{
+		{ID: "project-active", UserID: user.ID, Title: "Active", ConversationID: "conv-active", Status: "ready"},
+		{ID: "project-archived", UserID: user.ID, Title: "Archived", ConversationID: "conv-archived", Status: "archived"},
+	} {
+		if err := store.CreateProject(t.Context(), project); err != nil {
+			t.Fatal(err)
+		}
+	}
+	count, err := store.ProjectCountForUser(t.Context(), user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("project count=%d, want active project only", count)
+	}
+	excess, err := store.ProjectsExceedingQuota(t.Context(), user.ID, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(excess) != 0 {
+		t.Fatalf("excess=%+v, want archived project excluded", excess)
+	}
+}
+
 func TestPublicAdminConfigExposesSMTPSettings(t *testing.T) {
 	cfg := publicAdminConfig(map[string]string{
 		"smtp_host":       "smtp.example.com",
@@ -2756,20 +2954,12 @@ func TestCreateProjectRecordStoresAssignedFibePair(t *testing.T) {
 	}, secretConfigKeys); err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := store.ConfigMap(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	want, err := fibe.AssignmentForNewProject(cfg, user.Email)
-	if err != nil {
-		t.Fatal(err)
-	}
 	project, err := server.createProjectRecord(t.Context(), user, "Assigned app")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if project.AgentID != want.AgentID || project.MarqueeID != want.MarqueeID {
-		t.Fatalf("project assignment=%s/%s, want %s/%s", project.AgentID, project.MarqueeID, want.AgentID, want.MarqueeID)
+	if !((project.AgentID == "agent-a" && project.MarqueeID == "server-a") || (project.AgentID == "agent-b" && project.MarqueeID == "server-b")) {
+		t.Fatalf("project assignment=%s/%s, want configured pool pair", project.AgentID, project.MarqueeID)
 	}
 	if project.PlaygroundName != projecttext.SourceNameForProject(project) {
 		t.Fatalf("playground name=%q, want deterministic project source name", project.PlaygroundName)
@@ -2778,8 +2968,8 @@ func TestCreateProjectRecordStoresAssignedFibePair(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stored.AgentID != want.AgentID || stored.MarqueeID != want.MarqueeID {
-		t.Fatalf("stored assignment=%s/%s, want %s/%s", stored.AgentID, stored.MarqueeID, want.AgentID, want.MarqueeID)
+	if stored.AgentID != project.AgentID || stored.MarqueeID != project.MarqueeID {
+		t.Fatalf("stored assignment=%s/%s, want %s/%s", stored.AgentID, stored.MarqueeID, project.AgentID, project.MarqueeID)
 	}
 	if stored.PlaygroundName != project.PlaygroundName {
 		t.Fatalf("stored playground name=%q, want %q", stored.PlaygroundName, project.PlaygroundName)

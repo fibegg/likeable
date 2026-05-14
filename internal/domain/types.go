@@ -144,6 +144,14 @@ type ProjectArchive struct {
 	UpdatedAt     string `json:"updatedAt"`
 }
 
+type AgentPoolStat struct {
+	AgentID           string `json:"agentId"`
+	ServerID          string `json:"serverId"`
+	ProjectCount      int    `json:"projectCount"`
+	ArchivedCount     int    `json:"archivedCount"`
+	ReadyArchiveCount int    `json:"readyArchiveCount"`
+}
+
 type UserNotice struct {
 	ID          string `json:"id"`
 	UserID      string `json:"userId,omitempty"`

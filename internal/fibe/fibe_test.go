@@ -412,18 +412,18 @@ func TestGreenfieldSubdomainsAreStableDNSLabels(t *testing.T) {
 	}
 }
 
-func TestFibeAssignmentPoolMapsEmailDeterministically(t *testing.T) {
+func TestFibeAssignmentPoolMapsSeedDeterministically(t *testing.T) {
 	pool := []Assignment{
 		{Label: "A", AgentID: "agent-a", MarqueeID: "marquee-a"},
 		{Label: "B", AgentID: "agent-b", MarqueeID: "marquee-b"},
 	}
 	reversed := []Assignment{pool[1], pool[0]}
 
-	first, ok := selectAssignment("Pilot@Example.COM", pool)
+	first, ok := selectAssignment("Project-A", pool)
 	if !ok {
 		t.Fatal("expected assignment")
 	}
-	second, ok := selectAssignment("pilot@example.com", reversed)
+	second, ok := selectAssignment("project-a", reversed)
 	if !ok {
 		t.Fatal("expected assignment from reversed pool")
 	}
@@ -436,7 +436,7 @@ func TestFibeAssignmentFallsBackToGlobalConfig(t *testing.T) {
 	assignment, err := AssignmentForNewProject(map[string]string{
 		"fibe_agent_id":   "global-agent",
 		"fibe_marquee_id": "global-marquee",
-	}, "pilot@example.com")
+	}, "project-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -445,25 +445,25 @@ func TestFibeAssignmentFallsBackToGlobalConfig(t *testing.T) {
 	}
 }
 
-func TestCurrentAssignmentForProjectRepairsStaleStoredPair(t *testing.T) {
+func TestCurrentAssignmentForProjectKeepsStoredPairEvenWhenMissingFromPool(t *testing.T) {
 	assignment, changed, err := CurrentAssignmentForProject(map[string]string{
 		"fibe_agent_server_pool": `[{"agent_id":"current-agent","server_id":"current-marquee"}]`,
-	}, &Project{AgentID: "stale-agent", MarqueeID: "stale-marquee"}, "pilot@example.com")
+	}, &Project{AgentID: "stale-agent", MarqueeID: "stale-marquee"}, "project-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !changed {
-		t.Fatal("changed=false, want stale assignment repaired")
+	if changed {
+		t.Fatal("changed=true, want stored project binding preserved")
 	}
-	if assignment.AgentID != "current-agent" || assignment.MarqueeID != "current-marquee" {
-		t.Fatalf("assignment=%+v, want current pool pair", assignment)
+	if assignment.AgentID != "stale-agent" || assignment.MarqueeID != "stale-marquee" {
+		t.Fatalf("assignment=%+v, want stored pair", assignment)
 	}
 }
 
 func TestCurrentAssignmentForProjectKeepsStoredPairInPool(t *testing.T) {
 	assignment, changed, err := CurrentAssignmentForProject(map[string]string{
 		"fibe_agent_server_pool": `[{"agent_id":"stored-agent","server_id":"stored-marquee"},{"agent_id":"other-agent","server_id":"other-marquee"}]`,
-	}, &Project{AgentID: "stored-agent", MarqueeID: "stored-marquee"}, "pilot@example.com")
+	}, &Project{AgentID: "stored-agent", MarqueeID: "stored-marquee"}, "project-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -472,6 +472,57 @@ func TestCurrentAssignmentForProjectKeepsStoredPairInPool(t *testing.T) {
 	}
 	if assignment.AgentID != "stored-agent" || assignment.MarqueeID != "stored-marquee" {
 		t.Fatalf("assignment=%+v, want stored pool pair", assignment)
+	}
+}
+
+func TestParseAssignmentPoolDefaultsStatusActive(t *testing.T) {
+	pool, err := ParseAssignmentPool(`[{"agent_id":"agent-1","server_id":"server-1"}]`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pool) != 1 || pool[0].Status != AssignmentStatusActive {
+		t.Fatalf("pool=%+v, want active status", pool)
+	}
+}
+
+func TestParseAssignmentPoolRejectsInvalidStatus(t *testing.T) {
+	_, err := ParseAssignmentPool(`[{"agent_id":"agent-1","server_id":"server-1","status":"paused"}]`)
+	if err == nil || !strings.Contains(err.Error(), "invalid status") {
+		t.Fatalf("err=%v, want invalid status error", err)
+	}
+}
+
+func TestAssignmentForNewProjectUsesOnlyActiveRowsAndProjectSeed(t *testing.T) {
+	cfg := map[string]string{
+		"fibe_agent_server_pool": `[
+			{"agent_id":"agent-a","server_id":"server-a","status":"draining"},
+			{"agent_id":"agent-b","server_id":"server-b","status":"retired"},
+			{"agent_id":"agent-c","server_id":"server-c","status":"active"}
+		]`,
+	}
+	assignment, err := AssignmentForNewProject(cfg, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if assignment.AgentID != "agent-c" || assignment.MarqueeID != "server-c" {
+		t.Fatalf("assignment=%+v, want only active pair", assignment)
+	}
+}
+
+func TestAssignmentForNewProjectVariesByProjectID(t *testing.T) {
+	cfg := map[string]string{
+		"fibe_agent_server_pool": `[{"agent_id":"agent-a","server_id":"server-a"},{"agent_id":"agent-b","server_id":"server-b"}]`,
+	}
+	first, err := AssignmentForNewProject(cfg, "project-0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := AssignmentForNewProject(cfg, "project-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.AgentID == second.AgentID && first.MarqueeID == second.MarqueeID {
+		t.Fatalf("assignments=%+v/%+v, want different project IDs to be able to land on different pairs", first, second)
 	}
 }
 

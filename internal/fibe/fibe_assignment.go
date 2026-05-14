@@ -16,21 +16,31 @@ type fibeAssignmentInput struct {
 	ServerIDAlias  string `json:"serverId"`
 	MarqueeID      string `json:"marquee_id"`
 	MarqueeIDAlias string `json:"marqueeId"`
+	Status         string `json:"status"`
+	StatusAlias    string `json:"state"`
 }
+
+const (
+	AssignmentStatusActive   = "active"
+	AssignmentStatusDraining = "draining"
+	AssignmentStatusRetiring = "retiring"
+	AssignmentStatusRetired  = "retired"
+)
 
 func GlobalAssignment(cfg map[string]string) Assignment {
 	return Assignment{
 		AgentID:   strings.TrimSpace(cfg["fibe_agent_id"]),
 		MarqueeID: strings.TrimSpace(cfg["fibe_marquee_id"]),
+		Status:    AssignmentStatusActive,
 	}
 }
 
-func AssignmentForNewProject(cfg map[string]string, email string) (Assignment, error) {
+func AssignmentForNewProject(cfg map[string]string, projectID string) (Assignment, error) {
 	pool, err := assignmentPoolFromConfig(cfg)
 	if err != nil {
 		return Assignment{}, err
 	}
-	if assignment, ok := selectAssignment(email, pool); ok {
+	if assignment, ok := selectAssignment(projectID, activeAssignments(pool)); ok {
 		return assignment, nil
 	}
 	return GlobalAssignment(cfg), nil
@@ -42,6 +52,7 @@ func AssignmentForProject(cfg map[string]string, project *Project, email string)
 		return Assignment{
 			AgentID:   firstNonEmpty(project.AgentID, global.AgentID),
 			MarqueeID: firstNonEmpty(project.MarqueeID, global.MarqueeID),
+			Status:    AssignmentStatusActive,
 		}, nil
 	}
 	global := GlobalAssignment(cfg)
@@ -52,27 +63,27 @@ func AssignmentForProject(cfg map[string]string, project *Project, email string)
 	if err != nil {
 		return Assignment{}, err
 	}
-	if assignment, ok := selectAssignment(email, pool); ok {
+	if assignment, ok := selectAssignment(email, activeAssignments(pool)); ok {
 		return assignment, nil
 	}
 	return global, nil
 }
 
-func CurrentAssignmentForProject(cfg map[string]string, project *Project, email string) (Assignment, bool, error) {
+func CurrentAssignmentForProject(cfg map[string]string, project *Project, seed string) (Assignment, bool, error) {
 	stored := Assignment{}
 	if project != nil {
 		stored = Assignment{
 			AgentID:   strings.TrimSpace(project.AgentID),
 			MarqueeID: strings.TrimSpace(project.MarqueeID),
+			Status:    AssignmentStatusActive,
 		}
+	}
+	if stored.AgentID != "" || stored.MarqueeID != "" {
+		return stored, false, nil
 	}
 	global := GlobalAssignment(cfg)
 	if global.AgentID != "" {
-		current := Assignment{
-			AgentID:   global.AgentID,
-			MarqueeID: firstNonEmpty(global.MarqueeID, stored.MarqueeID),
-		}
-		return current, !sameAssignment(stored, current), nil
+		return global, !sameAssignment(stored, global), nil
 	}
 	pool, err := assignmentPoolFromConfig(cfg)
 	if err != nil {
@@ -81,10 +92,7 @@ func CurrentAssignmentForProject(cfg map[string]string, project *Project, email 
 	if len(pool) == 0 {
 		return stored, false, nil
 	}
-	if assignmentInPool(stored, pool) {
-		return stored, false, nil
-	}
-	current, ok := selectAssignment(email, pool)
+	current, ok := selectAssignment(seed, activeAssignments(pool))
 	if !ok {
 		return stored, false, nil
 	}
@@ -93,6 +101,10 @@ func CurrentAssignmentForProject(cfg map[string]string, project *Project, email 
 
 func assignmentPoolFromConfig(cfg map[string]string) ([]Assignment, error) {
 	return ParseAssignmentPool(firstNonEmpty(cfg["fibe_agent_server_pool"], cfg["fibe_agent_marquee_pool"]))
+}
+
+func AssignmentPoolFromConfig(cfg map[string]string) ([]Assignment, error) {
+	return assignmentPoolFromConfig(cfg)
 }
 
 func ParseAssignmentPool(raw string) ([]Assignment, error) {
@@ -111,6 +123,11 @@ func ParseAssignmentPool(raw string) ([]Assignment, error) {
 			AgentID:   firstNonEmpty(input.AgentID, input.AgentIDAlias),
 			MarqueeID: firstNonEmpty(input.ServerID, input.ServerIDAlias, input.MarqueeID, input.MarqueeIDAlias),
 		}
+		status, err := normalizeAssignmentStatus(firstNonEmpty(input.Status, input.StatusAlias))
+		if err != nil {
+			return nil, fmt.Errorf("agent/server pool row %d has invalid status: %w", i+1, err)
+		}
+		assignment.Status = status
 		if assignment.Label == "" && assignment.AgentID == "" && assignment.MarqueeID == "" {
 			continue
 		}
@@ -133,9 +150,9 @@ func EncodeAssignmentPool(pool []Assignment) string {
 	return string(data)
 }
 
-func selectAssignment(email string, pool []Assignment) (Assignment, bool) {
-	email = strings.ToLower(strings.TrimSpace(email))
-	if email == "" || len(pool) == 0 {
+func selectAssignment(seed string, pool []Assignment) (Assignment, bool) {
+	seed = strings.ToLower(strings.TrimSpace(seed))
+	if seed == "" || len(pool) == 0 {
 		return Assignment{}, false
 	}
 	var selected Assignment
@@ -146,7 +163,7 @@ func selectAssignment(email string, pool []Assignment) (Assignment, bool) {
 			continue
 		}
 		key := assignment.AgentID + "\x00" + assignment.MarqueeID
-		score := assignmentScore(email, key)
+		score := assignmentScore(seed, key)
 		if selected.AgentID == "" || score > selectedScore || (score == selectedScore && key < selectedKey) {
 			selected = assignment
 			selectedKey = key
@@ -157,6 +174,16 @@ func selectAssignment(email string, pool []Assignment) (Assignment, bool) {
 		return Assignment{}, false
 	}
 	return selected, true
+}
+
+func activeAssignments(pool []Assignment) []Assignment {
+	out := make([]Assignment, 0, len(pool))
+	for _, assignment := range pool {
+		if AssignmentStatus(assignment) == AssignmentStatusActive {
+			out = append(out, assignment)
+		}
+	}
+	return out
 }
 
 func assignmentInPool(assignment Assignment, pool []Assignment) bool {
@@ -179,4 +206,34 @@ func sameAssignment(left Assignment, right Assignment) bool {
 func assignmentScore(email, key string) uint64 {
 	sum := sha256.Sum256([]byte(email + "\x00" + key))
 	return binary.BigEndian.Uint64(sum[:8])
+}
+
+func AssignmentStatus(assignment Assignment) string {
+	status, err := normalizeAssignmentStatus(assignment.Status)
+	if err != nil {
+		return AssignmentStatusActive
+	}
+	return status
+}
+
+func AllowsExistingProjects(assignment Assignment) bool {
+	switch AssignmentStatus(assignment) {
+	case AssignmentStatusActive, AssignmentStatusDraining:
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeAssignmentStatus(raw string) (string, error) {
+	status := strings.ToLower(strings.TrimSpace(raw))
+	if status == "" {
+		return AssignmentStatusActive, nil
+	}
+	switch status {
+	case AssignmentStatusActive, AssignmentStatusDraining, AssignmentStatusRetiring, AssignmentStatusRetired:
+		return status, nil
+	default:
+		return "", fmt.Errorf("%q", raw)
+	}
 }

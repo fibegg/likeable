@@ -23,7 +23,7 @@ func (s *Store) CreateProject(ctx context.Context, project *Project) error {
 }
 
 func (s *Store) ProjectCountForUser(ctx context.Context, userID string) (int, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM projects WHERE user_id = ? AND status != 'deleting'`, userID)
+	row := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM projects WHERE user_id = ? AND status NOT IN ('deleting', 'archived')`, userID)
 	var count int
 	return count, row.Scan(&count)
 }
@@ -583,7 +583,7 @@ func (s *Store) UsersWithProjects(ctx context.Context) ([]User, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT DISTINCT users.id, users.email, users.name, users.avatar_url, users.access_status, users.access_note, users.created_at
 		FROM users
-		JOIN projects ON projects.user_id = users.id AND projects.status != 'deleting'
+			JOIN projects ON projects.user_id = users.id AND projects.status NOT IN ('deleting', 'archived')
 		ORDER BY users.created_at ASC
 	`)
 	if err != nil {
@@ -615,7 +615,7 @@ func (s *Store) ProjectsExceedingQuota(ctx context.Context, userID string, limit
 			COALESCE(MAX(messages.created_at), projects.updated_at) AS last_activity_at
 		FROM projects
 		LEFT JOIN messages ON messages.project_id = projects.id AND messages.role = 'user'
-		WHERE projects.user_id = ? AND projects.status != 'deleting'
+			WHERE projects.user_id = ? AND projects.status NOT IN ('deleting', 'archived')
 		GROUP BY projects.id
 		ORDER BY last_activity_at DESC, projects.updated_at DESC
 	`, userID)
@@ -646,4 +646,39 @@ func (s *Store) ProjectsExceedingQuota(ctx context.Context, userID string, limit
 		return []Project{}, nil
 	}
 	return all[limit:], nil
+}
+
+func (s *Store) ProjectsForAssignment(ctx context.Context, agentID, marqueeID string) ([]Project, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, user_id, title, conversation_id, agent_id, marquee_id, playground_id, playground_name, playspec_id, prop_id, repo_url, preview_url, selected_service_name, status, error_message, provisioning_lock_until, cleanup_last_error, created_at, updated_at
+		FROM projects
+		WHERE agent_id = ? AND marquee_id = ? AND status != 'deleting'
+		ORDER BY updated_at DESC
+	`, strings.TrimSpace(agentID), strings.TrimSpace(marqueeID))
+	if err != nil {
+		return nil, err
+	}
+	var out []Project
+	for rows.Next() {
+		project, err := scanProject(rows)
+		if err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		out = append(out, *project)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := s.attachProjectResourcesForProjects(ctx, out); err != nil {
+		return nil, err
+	}
+	if out == nil {
+		out = []Project{}
+	}
+	return out, nil
 }

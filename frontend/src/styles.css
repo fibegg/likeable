@@ -2690,10 +2690,28 @@ html.draggingCollapsedChat * {
 .poolRows { display: grid; gap: 10px; }
 .poolRow {
   display: grid;
-  grid-template-columns: minmax(130px, .85fr) minmax(180px, 1fr) minmax(180px, 1fr) 38px;
+  grid-template-columns: minmax(120px, .7fr) minmax(160px, 1fr) minmax(160px, 1fr) minmax(128px, .72fr) minmax(160px, .86fr) auto 38px;
   align-items: end;
   gap: 10px;
   min-width: 0;
+}
+.poolStatLine {
+  min-width: 0;
+  color: rgba(216, 228, 231, .5);
+  font-size: 11px;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  align-self: center;
+}
+.poolRetireButton {
+  min-height: 38px;
+  white-space: nowrap;
+}
+.poolRow.retiring,
+.poolRow.retired {
+  opacity: .72;
 }
 .emptyPool {
   border: 1px dashed rgba(127, 141, 148, .35);
@@ -2717,6 +2735,10 @@ html.draggingCollapsedChat * {
   color: var(--danger);
   border-color: rgba(255, 105, 93, .5);
   background: rgba(255, 105, 93, .08);
+}
+.smallIconButton:disabled {
+  cursor: not-allowed;
+  opacity: .45;
 }
 .adminSave { min-width: 108px; }
 .spin { animation: loaderSpin .9s linear infinite; }

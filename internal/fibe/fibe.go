@@ -22,6 +22,7 @@ type Assignment struct {
 	Label     string `json:"label,omitempty"`
 	AgentID   string `json:"agent_id"`
 	MarqueeID string `json:"server_id"`
+	Status    string `json:"status,omitempty"`
 }
 
 type Config struct {

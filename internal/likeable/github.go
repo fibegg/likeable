@@ -121,6 +121,10 @@ func (s *Server) handleProjectExport(w http.ResponseWriter, r *http.Request, use
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
+	if project.Status == "archived" {
+		writeError(w, http.StatusConflict, "Archived projects can be downloaded as ZIP exports.")
+		return
+	}
 	var body struct {
 		RepoName string `json:"repoName"`
 		Private  bool   `json:"private"`

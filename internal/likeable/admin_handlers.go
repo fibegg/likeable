@@ -1,6 +1,7 @@
 package likeable
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -28,7 +29,12 @@ func (s *Server) handleAdminConfig(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"config": publicAdminConfig(cfg), "adminEmail": s.config.AdminEmail})
+		stats, err := s.store.AgentPoolStats(r.Context())
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"config": publicAdminConfig(cfg), "adminEmail": s.config.AdminEmail, "agentPoolStats": stats})
 	case http.MethodPut:
 		var body map[string]string
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -48,6 +54,117 @@ func (s *Server) handleAdminConfig(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
+}
+
+func (s *Server) handleAdminAgentPoolRetire(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var body struct {
+		AgentID       string `json:"agent_id"`
+		AgentIDAlias  string `json:"agentId"`
+		ServerID      string `json:"server_id"`
+		ServerIDAlias string `json:"serverId"`
+		MarqueeID     string `json:"marquee_id"`
+		MarqueeAlias  string `json:"marqueeId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	agentID := firstNonEmptyString(body.AgentID, body.AgentIDAlias)
+	serverID := firstNonEmptyString(body.ServerID, body.ServerIDAlias, body.MarqueeID, body.MarqueeAlias)
+	if agentID == "" || serverID == "" {
+		writeError(w, http.StatusBadRequest, "agent_id and server_id are required")
+		return
+	}
+	result, err := s.retireAgentPoolPair(r.Context(), agentID, serverID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "agent/server pair not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if len(result.Errors) > 0 {
+		writeJSON(w, http.StatusBadGateway, map[string]any{"error": "archive failed: " + strings.Join(result.Errors, "; "), "result": result})
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+type agentPoolRetirementResult struct {
+	AgentID       string   `json:"agentId"`
+	ServerID      string   `json:"serverId"`
+	Status        string   `json:"status"`
+	ProjectCount  int      `json:"projectCount"`
+	ArchivedCount int      `json:"archivedCount"`
+	Errors        []string `json:"errors,omitempty"`
+}
+
+func (s *Server) retireAgentPoolPair(ctx context.Context, agentID, serverID string) (agentPoolRetirementResult, error) {
+	result := agentPoolRetirementResult{AgentID: agentID, ServerID: serverID, Status: fibe.AssignmentStatusRetiring}
+	cfg, err := s.store.ConfigMap(ctx)
+	if err != nil {
+		return result, err
+	}
+	pool, err := fibe.AssignmentPoolFromConfig(cfg)
+	if err != nil {
+		return result, err
+	}
+	index := -1
+	for i := range pool {
+		if strings.TrimSpace(pool[i].AgentID) == agentID && strings.TrimSpace(pool[i].MarqueeID) == serverID {
+			index = i
+			break
+		}
+	}
+	if index < 0 {
+		return result, sql.ErrNoRows
+	}
+	pool[index].Status = fibe.AssignmentStatusRetiring
+	if err := s.store.UpsertConfig(ctx, map[string]string{"fibe_agent_server_pool": fibe.EncodeAssignmentPool(pool)}, secretConfigKeys); err != nil {
+		return result, err
+	}
+	projects, err := s.store.ProjectsForAssignment(ctx, agentID, serverID)
+	if err != nil {
+		return result, err
+	}
+	result.ProjectCount = len(projects)
+	for i := range projects {
+		project := projects[i]
+		user, err := s.store.UserByID(ctx, project.UserID)
+		if err != nil {
+			result.Errors = append(result.Errors, project.ID+": "+err.Error())
+			continue
+		}
+		if project.Status == "archived" {
+			if _, err := s.store.LatestProjectArchive(ctx, user.ID, project.ID); err == nil {
+				result.ArchivedCount++
+				continue
+			}
+		}
+		if _, err := s.archiveProjectSource(ctx, user, &project); err != nil {
+			result.Errors = append(result.Errors, project.ID+": "+err.Error())
+			continue
+		}
+		if err := s.markProjectArchived(ctx, user.ID, &project); err != nil {
+			result.Errors = append(result.Errors, project.ID+": "+err.Error())
+			continue
+		}
+		result.ArchivedCount++
+	}
+	if len(result.Errors) > 0 {
+		return result, nil
+	}
+	pool[index].Status = fibe.AssignmentStatusRetired
+	if err := s.store.UpsertConfig(ctx, map[string]string{"fibe_agent_server_pool": fibe.EncodeAssignmentPool(pool)}, secretConfigKeys); err != nil {
+		return result, err
+	}
+	result.Status = fibe.AssignmentStatusRetired
+	return result, nil
 }
 
 func (s *Server) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
@@ -228,6 +345,15 @@ func boundedQueryInt(raw string, fallback, min, max int) int {
 		return max
 	}
 	return value
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" && strings.TrimSpace(value) != "<nil>" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func publicAdminConfig(cfg map[string]string) map[string]any {

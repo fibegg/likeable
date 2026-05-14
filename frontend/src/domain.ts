@@ -26,8 +26,10 @@ export type NotificationFeedRow = { kind: 'notification'; id: string; body: stri
 export type FeedRow = UserFeedRow | NotificationFeedRow;
 export type PendingAttachment = { id: string; file: File };
 export type AdminConfigEntry = { value: string; secret: boolean; set: boolean };
-export type AdminConfigResponse = { config: Record<string, AdminConfigEntry>; adminEmail: string };
-export type PoolRow = { id: string; label: string; agentId: string; serverId: string };
+export type AgentPoolStatus = 'active' | 'draining' | 'retiring' | 'retired';
+export type AdminConfigResponse = { config: Record<string, AdminConfigEntry>; adminEmail: string; agentPoolStats?: AgentPoolStat[] };
+export type AgentPoolStat = { agentId: string; serverId: string; projectCount: number; archivedCount: number; readyArchiveCount: number };
+export type PoolRow = { id: string; label: string; agentId: string; serverId: string; status: AgentPoolStatus };
 export type AdminUserSummary = {
   user: User;
   projectCount: number;

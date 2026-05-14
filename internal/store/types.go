@@ -13,6 +13,7 @@ type SocialConnection = domain.SocialConnection
 type Subscription = domain.Subscription
 type Payment = domain.Payment
 type ProjectArchive = domain.ProjectArchive
+type AgentPoolStat = domain.AgentPoolStat
 type UserNotice = domain.UserNotice
 type AdminUserSummary = domain.AdminUserSummary
 type AdminProjectSummary = domain.AdminProjectSummary

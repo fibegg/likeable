@@ -24,8 +24,8 @@ func (s *Store) AdminUsers(ctx context.Context, filters AdminUserFilters) ([]Adm
 				SUM(CASE WHEN messages.created_at >= '` + windowStart + `' THEN 1 ELSE 0 END) AS daily_message_count,
 				MAX(messages.created_at) AS last_message_at,
 				MAX(projects.updated_at) AS last_project_at
-			FROM users
-			LEFT JOIN projects ON projects.user_id = users.id AND projects.status != 'deleting'
+				FROM users
+				LEFT JOIN projects ON projects.user_id = users.id AND projects.status NOT IN ('deleting', 'archived')
 			LEFT JOIN messages ON messages.project_id = projects.id AND messages.role = 'user'
 			GROUP BY users.id
 		),
@@ -159,6 +159,40 @@ func adminUserWhere(filters AdminUserFilters) (string, []any) {
 		return "", args
 	}
 	return " WHERE " + strings.Join(where, " AND "), args
+}
+
+func (s *Store) AgentPoolStats(ctx context.Context) ([]AgentPoolStat, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT projects.agent_id,
+			projects.marquee_id,
+			COUNT(DISTINCT projects.id) AS project_count,
+			SUM(CASE WHEN projects.status = 'archived' THEN 1 ELSE 0 END) AS archived_count,
+			COUNT(DISTINCT CASE WHEN project_archives.id IS NOT NULL THEN projects.id END) AS ready_archive_count
+		FROM projects
+		LEFT JOIN project_archives ON project_archives.project_id = projects.id
+			AND project_archives.status = 'ready'
+			AND project_archives.expires_at > ?
+		WHERE projects.status != 'deleting'
+			AND TRIM(projects.agent_id) != ''
+			AND TRIM(projects.marquee_id) != ''
+		GROUP BY projects.agent_id, projects.marquee_id
+	`, nowString())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []AgentPoolStat
+	for rows.Next() {
+		var stat AgentPoolStat
+		if err := rows.Scan(&stat.AgentID, &stat.ServerID, &stat.ProjectCount, &stat.ArchivedCount, &stat.ReadyArchiveCount); err != nil {
+			return nil, err
+		}
+		out = append(out, stat)
+	}
+	if out == nil {
+		out = []AgentPoolStat{}
+	}
+	return out, rows.Err()
 }
 
 func adminUserOrder(sort string) string {

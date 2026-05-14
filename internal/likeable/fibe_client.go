@@ -20,7 +20,11 @@ func (s *Server) fibeClientForProject(ctx context.Context, project *Project, ema
 	if err != nil {
 		return nil, err
 	}
-	assignment, err := fibe.AssignmentForProject(cfg, project, email)
+	seed := email
+	if project != nil && strings.TrimSpace(project.ID) != "" {
+		seed = project.ID
+	}
+	assignment, err := fibe.AssignmentForProject(cfg, project, seed)
 	if err != nil {
 		return nil, err
 	}

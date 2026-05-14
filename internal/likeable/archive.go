@@ -22,6 +22,19 @@ func (s *Server) handleProjectArchiveExport(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
+	if project.Status == "archived" {
+		archive, err := s.store.LatestProjectArchive(r.Context(), user.ID, project.ID)
+		if err != nil {
+			writeError(w, http.StatusConflict, "Project archive is not ready yet.")
+			return
+		}
+		archive.DownloadURL = s.archiveDownloadURL(archive.ID)
+		writeJSON(w, http.StatusOK, map[string]any{
+			"archive":     archive,
+			"downloadUrl": archive.DownloadURL,
+		})
+		return
+	}
 	archive, err := s.archiveProjectSource(r.Context(), user, project)
 	if err != nil {
 		log.Printf("archive project %s failed: %v", project.ID, err)

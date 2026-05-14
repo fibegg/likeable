@@ -257,6 +257,10 @@ func (s *Server) handleProjectAgentInterrupt(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
+	if err := s.ensureProjectDevelopmentAllowed(r.Context(), user, project); err != nil {
+		writeError(w, http.StatusConflict, developmentBlockedMessage(err))
+		return
+	}
 	fibe, err := s.fibeClientForProject(r.Context(), project, user.Email)
 	if err != nil {
 		log.Printf("interrupt workspace client for project %s: %v", project.ID, err)
@@ -285,6 +289,10 @@ func (s *Server) handleProjectPlaygroundAction(w http.ResponseWriter, r *http.Re
 	}
 	updated, err := s.controlProjectPlayground(r.Context(), user, project, strings.ToLower(strings.TrimSpace(body.Action)))
 	if err != nil {
+		if errors.Is(err, errProjectExportOnly) || errors.Is(err, errProjectRetiring) {
+			writeError(w, http.StatusConflict, developmentBlockedMessage(err))
+			return
+		}
 		if errors.Is(err, errInvalidPlaygroundAction) || errors.Is(err, errProjectPlaygroundMissing) {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -299,6 +307,9 @@ func (s *Server) handleProjectPlaygroundAction(w http.ResponseWriter, r *http.Re
 func (s *Server) controlProjectPlayground(ctx context.Context, user *User, project *Project, action string) (*Project, error) {
 	if user == nil || project == nil {
 		return nil, sql.ErrNoRows
+	}
+	if err := s.ensureProjectDevelopmentAllowed(ctx, user, project); err != nil {
+		return nil, err
 	}
 	if project.Status == "deleting" {
 		return nil, errInvalidPlaygroundAction
@@ -343,6 +354,18 @@ func (s *Server) controlProjectPlayground(ctx context.Context, user *User, proje
 func (s *Server) handleProjectFeed(w http.ResponseWriter, r *http.Request, user *User, project *Project) {
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if exportOnly, err := s.projectIsExportOnly(r.Context(), user, project); err != nil {
+		log.Printf("load project feed binding for project %s: %v", project.ID, err)
+	} else if exportOnly {
+		local, _ := s.store.MessagesForProject(r.Context(), project.ID)
+		timings, timingErr := s.store.ProjectNotificationTimingMap(r.Context(), project.ID)
+		if timingErr != nil {
+			log.Printf("load project notification timings for project %s: %v", project.ID, timingErr)
+			timings = map[string]ProjectNotificationTiming{}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"project": project, "localMessages": local, "messages": []any{}, "activity": []any{}, "live": nil, "notificationTimings": timings, "warning": "This project is archived. Export it or create a new project."})
 		return
 	}
 	s.recoverProjectAsync(user.ID, user.Email, project)
@@ -417,6 +440,17 @@ func (s *Server) handleProjectPreviewStatus(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	user := userFromContext(r.Context())
+	if exportOnly, err := s.projectIsExportOnly(r.Context(), user, project); err != nil {
+		log.Printf("preview status binding for project %s: %v", project.ID, err)
+	} else if exportOnly {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ready":     false,
+			"status":    "archived",
+			"checkedAt": nowString(),
+			"project":   project,
+		})
+		return
+	}
 	readinessRefreshed := false
 	if projectNeedsReadinessRecovery(project) && user != nil {
 		ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)

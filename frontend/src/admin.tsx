@@ -4,7 +4,7 @@ import { cleanPoolRows, makePoolRow, parsePoolRows } from './admin_pool';
 import { api } from './api';
 import { AppDialog, Metric } from './builder_components';
 import { ADMIN_CONFIG_SECTIONS } from './config';
-import type { AdminConfigEntry, AdminConfigResponse, AdminUserDetail, AdminUserSummary, AdminUsersResponse, AppDialogConfig, PoolRow } from './domain';
+import type { AdminConfigEntry, AdminConfigResponse, AdminUserDetail, AdminUserSummary, AdminUsersResponse, AgentPoolStat, AppDialogConfig, PoolRow } from './domain';
 import { formatMessageTime, formatShortDate } from './format';
 import { statusLabel, TranslationKey, useI18n } from './i18n';
 
@@ -368,6 +368,8 @@ export function Admin() {
   const [signupMode, setSignupMode] = useState('forbidden');
   const [allowedEmails, setAllowedEmails] = useState('');
   const [poolRows, setPoolRows] = useState<PoolRow[]>([]);
+  const [poolStats, setPoolStats] = useState<AgentPoolStat[]>([]);
+  const [retiringPoolRowID, setRetiringPoolRowID] = useState('');
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
@@ -379,12 +381,31 @@ export function Admin() {
     setSignupMode(response.config.signup_mode?.value ?? 'forbidden');
     setAllowedEmails(response.config.signup_allowed_emails?.value ?? '');
     setPoolRows(parsePoolRows(response.config.fibe_agent_server_pool?.value ?? '[]'));
+    setPoolStats(response.agentPoolStats ?? []);
   };
 
   useEffect(() => { void loadConfig(); }, []);
 
   const setPoolRow = (id: string, patch: Partial<PoolRow>) => {
     setPoolRows((rows) => rows.map((row) => row.id === id ? { ...row, ...patch } : row));
+  };
+  const statForPoolRow = (row: PoolRow) => poolStats.find((stat) => stat.agentId === row.agentId.trim() && stat.serverId === row.serverId.trim());
+  const retirePoolRow = async (row: PoolRow) => {
+    setRetiringPoolRowID(row.id);
+    setStatus('');
+    setError('');
+    try {
+      await api('/api/admin/agent-pool/retire', {
+        method: 'POST',
+        body: JSON.stringify({ agent_id: row.agentId.trim(), server_id: row.serverId.trim() })
+      });
+      await loadConfig();
+      setStatus(t('admin.pool.retired'));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('admin.saveFailed'));
+    } finally {
+      setRetiringPoolRowID('');
+    }
   };
 
   const save = async () => {
@@ -495,7 +516,7 @@ export function Admin() {
           <div className="poolRows">
             {poolRows.length === 0 && <div className="emptyPool">{t('admin.pool.empty')}</div>}
             {poolRows.map((row, index) => (
-              <div className="poolRow" key={row.id}>
+              <div className={`poolRow ${row.status}`} key={row.id}>
                 <label>
                   <span>{t('admin.pool.label')}</span>
                   <input value={row.label} placeholder={t('admin.pool.pair', { number: index + 1 })} onChange={(event) => setPoolRow(row.id, { label: event.target.value })} />
@@ -508,7 +529,28 @@ export function Admin() {
                   <span>{t('admin.pool.serverId')}</span>
                   <input value={row.serverId} placeholder={t('admin.pool.serverPlaceholder')} onChange={(event) => setPoolRow(row.id, { serverId: event.target.value })} />
                 </label>
-                <button className="smallIconButton" type="button" aria-label={t('admin.pool.remove')} onClick={() => setPoolRows((rows) => rows.filter((candidate) => candidate.id !== row.id))}>
+                <label>
+                  <span>{t('admin.pool.status')}</span>
+                  <select className="adminSelect" value={row.status} onChange={(event) => setPoolRow(row.id, { status: event.target.value as PoolRow['status'] })}>
+                    <option value="active">{t('admin.pool.status.active')}</option>
+                    <option value="draining">{t('admin.pool.status.draining')}</option>
+                    <option value="retiring" disabled>{t('admin.pool.status.retiring')}</option>
+                    <option value="retired" disabled>{t('admin.pool.status.retired')}</option>
+                  </select>
+                </label>
+                <div className="poolStatLine">
+                  {(() => {
+                    const stat = statForPoolRow(row);
+                    return stat
+                      ? t('admin.pool.stats', { projects: stat.projectCount, archived: stat.archivedCount, archives: stat.readyArchiveCount })
+                      : t('admin.pool.stats.empty');
+                  })()}
+                </div>
+                <button className="ghostButton poolRetireButton" type="button" disabled={saving || retiringPoolRowID === row.id || !row.agentId.trim() || !row.serverId.trim() || row.status === 'retired'} onClick={() => void retirePoolRow(row)}>
+                  {retiringPoolRowID === row.id ? <Loader2 className="spinIcon" size={15} /> : null}
+                  {t('admin.pool.retire')}
+                </button>
+                <button className="smallIconButton" type="button" disabled={row.status === 'retiring' || row.status === 'retired'} aria-label={t('admin.pool.remove')} onClick={() => setPoolRows((rows) => rows.filter((candidate) => candidate.id !== row.id))}>
                   <Trash2 size={17} />
                 </button>
               </div>

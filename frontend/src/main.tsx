@@ -208,25 +208,29 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const lastRow = rows.at(-1);
   const lastRowSignature = lastRow ? `${lastRow.id}:${lastRow.body}` : '';
   const modeLabel = viewMode === 'overlay' ? t('builder.mode.basic') : t('builder.mode.split');
-  const projectCapLabel = projectCap == null ? `${projects.length}` : `${projects.length}/${projectCap}`;
+  const quotaProjectCount = projects.filter((project) => project.status !== 'archived' && project.status !== 'deleting').length;
+  const projectCapLabel = projectCap == null ? `${quotaProjectCount}` : `${quotaProjectCount}/${projectCap}`;
   const messageQuotaLabel = messageQuota ? `${messageQuota.remaining}/${messageQuota.limit}` : '';
   const messageQuotaTooltip = messageQuota ? t('builder.messageQuota.tooltip', { paid: messageQuota.paidRemaining ?? 0, reset: formatResetCountdown(messageQuota.resetsAt, quotaNow, resetCountdownLabels(t)) }) : '';
   const githubConnected = Boolean(me.githubConnected);
   const githubNeedsReconnect = Boolean(me.githubNeedsReconnect);
+  const projectArchived = activeProject?.status === 'archived';
   const isProjectStarting = activeProject?.status === 'creating' || activeProject?.status === 'launching';
   const previewRuntimeActive = activeProject?.status === 'ready';
   const previewMaintenance = Boolean(activePreviewURL && previewRuntimeActive && previewStatus?.maintenance);
   const previewReady = Boolean(activePreviewURL && previewRuntimeActive && previewStatus?.ready);
   const previewDisplayable = Boolean(activePreviewURL && previewRuntimeActive && (previewReady || previewMaintenance));
-  const canvasStatusLabel = agentWorking ? t('builder.status.agentWorking') : previewMaintenance ? t('builder.status.maintenance') : activeProject?.status === 'ready' ? (previewReady ? t('builder.status.canvasLive') : t('builder.status.canvasStarting')) : isProjectStarting ? t('builder.status.canvasStarting') : activeProject?.status === 'stopped' ? t('builder.status.canvasStopped') : activeProject?.status === 'error' ? t('builder.status.canvasError') : t('builder.status.canvasIdle');
+  const canvasStatusLabel = agentWorking ? t('builder.status.agentWorking') : previewMaintenance ? t('builder.status.maintenance') : activeProject?.status === 'ready' ? (previewReady ? t('builder.status.canvasLive') : t('builder.status.canvasStarting')) : isProjectStarting ? t('builder.status.canvasStarting') : projectArchived ? t('builder.status.canvasArchived') : activeProject?.status === 'stopped' ? t('builder.status.canvasStopped') : activeProject?.status === 'error' ? t('builder.status.canvasError') : t('builder.status.canvasIdle');
   const hasDraft = Boolean(prompt.trim()) || attachments.length > 0;
-  const canSend = signedIn && hasDraft && !busy && !messageSubmitting && Boolean(activePreviewURL) && (activeProject?.status === 'ready' || previewReady);
+  const canSend = signedIn && !projectArchived && hasDraft && !busy && !messageSubmitting && Boolean(activePreviewURL) && (activeProject?.status === 'ready' || previewReady);
   const hasActiveNotification = rows.some((row) => row.kind === 'notification' && row.active);
   const utilityScreenOpen = showProjects || showProfile;
   const inputPlaceholder = !signedIn
     ? t('builder.placeholder.signIn')
     : isProjectStarting
     ? t('builder.placeholder.starting')
+    : projectArchived
+      ? t('builder.placeholder.archived')
     : activeProject?.status === 'error'
       ? t('builder.placeholder.error')
       : singleView
@@ -874,10 +878,10 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
                 ))}
               </div>
             )}
-            <button className="attachButton" type="button" onClick={() => fileInputRef.current?.click()} disabled={!signedIn || attachments.length >= MAX_ATTACHMENTS} aria-label={t('builder.attachFiles')}>
+            <button className="attachButton" type="button" onClick={() => fileInputRef.current?.click()} disabled={!signedIn || projectArchived || attachments.length >= MAX_ATTACHMENTS} aria-label={t('builder.attachFiles')}>
               <Paperclip size={20} />
             </button>
-            <textarea ref={textareaRef} value={prompt} onChange={(e) => setPrompt(e.target.value)} onKeyDown={handleComposerKeyDown} placeholder={inputPlaceholder} rows={1} disabled={!signedIn} />
+            <textarea ref={textareaRef} value={prompt} onChange={(e) => setPrompt(e.target.value)} onKeyDown={handleComposerKeyDown} placeholder={inputPlaceholder} rows={1} disabled={!signedIn || projectArchived} />
             <button className={`sendButton ${messageSubmitting ? 'working' : ''}`} disabled={!canSend} onClick={createOrSend}>
               {messageSubmitting ? <Loader2 className="spinIcon" size={22} /> : <Send size={22} />}
             </button>
@@ -907,7 +911,9 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     : t('builder.preview.warmingBody');
   const previewContent = (
     <>
-      {activeProject?.status === 'error' && !previewMaintenance ? (
+      {projectArchived ? (
+        <CanvasLoader title={t('builder.preview.archivedTitle')} body={t('builder.preview.archivedBody')} />
+      ) : activeProject?.status === 'error' && !previewMaintenance ? (
         <CanvasLoader title={t('builder.preview.launchFailedTitle')} body={t('builder.preview.launchFailedBody')} tone="error" />
       ) : activeProject?.status === 'stopped' ? (
         <CanvasLoader title={t('builder.preview.stoppedTitle')} body={t('builder.preview.stoppedBody')} />
@@ -954,7 +960,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
           {basicChatCollapsed ? minimizedChatBar : chat}
         </div>
       )}
-      {confirmNewProject && <ConfirmNewProject projectCap={projectCap} projectCount={projects.length} busy={busy} onCancel={() => setConfirmNewProject(false)} onConfirm={createProject} />}
+      {confirmNewProject && <ConfirmNewProject projectCap={projectCap} projectCount={quotaProjectCount} busy={busy} onCancel={() => setConfirmNewProject(false)} onConfirm={createProject} />}
       {deleteTarget && <ConfirmDeleteProject project={deleteTarget} busy={busy} onCancel={() => setDeleteTarget(null)} onConfirm={deleteProject} />}
       {exportTarget && <ConfirmExportProject project={exportTarget} busy={busy || exportingID === exportTarget.id} busyMode={exportingMode} githubConnected={githubConnected} githubNeedsReconnect={githubNeedsReconnect} onCancel={() => setExportTarget(null)} onGithub={(repoName, privateRepo) => void exportProject(exportTarget, repoName, privateRepo)} onZip={() => void exportProjectZip(exportTarget)} onConnectGithub={connectGithub} />}
       {dialog && <AppDialog dialog={dialog} onClose={() => setDialog(null)} />}

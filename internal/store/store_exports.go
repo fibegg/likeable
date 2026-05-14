@@ -83,6 +83,21 @@ func (s *Store) ArchiveForUser(ctx context.Context, userID, archiveID string) (*
 	return &archive, nil
 }
 
+func (s *Store) LatestProjectArchive(ctx context.Context, userID, projectID string) (*ProjectArchive, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT id, user_id, project_id, project_title, storage_path, status, github_repo_url, error, expires_at, created_at, updated_at
+		FROM project_archives
+		WHERE user_id = ? AND project_id = ? AND status = 'ready' AND expires_at > ?
+		ORDER BY created_at DESC
+		LIMIT 1
+	`, userID, projectID, nowString())
+	var archive ProjectArchive
+	if err := row.Scan(&archive.ID, &archive.UserID, &archive.ProjectID, &archive.ProjectTitle, &archive.StoragePath, &archive.Status, &archive.GithubRepoURL, &archive.Error, &archive.ExpiresAt, &archive.CreatedAt, &archive.UpdatedAt); err != nil {
+		return nil, err
+	}
+	return &archive, nil
+}
+
 func (s *Store) ExpiredArchives(ctx context.Context, limit int) ([]ProjectArchive, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 100

@@ -47,7 +47,7 @@ func (s *Server) createProjectRecord(ctx context.Context, user *User, title stri
 	if err != nil {
 		return nil, err
 	}
-	assignment, err := fibe.AssignmentForNewProject(cfg, user.Email)
+	assignment, err := fibe.AssignmentForNewProject(cfg, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -243,6 +243,9 @@ func (s *Server) recoverProjectAsync(userID, userEmail string, project *Project)
 		if err != nil || !projectNeedsReadinessRecovery(current) {
 			return
 		}
+		if blocked, err := s.projectIsExportOnly(ctx, &User{ID: userID, Email: userEmail}, current); err != nil || blocked {
+			return
+		}
 		fibe, err := s.fibeClientForProject(ctx, current, userEmail)
 		if err != nil {
 			return
@@ -299,6 +302,9 @@ func (s *Server) refreshProjectReadiness(ctx context.Context, user *User, projec
 	if user == nil || !projectNeedsReadinessRecovery(project) {
 		return project, nil
 	}
+	if blocked, err := s.projectIsExportOnly(ctx, user, project); err != nil || blocked {
+		return project, err
+	}
 	fibe, err := s.fibeClientForProject(ctx, project, user.Email)
 	if err != nil {
 		return project, err
@@ -324,6 +330,9 @@ func (s *Server) refreshProjectResourcesNow(ctx context.Context, user *User, pro
 func (s *Server) refreshProjectResources(ctx context.Context, user *User, project *Project, force bool) (*Project, error) {
 	if user == nil || project == nil || strings.TrimSpace(project.PlaygroundID) == "" || project.Status == "deleting" {
 		return project, nil
+	}
+	if blocked, err := s.projectIsExportOnly(ctx, user, project); err != nil || blocked {
+		return project, err
 	}
 	if err := s.applyCurrentProjectAssignment(ctx, user, project); err != nil {
 		return project, err
@@ -402,7 +411,7 @@ func (s *Server) applyCurrentProjectAssignment(ctx context.Context, user *User, 
 	if err != nil {
 		return err
 	}
-	assignment, changed, err := fibe.CurrentAssignmentForProject(cfg, project, user.Email)
+	assignment, changed, err := fibe.CurrentAssignmentForProject(cfg, project, project.ID)
 	if err != nil {
 		return err
 	}
@@ -419,7 +428,7 @@ func projectNeedsReadinessRecovery(project *Project) bool {
 		return false
 	}
 	switch project.Status {
-	case "ready", "stopped", "deleting":
+	case "ready", "stopped", "deleting", "archived":
 		return false
 	}
 	return strings.TrimSpace(project.PlaygroundID) != ""

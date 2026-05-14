@@ -26,6 +26,12 @@ func (s *Server) deleteProjectResourcesAsync(userID, userEmail string, project *
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
+		if snapshot.Status == "archived" {
+			if err := s.deleteProjectLocally(ctx, &snapshot, userID); err != nil {
+				log.Printf("delete archived local project %s: %v", snapshot.ID, err)
+			}
+			return
+		}
 		fibeClient, err := s.completeProjectResourceSnapshot(ctx, userEmail, &snapshot)
 		if err != nil {
 			log.Printf("delete project %s resources: %v", snapshot.ID, err)
