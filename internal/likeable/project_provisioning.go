@@ -15,7 +15,7 @@ import (
 	"github.com/hibiken/asynq"
 )
 
-const projectResourceRefreshInterval = 10 * time.Second
+const projectResourceRefreshInterval = 60 * time.Second
 const projectProvisioningRecoveryGrace = 2 * time.Minute
 
 func (s *Server) ensureDefaultProject(ctx context.Context, user *User) {
@@ -338,6 +338,10 @@ func (s *Server) refreshProjectResources(ctx context.Context, user *User, projec
 		return project, err
 	}
 	if !force {
+		if remaining, ok := s.platformBackoffRemaining(); ok {
+			log.Printf("skip project resource refresh for %s while platform is rate limited for %s", project.ID, remaining.Round(time.Second))
+			return project, nil
+		}
 		key := user.ID + ":" + project.ID + ":resources"
 		if last, ok := s.refreshing.Load(key); ok {
 			if lastRefresh, ok := last.(time.Time); ok && time.Since(lastRefresh) < projectResourceRefreshInterval {
@@ -352,8 +356,10 @@ func (s *Server) refreshProjectResources(ctx context.Context, user *User, projec
 	}
 	result, err := client.GreenfieldByPlaygroundID(ctx, project.PlaygroundID)
 	if err != nil {
+		s.observePlatformError(err)
 		return project, err
 	}
+	s.clearPlatformBackoff()
 	hasSnapshot := greenfieldHasResourceSnapshot(result)
 	if hasSnapshot {
 		applyProjectGreenfieldSnapshot(project, result)

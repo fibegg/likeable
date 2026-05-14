@@ -23,10 +23,12 @@ type Server struct {
 	http        *http.Client
 	recovering  sync.Map
 	refreshing  sync.Map
+	feedCache   sync.Map
 	email       emailSender
 	jobs        *JobSystem
 	limiter     *RateLimiter
 	limiterOnce sync.Once
+	platform    platformBackoffState
 }
 
 const (

@@ -51,7 +51,7 @@ func (s *Server) refreshProjectListResources(ctx context.Context, user *User, pr
 		if strings.TrimSpace(out[i].PlaygroundID) == "" || out[i].Status == "deleting" {
 			continue
 		}
-		updated, err := s.refreshProjectResourcesNow(ctx, user, &out[i])
+		updated, err := s.refreshProjectResourcesIfDue(ctx, user, &out[i])
 		if err != nil {
 			log.Printf("refresh project resources for list %s: %v", out[i].ID, err)
 			continue
@@ -268,10 +268,16 @@ func (s *Server) handleProjectAgentInterrupt(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if err := fibe.Interrupt(r.Context(), project.ConversationID); err != nil {
+		s.observePlatformError(err)
 		log.Printf("interrupt workspace message for project %s: %v", project.ID, err)
-		writeError(w, http.StatusBadGateway, "could not stop the workspace agent")
+		if isPlatformRateLimited(err) {
+			writeError(w, http.StatusServiceUnavailable, "workspace platform is rate limited; try again shortly")
+		} else {
+			writeError(w, http.StatusBadGateway, "could not stop the workspace agent")
+		}
 		return
 	}
+	s.clearPlatformBackoff()
 	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
 }
 
@@ -298,9 +304,14 @@ func (s *Server) handleProjectPlaygroundAction(w http.ResponseWriter, r *http.Re
 			return
 		}
 		log.Printf("project playground action %s for project %s: %v", body.Action, project.ID, err)
-		writeError(w, http.StatusBadGateway, "could not update the playground")
+		if isPlatformRateLimited(err) {
+			writeError(w, http.StatusServiceUnavailable, "workspace platform is rate limited; try again shortly")
+		} else {
+			writeError(w, http.StatusBadGateway, "could not update the playground")
+		}
 		return
 	}
+	s.clearPlatformBackoff()
 	writeJSON(w, http.StatusAccepted, map[string]any{"project": updated})
 }
 
@@ -337,6 +348,7 @@ func (s *Server) controlProjectPlayground(ctx context.Context, user *User, proje
 		return nil, errInvalidPlaygroundAction
 	}
 	if err != nil {
+		s.observePlatformError(err)
 		if action == "stop" && fibegateway.IsPlaygroundAlreadyStoppedError(err) {
 			if updateErr := s.store.UpdateProjectStatus(ctx, project.ID, user.ID, "stopped"); updateErr != nil {
 				return nil, updateErr
@@ -378,60 +390,13 @@ func (s *Server) handleProjectFeed(w http.ResponseWriter, r *http.Request, user 
 		}
 		cancel()
 	}
-	local, _ := s.store.MessagesForProject(r.Context(), project.ID)
-	fibe, err := s.fibeClientForProject(r.Context(), project, user.Email)
+	snapshot, err := s.loadProjectFeedSnapshot(r.Context(), user, project, true)
 	if err != nil {
-		log.Printf("load project feed workspace client for project %s: %v", project.ID, err)
-		timings, timingErr := s.store.ProjectNotificationTimingMap(r.Context(), project.ID)
-		if timingErr != nil {
-			log.Printf("load project notification timings for project %s: %v", project.ID, timingErr)
-			timings = map[string]ProjectNotificationTiming{}
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"project": project, "localMessages": local, "messages": []any{}, "activity": []any{}, "notificationTimings": timings, "warning": "Live updates are temporarily unavailable."})
+		log.Printf("load project feed for project %s: %v", project.ID, err)
+		writeError(w, http.StatusInternalServerError, "could not load project feed")
 		return
 	}
-	messages, messagesErr := fibe.Messages(r.Context(), project.ConversationID)
-	activity, activityErr := fibe.Activity(r.Context(), project.ConversationID)
-	live, liveErr := fibe.ConversationLiveState(r.Context(), project.ConversationID)
-	warnings := []string{}
-	if messagesErr != nil && !fibegateway.IsConversationMissingError(messagesErr) {
-		log.Printf("load project feed messages for project %s: %v", project.ID, messagesErr)
-		warnings = append(warnings, "Workspace messages are temporarily unavailable.")
-		messages = []any{}
-	}
-	if activityErr != nil && !fibegateway.IsConversationMissingError(activityErr) {
-		log.Printf("load project feed activity for project %s: %v", project.ID, activityErr)
-		warnings = append(warnings, "Workspace activity is temporarily unavailable.")
-		activity = []any{}
-	}
-	if liveErr != nil {
-		if !fibegateway.IsConversationMissingError(liveErr) {
-			log.Printf("load project feed live state for project %s: %v", project.ID, liveErr)
-			warnings = append(warnings, "Live workspace status is temporarily unavailable.")
-		}
-		live = &fibegateway.ConversationLiveState{ConversationID: project.ConversationID, IsProcessing: false, StreamText: "", QueuedTurns: 0}
-	}
-	if messages == nil {
-		messages = []any{}
-	}
-	if activity == nil {
-		activity = []any{}
-	}
-	messages = sanitizeAgentProtocolMessages(messages)
-	sanitizeAgentProtocolLiveState(live)
-	timings, shouldMonitor, err := s.syncProjectNotificationTimings(r.Context(), project, local, messages, activity, live)
-	if err != nil {
-		log.Printf("sync project notification timings for project %s: %v", project.ID, err)
-		timings = map[string]ProjectNotificationTiming{}
-	}
-	if shouldMonitor {
-		s.enqueueProjectNotificationMonitor(context.Background(), user.ID, user.Email, project.ID, 3*time.Second)
-	}
-	response := map[string]any{"project": project, "localMessages": local, "messages": messages, "activity": activity, "live": live, "notificationTimings": timings}
-	if len(warnings) > 0 {
-		response["warning"] = strings.Join(warnings, " ")
-	}
-	writeJSON(w, http.StatusOK, response)
+	writeJSON(w, http.StatusOK, snapshot.response())
 }
 
 func (s *Server) handleProjectPreviewStatus(w http.ResponseWriter, r *http.Request, project *Project) {

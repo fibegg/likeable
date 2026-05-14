@@ -7,7 +7,6 @@ import (
 	"log"
 	"time"
 
-	fibegateway "github.com/fibegg/likeable/internal/fibe"
 	"github.com/hibiken/asynq"
 )
 
@@ -49,6 +48,10 @@ func (s *Server) runProjectNotificationMonitor(ctx context.Context, payload proj
 	if project.Status == "deleting" {
 		return nil
 	}
+	if s.projectFeedForegroundRecent(project.ID, projectFeedForegroundTTL) {
+		s.enqueueProjectNotificationMonitor(context.Background(), payload.UserID, payload.UserEmail, payload.ProjectID, projectFeedForegroundDelay)
+		return nil
+	}
 	shouldContinue, err := s.refreshProjectNotificationTimings(ctx, project, payload.UserEmail)
 	if err != nil {
 		return err
@@ -60,48 +63,12 @@ func (s *Server) runProjectNotificationMonitor(ctx context.Context, payload proj
 }
 
 func (s *Server) refreshProjectNotificationTimings(ctx context.Context, project *Project, userEmail string) (bool, error) {
-	local, err := s.store.MessagesForProject(ctx, project.ID)
+	snapshot, err := s.loadProjectFeedSnapshot(ctx, &User{ID: project.UserID, Email: userEmail}, project, false)
 	if err != nil {
 		return false, err
 	}
-	fibeClient, err := s.fibeClientForProject(ctx, project, userEmail)
-	if err != nil {
-		return false, err
+	if snapshot == nil {
+		return false, nil
 	}
-	messages, messagesErr := fibeClient.Messages(ctx, project.ConversationID)
-	activity, activityErr := fibeClient.Activity(ctx, project.ConversationID)
-	live, liveErr := fibeClient.ConversationLiveState(ctx, project.ConversationID)
-	if messagesErr != nil {
-		if fibegateway.IsConversationMissingError(messagesErr) {
-			messages = []any{}
-		} else {
-			log.Printf("monitor project feed messages for project %s: %v", project.ID, messagesErr)
-			messages = []any{}
-		}
-	}
-	if activityErr != nil {
-		if fibegateway.IsConversationMissingError(activityErr) {
-			activity = []any{}
-		} else {
-			log.Printf("monitor project feed activity for project %s: %v", project.ID, activityErr)
-			activity = []any{}
-		}
-	}
-	if liveErr != nil {
-		if fibegateway.IsConversationMissingError(liveErr) {
-			live = &fibegateway.ConversationLiveState{ConversationID: project.ConversationID}
-		} else {
-			return false, liveErr
-		}
-	}
-	if messages == nil {
-		messages = []any{}
-	}
-	if activity == nil {
-		activity = []any{}
-	}
-	messages = sanitizeAgentProtocolMessages(messages)
-	sanitizeAgentProtocolLiveState(live)
-	_, shouldContinue, err := s.syncProjectNotificationTimings(ctx, project, local, messages, activity, live)
-	return shouldContinue, err
+	return snapshot.shouldMonitor, nil
 }

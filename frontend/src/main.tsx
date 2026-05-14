@@ -335,7 +335,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       console.error(err);
     });
     void load();
-    const timer = setInterval(load, agentWorking ? 1200 : 4000);
+    const timer = setInterval(load, agentWorking ? 1500 : 6000);
     return () => clearInterval(timer);
   }, [activeID, agentWorking]);
   useEffect(() => {
@@ -392,7 +392,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
         setIframeLoaded(false);
       });
     void load();
-    const timer = setInterval(load, (previewStatus?.ready || previewStatus?.maintenance) && !agentWorking ? 5000 : 1500);
+    const timer = setInterval(load, (previewStatus?.ready || previewStatus?.maintenance) && !agentWorking ? 10000 : 3000);
     return () => {
       cancelled = true;
       clearInterval(timer);

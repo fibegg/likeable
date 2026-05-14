@@ -90,6 +90,7 @@ func (s *Server) handleProjectMessages(w http.ResponseWriter, r *http.Request, u
 		return
 	}
 	if err := fibeClient.EnsureConversation(r.Context(), project.ConversationID, project.Title); err != nil {
+		s.observePlatformError(err)
 		log.Printf("create workspace conversation for project %s: %v", project.ID, err)
 		if fibegateway.IsAgentRuntimeUnavailableError(err) {
 			if startErr := s.startProjectAgentChat(r.Context(), project, fibeClient, "create conversation"); startErr != nil {
@@ -103,6 +104,7 @@ func (s *Server) handleProjectMessages(w http.ResponseWriter, r *http.Request, u
 		writeError(w, status, message)
 		return
 	}
+	s.clearPlatformBackoff()
 	messageID := uuid.NewString()
 	localAttachments, cleanupLocalAttachments, err := saveLocalMessageAttachments(s.store.DataDir(), project.ID, messageID, attachmentHeaders)
 	if err != nil {
@@ -132,6 +134,7 @@ func (s *Server) handleProjectMessages(w http.ResponseWriter, r *http.Request, u
 		return
 	}
 	if err := fibeClient.SendMessage(r.Context(), project.ConversationID, projecttext.AgentPrompt(project, agentText), attachmentPaths, busyPolicy); err != nil {
+		s.observePlatformError(err)
 		cleanupLocalAttachments()
 		_ = s.store.DeleteMessage(context.Background(), project.ID, messageID)
 		log.Printf("send workspace message for project %s: %v", project.ID, err)
@@ -145,12 +148,14 @@ func (s *Server) handleProjectMessages(w http.ResponseWriter, r *http.Request, u
 		writeError(w, status, message)
 		return
 	}
+	s.clearPlatformBackoff()
 	if usesPaidCredit {
 		if err := s.store.ConsumePaidMessageCredit(r.Context(), user.ID, msg.ID); err != nil {
 			writeError(w, http.StatusPaymentRequired, err.Error())
 			return
 		}
 	}
+	s.invalidateProjectFeedCache(project.ID)
 	s.enqueueProjectNotificationMonitor(context.Background(), user.ID, user.Email, project.ID, 0)
 	s.notifyMessageQuotaIfNeeded(r.Context(), user)
 	writeJSON(w, http.StatusAccepted, map[string]any{"message": msg})
@@ -206,6 +211,9 @@ func workspaceSendFailureResponse(attachments []MessageAttachment, err error) (i
 	}
 	if fibegateway.IsAgentRuntimeUnavailableError(err) {
 		return http.StatusServiceUnavailable, agentRuntimeUnavailableMessage()
+	}
+	if isPlatformRateLimited(err) {
+		return http.StatusServiceUnavailable, "workspace platform is rate limited; try again shortly"
 	}
 	return http.StatusBadGateway, "could not send the request to the workspace"
 }

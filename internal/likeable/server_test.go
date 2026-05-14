@@ -1778,6 +1778,131 @@ esac
 	}
 }
 
+func TestProjectFeedCachesWorkspaceSnapshot(t *testing.T) {
+	cliPath, logPath, _ := fakeFibeCLI(t)
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url": "server.test:3000",
+		"fibe_api_key":  "test-key",
+		"fibe_cli_path": cliPath,
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	user, _ := store.UpsertUser(t.Context(), "a@example.com", "A", "")
+	if err := store.CreateSession(t.Context(), user.ID, "token-a", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{
+		ID:             "project-feed-cache",
+		UserID:         user.ID,
+		Title:          "Feed Cache",
+		ConversationID: "conv-feed-cache",
+		AgentID:        "agent-1",
+		PreviewURL:     "http://preview.example.test",
+		Status:         "ready",
+	}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+
+	for range 2 {
+		req := httptest.NewRequest(http.MethodGet, "/api/projects/project-feed-cache/feed", nil)
+		req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "token-a"})
+		rec := httptest.NewRecorder()
+		server.routes().ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("feed returned %d, want 200; body=%s", rec.Code, rec.Body.String())
+		}
+	}
+
+	commands := readFile(t, logPath)
+	for _, command := range []string{"agents messages", "agents activity", "agents live-state"} {
+		if got := strings.Count(commands, command); got != 1 {
+			t.Fatalf("%s calls=%d, want 1; commands:\n%s", command, got, commands)
+		}
+	}
+}
+
+func TestProjectFeedBacksOffAfterPlatformRateLimit(t *testing.T) {
+	dir := t.TempDir()
+	cliPath := filepath.Join(dir, "fibe")
+	logPath := filepath.Join(dir, "commands.log")
+	script := `#!/bin/sh
+printf '%s\n' "$*" >> "` + logPath + `"
+case "$*" in
+  *"agents messages"*)
+    printf '%s\n' '{"error":{"message":"unexpected status 429","code":"INTERNAL_ERROR","status":422}}' >&2
+    exit 1
+    ;;
+  *)
+    echo "unexpected command: $*" >&2
+    exit 64
+    ;;
+esac
+`
+	if err := os.WriteFile(cliPath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url": "server.test:3000",
+		"fibe_api_key":  "test-key",
+		"fibe_cli_path": cliPath,
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	user, _ := store.UpsertUser(t.Context(), "a@example.com", "A", "")
+	if err := store.CreateSession(t.Context(), user.ID, "token-a", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{
+		ID:             "project-feed-rate-limit",
+		UserID:         user.ID,
+		Title:          "Rate Limit",
+		ConversationID: "conv-feed-rate-limit",
+		AgentID:        "agent-1",
+		PreviewURL:     "http://preview.example.test",
+		Status:         "ready",
+	}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+
+	for range 2 {
+		req := httptest.NewRequest(http.MethodGet, "/api/projects/project-feed-rate-limit/feed", nil)
+		req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "token-a"})
+		rec := httptest.NewRecorder()
+		server.routes().ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("feed returned %d, want 200; body=%s", rec.Code, rec.Body.String())
+		}
+		var body struct {
+			Warning string `json:"warning"`
+		}
+		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(body.Warning, "rate limited") {
+			t.Fatalf("warning=%q, want rate-limit warning", body.Warning)
+		}
+	}
+
+	commands := readFile(t, logPath)
+	if got := strings.Count(commands, "agents messages"); got != 1 {
+		t.Fatalf("agents messages calls=%d, want 1; commands:\n%s", got, commands)
+	}
+}
+
 func TestProjectNotificationTimingsPersistAcrossRefresh(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "likeable.db")
 	appStore, err := store.Open(dbPath)
