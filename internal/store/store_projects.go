@@ -15,10 +15,13 @@ func (s *Store) CreateProject(ctx context.Context, project *Project) error {
 	now := nowString()
 	project.CreatedAt = now
 	project.UpdatedAt = now
+	if strings.TrimSpace(project.PlaygroundLastUsedAt) == "" {
+		project.PlaygroundLastUsedAt = now
+	}
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO projects(id, user_id, title, conversation_id, agent_id, marquee_id, playground_id, playground_name, playspec_id, prop_id, repo_url, preview_url, selected_service_name, status, error_message, provisioning_lock_until, cleanup_last_error, created_at, updated_at)
-		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, project.ID, project.UserID, project.Title, project.ConversationID, project.AgentID, project.MarqueeID, project.PlaygroundID, project.PlaygroundName, project.PlayspecID, project.PropID, project.RepoURL, project.PreviewURL, project.SelectedService, project.Status, project.ErrorMessage, project.ProvisioningLockUntil, project.CleanupLastError, project.CreatedAt, project.UpdatedAt)
+		INSERT INTO projects(id, user_id, title, conversation_id, agent_id, marquee_id, playground_id, playground_name, playspec_id, prop_id, repo_url, preview_url, selected_service_name, status, error_message, provisioning_lock_until, cleanup_last_error, playground_last_used_at, created_at, updated_at)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, project.ID, project.UserID, project.Title, project.ConversationID, project.AgentID, project.MarqueeID, project.PlaygroundID, project.PlaygroundName, project.PlayspecID, project.PropID, project.RepoURL, project.PreviewURL, project.SelectedService, project.Status, project.ErrorMessage, project.ProvisioningLockUntil, project.CleanupLastError, project.PlaygroundLastUsedAt, project.CreatedAt, project.UpdatedAt)
 	return err
 }
 
@@ -29,11 +32,14 @@ func (s *Store) ProjectCountForUser(ctx context.Context, userID string) (int, er
 }
 
 func (s *Store) UpdateProjectProvisioning(ctx context.Context, projectID, userID, playgroundID, playspecID, propID, repoURL, previewURL, selectedServiceName, status string) error {
+	now := nowString()
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE projects
-		SET playground_id = ?, playspec_id = ?, prop_id = ?, repo_url = ?, preview_url = ?, selected_service_name = ?, status = ?, error_message = '', updated_at = ?
+		SET playground_id = ?, playspec_id = ?, prop_id = ?, repo_url = ?, preview_url = ?, selected_service_name = ?, status = ?, error_message = '',
+			playground_last_used_at = CASE WHEN ? = 'ready' AND playground_last_used_at = '' THEN ? ELSE playground_last_used_at END,
+			updated_at = ?
 		WHERE id = ? AND user_id = ? AND status != 'deleting'
-	`, playgroundID, playspecID, propID, repoURL, previewURL, selectedServiceName, status, nowString(), projectID, userID)
+	`, playgroundID, playspecID, propID, repoURL, previewURL, selectedServiceName, status, status, now, now, projectID, userID)
 	if err != nil {
 		return err
 	}
@@ -187,11 +193,29 @@ func (s *Store) UpdateProjectSelectedService(ctx context.Context, projectID, use
 	if err := row.Scan(&serviceURL); err != nil {
 		return err
 	}
+	now := nowString()
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE projects
-		SET selected_service_name = ?, preview_url = ?, updated_at = ?
+		SET selected_service_name = ?, preview_url = ?, playground_last_used_at = ?, updated_at = ?
 		WHERE id = ? AND user_id = ?
-	`, serviceName, serviceURL, nowString(), projectID, userID)
+	`, serviceName, serviceURL, now, now, projectID, userID)
+	if err != nil {
+		return err
+	}
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (s *Store) TouchProjectPlaygroundUsage(ctx context.Context, projectID, userID string) error {
+	now := nowString()
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE projects
+		SET playground_last_used_at = ?, updated_at = ?
+		WHERE id = ? AND user_id = ? AND status != 'deleting'
+	`, now, now, projectID, userID)
 	if err != nil {
 		return err
 	}
@@ -221,6 +245,12 @@ func (s *Store) SaveProjectProvisioningSnapshot(ctx context.Context, project *Pr
 	if status == "" {
 		status = project.Status
 	}
+	now := nowString()
+	lastUsedAt := strings.TrimSpace(project.PlaygroundLastUsedAt)
+	if status == "ready" && lastUsedAt == "" {
+		lastUsedAt = now
+		project.PlaygroundLastUsedAt = lastUsedAt
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -229,9 +259,11 @@ func (s *Store) SaveProjectProvisioningSnapshot(ctx context.Context, project *Pr
 
 	result, err := tx.ExecContext(ctx, `
 		UPDATE projects
-		SET agent_id = ?, marquee_id = ?, playground_id = ?, playground_name = ?, playspec_id = ?, prop_id = ?, repo_url = ?, preview_url = ?, selected_service_name = ?, status = ?, error_message = '', cleanup_last_error = '', updated_at = ?
+		SET agent_id = ?, marquee_id = ?, playground_id = ?, playground_name = ?, playspec_id = ?, prop_id = ?, repo_url = ?, preview_url = ?, selected_service_name = ?, status = ?, error_message = '', cleanup_last_error = '',
+			playground_last_used_at = CASE WHEN ? != '' THEN ? ELSE playground_last_used_at END,
+			updated_at = ?
 		WHERE id = ? AND user_id = ? AND status != 'deleting'
-	`, project.AgentID, project.MarqueeID, project.PlaygroundID, project.PlaygroundName, project.PlayspecID, project.PropID, project.RepoURL, project.PreviewURL, project.SelectedService, status, nowString(), project.ID, project.UserID)
+	`, project.AgentID, project.MarqueeID, project.PlaygroundID, project.PlaygroundName, project.PlayspecID, project.PropID, project.RepoURL, project.PreviewURL, project.SelectedService, status, lastUsedAt, lastUsedAt, now, project.ID, project.UserID)
 	if err != nil {
 		return err
 	}
@@ -247,7 +279,7 @@ func (s *Store) SaveProjectProvisioningSnapshot(ctx context.Context, project *Pr
 
 func (s *Store) ProjectForUser(ctx context.Context, userID, projectID string) (*Project, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, user_id, title, conversation_id, agent_id, marquee_id, playground_id, playground_name, playspec_id, prop_id, repo_url, preview_url, selected_service_name, status, error_message, provisioning_lock_until, cleanup_last_error, created_at, updated_at
+		SELECT id, user_id, title, conversation_id, agent_id, marquee_id, playground_id, playground_name, playspec_id, prop_id, repo_url, preview_url, selected_service_name, status, error_message, provisioning_lock_until, cleanup_last_error, playground_last_used_at, created_at, updated_at
 		FROM projects
 		WHERE id = ? AND user_id = ?
 	`, projectID, userID)
@@ -260,7 +292,7 @@ func (s *Store) ProjectForUser(ctx context.Context, userID, projectID string) (*
 
 func (s *Store) AllProjectsForUser(ctx context.Context, userID string) ([]Project, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, user_id, title, conversation_id, agent_id, marquee_id, playground_id, playground_name, playspec_id, prop_id, repo_url, preview_url, selected_service_name, status, error_message, provisioning_lock_until, cleanup_last_error, created_at, updated_at
+		SELECT id, user_id, title, conversation_id, agent_id, marquee_id, playground_id, playground_name, playspec_id, prop_id, repo_url, preview_url, selected_service_name, status, error_message, provisioning_lock_until, cleanup_last_error, playground_last_used_at, created_at, updated_at
 		FROM projects
 		WHERE user_id = ?
 		ORDER BY updated_at DESC
@@ -295,7 +327,7 @@ func (s *Store) AllProjectsForUser(ctx context.Context, userID string) ([]Projec
 
 func (s *Store) ProjectsForUser(ctx context.Context, userID string) ([]Project, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, user_id, title, conversation_id, agent_id, marquee_id, playground_id, playground_name, playspec_id, prop_id, repo_url, preview_url, selected_service_name, status, error_message, provisioning_lock_until, cleanup_last_error, created_at, updated_at
+		SELECT id, user_id, title, conversation_id, agent_id, marquee_id, playground_id, playground_name, playspec_id, prop_id, repo_url, preview_url, selected_service_name, status, error_message, provisioning_lock_until, cleanup_last_error, playground_last_used_at, created_at, updated_at
 		FROM projects
 		WHERE user_id = ? AND status != 'deleting'
 		ORDER BY updated_at DESC
@@ -333,7 +365,7 @@ func (s *Store) DeletingProjects(ctx context.Context, limit int) ([]Project, err
 		limit = 100
 	}
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, user_id, title, conversation_id, agent_id, marquee_id, playground_id, playground_name, playspec_id, prop_id, repo_url, preview_url, selected_service_name, status, error_message, provisioning_lock_until, cleanup_last_error, created_at, updated_at
+		SELECT id, user_id, title, conversation_id, agent_id, marquee_id, playground_id, playground_name, playspec_id, prop_id, repo_url, preview_url, selected_service_name, status, error_message, provisioning_lock_until, cleanup_last_error, playground_last_used_at, created_at, updated_at
 		FROM projects
 		WHERE status = 'deleting'
 		ORDER BY updated_at ASC
@@ -375,14 +407,10 @@ func (s *Store) IdleProjectsForPlaygroundStop(ctx context.Context, cutoff time.T
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT projects.id, projects.user_id, projects.title, projects.conversation_id, projects.agent_id, projects.marquee_id,
 			projects.playground_id, projects.playground_name, projects.playspec_id, projects.prop_id, projects.repo_url, projects.preview_url,
-			projects.selected_service_name, projects.status, projects.error_message, projects.provisioning_lock_until, projects.cleanup_last_error, projects.created_at, projects.updated_at,
-			COALESCE(MAX(messages.created_at), projects.created_at) AS last_user_activity_at
+			projects.selected_service_name, projects.status, projects.error_message, projects.provisioning_lock_until, projects.cleanup_last_error, projects.playground_last_used_at, projects.created_at, projects.updated_at
 		FROM projects
-		LEFT JOIN messages ON messages.project_id = projects.id AND messages.role = 'user'
-		WHERE projects.status = 'ready' AND TRIM(projects.playground_id) != ''
-		GROUP BY projects.id
-		HAVING last_user_activity_at < ?
-		ORDER BY last_user_activity_at ASC
+		WHERE projects.status = 'ready' AND TRIM(projects.playground_id) != '' AND TRIM(projects.playground_last_used_at) != '' AND projects.playground_last_used_at < ?
+		ORDER BY projects.playground_last_used_at ASC
 		LIMIT ?
 	`, cutoffString, limit)
 	if err != nil {
@@ -391,11 +419,11 @@ func (s *Store) IdleProjectsForPlaygroundStop(ctx context.Context, cutoff time.T
 	var out []Project
 	for rows.Next() {
 		var project Project
-		var lastActivity string
-		if err := rows.Scan(&project.ID, &project.UserID, &project.Title, &project.ConversationID, &project.AgentID, &project.MarqueeID, &project.PlaygroundID, &project.PlaygroundName, &project.PlayspecID, &project.PropID, &project.RepoURL, &project.PreviewURL, &project.SelectedService, &project.Status, &project.ErrorMessage, &project.ProvisioningLockUntil, &project.CleanupLastError, &project.CreatedAt, &project.UpdatedAt, &lastActivity); err != nil {
+		if err := rows.Scan(&project.ID, &project.UserID, &project.Title, &project.ConversationID, &project.AgentID, &project.MarqueeID, &project.PlaygroundID, &project.PlaygroundName, &project.PlayspecID, &project.PropID, &project.RepoURL, &project.PreviewURL, &project.SelectedService, &project.Status, &project.ErrorMessage, &project.ProvisioningLockUntil, &project.CleanupLastError, &project.PlaygroundLastUsedAt, &project.CreatedAt, &project.UpdatedAt); err != nil {
 			_ = rows.Close()
 			return nil, err
 		}
+		project.RefreshComputedFields()
 		out = append(out, project)
 	}
 	if err := rows.Err(); err != nil {
@@ -414,26 +442,36 @@ func (s *Store) IdleProjectsForPlaygroundStop(ctx context.Context, cutoff time.T
 	return out, nil
 }
 
-func (s *Store) ProjectIdleForPlaygroundStop(ctx context.Context, projectID string, cutoff time.Time) (bool, error) {
+func (s *Store) ProjectIdleForPlaygroundStop(ctx context.Context, projectID string, cutoff time.Time) (bool, string, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT projects.status, projects.playground_id, COALESCE(MAX(messages.created_at), projects.created_at) AS last_user_activity_at
+		SELECT projects.status, projects.playground_id, projects.playground_last_used_at
 		FROM projects
-		LEFT JOIN messages ON messages.project_id = projects.id AND messages.role = 'user'
 		WHERE projects.id = ?
-		GROUP BY projects.id
 	`, projectID)
-	var status, playgroundID, lastActivity string
-	if err := row.Scan(&status, &playgroundID, &lastActivity); err != nil {
-		return false, err
+	var status, playgroundID, lastUsedAt string
+	if err := row.Scan(&status, &playgroundID, &lastUsedAt); err != nil {
+		return false, "", err
 	}
-	return status == "ready" && strings.TrimSpace(playgroundID) != "" && lastActivity < cutoff.UTC().Format(time.RFC3339Nano), nil
+	if status != "ready" || strings.TrimSpace(playgroundID) == "" {
+		return false, "", nil
+	}
+	lastUsedAt = strings.TrimSpace(lastUsedAt)
+	if lastUsedAt == "" {
+		return false, "missing playground_last_used_at", nil
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, lastUsedAt)
+	if err != nil {
+		return false, "invalid playground_last_used_at", nil
+	}
+	return parsed.Before(cutoff.UTC()), "", nil
 }
 
 func scanProject(scanner interface{ Scan(...any) error }) (*Project, error) {
 	var project Project
-	if err := scanner.Scan(&project.ID, &project.UserID, &project.Title, &project.ConversationID, &project.AgentID, &project.MarqueeID, &project.PlaygroundID, &project.PlaygroundName, &project.PlayspecID, &project.PropID, &project.RepoURL, &project.PreviewURL, &project.SelectedService, &project.Status, &project.ErrorMessage, &project.ProvisioningLockUntil, &project.CleanupLastError, &project.CreatedAt, &project.UpdatedAt); err != nil {
+	if err := scanner.Scan(&project.ID, &project.UserID, &project.Title, &project.ConversationID, &project.AgentID, &project.MarqueeID, &project.PlaygroundID, &project.PlaygroundName, &project.PlayspecID, &project.PropID, &project.RepoURL, &project.PreviewURL, &project.SelectedService, &project.Status, &project.ErrorMessage, &project.ProvisioningLockUntil, &project.CleanupLastError, &project.PlaygroundLastUsedAt, &project.CreatedAt, &project.UpdatedAt); err != nil {
 		return nil, err
 	}
+	project.RefreshComputedFields()
 	return &project, nil
 }
 
@@ -611,7 +649,7 @@ func (s *Store) ProjectsExceedingQuota(ctx context.Context, userID string, limit
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT projects.id, projects.user_id, projects.title, projects.conversation_id, projects.agent_id, projects.marquee_id,
 			projects.playground_id, projects.playground_name, projects.playspec_id, projects.prop_id, projects.repo_url, projects.preview_url,
-			projects.selected_service_name, projects.status, projects.error_message, projects.provisioning_lock_until, projects.cleanup_last_error, projects.created_at, projects.updated_at,
+			projects.selected_service_name, projects.status, projects.error_message, projects.provisioning_lock_until, projects.cleanup_last_error, projects.playground_last_used_at, projects.created_at, projects.updated_at,
 			COALESCE(MAX(messages.created_at), projects.updated_at) AS last_activity_at
 		FROM projects
 		LEFT JOIN messages ON messages.project_id = projects.id AND messages.role = 'user'
@@ -626,10 +664,11 @@ func (s *Store) ProjectsExceedingQuota(ctx context.Context, userID string, limit
 	for rows.Next() {
 		var project Project
 		var lastActivity string
-		if err := rows.Scan(&project.ID, &project.UserID, &project.Title, &project.ConversationID, &project.AgentID, &project.MarqueeID, &project.PlaygroundID, &project.PlaygroundName, &project.PlayspecID, &project.PropID, &project.RepoURL, &project.PreviewURL, &project.SelectedService, &project.Status, &project.ErrorMessage, &project.ProvisioningLockUntil, &project.CleanupLastError, &project.CreatedAt, &project.UpdatedAt, &lastActivity); err != nil {
+		if err := rows.Scan(&project.ID, &project.UserID, &project.Title, &project.ConversationID, &project.AgentID, &project.MarqueeID, &project.PlaygroundID, &project.PlaygroundName, &project.PlayspecID, &project.PropID, &project.RepoURL, &project.PreviewURL, &project.SelectedService, &project.Status, &project.ErrorMessage, &project.ProvisioningLockUntil, &project.CleanupLastError, &project.PlaygroundLastUsedAt, &project.CreatedAt, &project.UpdatedAt, &lastActivity); err != nil {
 			_ = rows.Close()
 			return nil, err
 		}
+		project.RefreshComputedFields()
 		all = append(all, project)
 	}
 	if err := rows.Err(); err != nil {
@@ -650,7 +689,7 @@ func (s *Store) ProjectsExceedingQuota(ctx context.Context, userID string, limit
 
 func (s *Store) ProjectsForAssignment(ctx context.Context, agentID, marqueeID string) ([]Project, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, user_id, title, conversation_id, agent_id, marquee_id, playground_id, playground_name, playspec_id, prop_id, repo_url, preview_url, selected_service_name, status, error_message, provisioning_lock_until, cleanup_last_error, created_at, updated_at
+		SELECT id, user_id, title, conversation_id, agent_id, marquee_id, playground_id, playground_name, playspec_id, prop_id, repo_url, preview_url, selected_service_name, status, error_message, provisioning_lock_until, cleanup_last_error, playground_last_used_at, created_at, updated_at
 		FROM projects
 		WHERE agent_id = ? AND marquee_id = ? AND status != 'deleting'
 		ORDER BY updated_at DESC

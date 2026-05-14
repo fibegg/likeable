@@ -809,6 +809,11 @@ html[data-builder-mode="split"] .account {
   background: rgba(174, 244, 255, .045);
   padding: 0 9px;
 }
+.chromePill .idleStopBadge {
+  border-color: rgba(213, 141, 45, .28);
+  background: rgba(213, 141, 45, .06);
+  color: rgba(236, 205, 155, .82);
+}
 .identityPill {
   gap: 3px;
 }

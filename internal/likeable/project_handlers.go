@@ -278,6 +278,10 @@ func (s *Server) handleProjectAgentInterrupt(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	s.clearPlatformBackoff()
+	if err := s.store.TouchProjectPlaygroundUsage(r.Context(), project.ID, user.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
 }
 
@@ -353,11 +357,17 @@ func (s *Server) controlProjectPlayground(ctx context.Context, user *User, proje
 			if updateErr := s.store.UpdateProjectStatus(ctx, project.ID, user.ID, "stopped"); updateErr != nil {
 				return nil, updateErr
 			}
+			if touchErr := s.store.TouchProjectPlaygroundUsage(ctx, project.ID, user.ID); touchErr != nil {
+				return nil, touchErr
+			}
 			return s.store.ProjectForUser(ctx, user.ID, project.ID)
 		}
 		return nil, err
 	}
 	if err := s.store.UpdateProjectStatus(ctx, project.ID, user.ID, nextStatus); err != nil {
+		return nil, err
+	}
+	if err := s.store.TouchProjectPlaygroundUsage(ctx, project.ID, user.ID); err != nil {
 		return nil, err
 	}
 	return s.store.ProjectForUser(ctx, user.ID, project.ID)

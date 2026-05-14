@@ -5,6 +5,8 @@ import (
 	"time"
 )
 
+const PlaygroundIdleStopAfter = 8 * time.Hour
+
 type User struct {
 	ID           string `json:"id"`
 	Email        string `json:"email"`
@@ -35,8 +37,22 @@ type Project struct {
 	ErrorMessage          string              `json:"errorMessage,omitempty"`
 	ProvisioningLockUntil string              `json:"-"`
 	CleanupLastError      string              `json:"-"`
+	PlaygroundLastUsedAt  string              `json:"playgroundLastUsedAt,omitempty"`
+	PlaygroundIdleStopAt  string              `json:"playgroundIdleStopAt,omitempty"`
 	CreatedAt             string              `json:"createdAt"`
 	UpdatedAt             string              `json:"updatedAt"`
+}
+
+func (p *Project) RefreshComputedFields() {
+	p.PlaygroundIdleStopAt = ""
+	if p.Status != "ready" || strings.TrimSpace(p.PlaygroundLastUsedAt) == "" {
+		return
+	}
+	lastUsedAt, err := time.Parse(time.RFC3339Nano, p.PlaygroundLastUsedAt)
+	if err != nil {
+		return
+	}
+	p.PlaygroundIdleStopAt = lastUsedAt.UTC().Add(PlaygroundIdleStopAfter).Format(time.RFC3339Nano)
 }
 
 type ProjectRepository struct {

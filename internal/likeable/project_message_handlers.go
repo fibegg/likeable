@@ -133,6 +133,12 @@ func (s *Server) handleProjectMessages(w http.ResponseWriter, r *http.Request, u
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	if err := s.store.TouchProjectPlaygroundUsage(r.Context(), project.ID, user.ID); err != nil {
+		cleanupLocalAttachments()
+		_ = s.store.DeleteMessage(context.Background(), project.ID, messageID)
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	if err := fibeClient.SendMessage(r.Context(), project.ConversationID, projecttext.AgentPrompt(project, agentText), attachmentPaths, busyPolicy); err != nil {
 		s.observePlatformError(err)
 		cleanupLocalAttachments()

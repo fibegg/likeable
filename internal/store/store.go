@@ -82,6 +82,7 @@ func (s *Store) migrate(ctx context.Context) error {
 			error_message TEXT NOT NULL DEFAULT '',
 			provisioning_lock_until TEXT NOT NULL DEFAULT '',
 			cleanup_last_error TEXT NOT NULL DEFAULT '',
+			playground_last_used_at TEXT NOT NULL DEFAULT '',
 			created_at TEXT NOT NULL,
 			updated_at TEXT NOT NULL
 		)`,
@@ -259,6 +260,12 @@ func (s *Store) migrate(ctx context.Context) error {
 	if err := s.ensureColumn(ctx, "projects", "cleanup_last_error", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
+	if err := s.ensureColumn(ctx, "projects", "playground_last_used_at", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := s.backfillProjectPlaygroundUsage(ctx); err != nil {
+		return err
+	}
 	if err := s.ensureColumn(ctx, "users", "access_status", "TEXT NOT NULL DEFAULT 'active'"); err != nil {
 		return err
 	}
@@ -306,6 +313,15 @@ func (s *Store) ensureColumn(ctx context.Context, table, name, definition string
 }
 
 func nowString() string { return time.Now().UTC().Format(time.RFC3339Nano) }
+
+func (s *Store) backfillProjectPlaygroundUsage(ctx context.Context) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE projects
+		SET playground_last_used_at = ?
+		WHERE status = 'ready' AND playground_last_used_at = ''
+	`, nowString())
+	return err
+}
 
 func normalizeEmail(email string) string {
 	return strings.ToLower(strings.TrimSpace(email))

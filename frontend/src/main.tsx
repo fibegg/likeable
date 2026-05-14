@@ -221,6 +221,9 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const previewReady = Boolean(activePreviewURL && previewRuntimeActive && previewStatus?.ready);
   const previewDisplayable = Boolean(activePreviewURL && previewRuntimeActive && (previewReady || previewMaintenance));
   const canvasStatusLabel = agentWorking ? t('builder.status.agentWorking') : previewMaintenance ? t('builder.status.maintenance') : activeProject?.status === 'ready' ? (previewReady ? t('builder.status.canvasLive') : t('builder.status.canvasStarting')) : isProjectStarting ? t('builder.status.canvasStarting') : projectArchived ? t('builder.status.canvasArchived') : activeProject?.status === 'stopped' ? t('builder.status.canvasStopped') : activeProject?.status === 'error' ? t('builder.status.canvasError') : t('builder.status.canvasIdle');
+  const idleStopCountdown = activeProject?.status === 'ready' && activeProject.playgroundIdleStopAt ? formatResetCountdown(activeProject.playgroundIdleStopAt, quotaNow, resetCountdownLabels(t)) : '';
+  const idleStopLabel = idleStopCountdown ? t('builder.idleStop.label', { time: idleStopCountdown }) : '';
+  const idleStopTooltip = idleStopCountdown ? t('builder.idleStop.tooltip', { time: idleStopCountdown }) : '';
   const hasDraft = Boolean(prompt.trim()) || attachments.length > 0;
   const canSend = signedIn && !projectArchived && hasDraft && !busy && !messageSubmitting && Boolean(activePreviewURL) && (activeProject?.status === 'ready' || previewReady);
   const hasActiveNotification = rows.some((row) => row.kind === 'notification' && row.active);
@@ -823,6 +826,11 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
           {messageQuota && (
             <span className="messageQuotaBadge tooltip tooltipBottom" data-tip={messageQuotaTooltip} aria-label={t('builder.messages.left')}>
               {messageQuotaLabel}
+            </span>
+          )}
+          {idleStopLabel && (
+            <span className="messageQuotaBadge idleStopBadge tooltip tooltipBottom" data-tip={idleStopTooltip} aria-label={idleStopTooltip}>
+              {idleStopLabel}
             </span>
           )}
           <LanguageToggle className="chromeIconButton tooltip tooltipBottom languageChromeButton" />

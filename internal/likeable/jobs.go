@@ -11,12 +11,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fibegg/likeable/internal/domain"
 	projecttext "github.com/fibegg/likeable/internal/project"
 	"github.com/hibiken/asynq"
 )
 
 const projectProvisionRetryDelay = 2 * time.Minute
-const idleProjectStopAfter = 8 * time.Hour
+const idleProjectStopAfter = domain.PlaygroundIdleStopAfter
 
 const (
 	taskProvisionProject            = "likeable:project:provision"
@@ -468,12 +469,16 @@ func (s *Server) handleStopIdleProjectTask(ctx context.Context, task *asynq.Task
 		}
 		return err
 	}
-	idle, err := s.store.ProjectIdleForPlaygroundStop(ctx, project.ID, time.Now().UTC().Add(-idleProjectStopAfter))
+	idle, skipReason, err := s.store.ProjectIdleForPlaygroundStop(ctx, project.ID, time.Now().UTC().Add(-idleProjectStopAfter))
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil
 		}
 		return err
+	}
+	if skipReason != "" {
+		log.Printf("skip idle playground stop for project %s: %s", project.ID, skipReason)
+		return nil
 	}
 	if !idle {
 		return nil
@@ -485,7 +490,7 @@ func (s *Server) handleStopIdleProjectTask(ctx context.Context, task *asynq.Task
 		}
 		return err
 	}
-	log.Printf("stop idle playground for project %s: no user messages for %s", project.ID, idleProjectStopAfter)
+	log.Printf("stop idle playground for project %s: no explicit playground activity for %s", project.ID, idleProjectStopAfter)
 	_, err = s.controlProjectPlayground(ctx, user, project, "stop")
 	return err
 }

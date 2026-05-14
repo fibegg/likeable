@@ -609,15 +609,15 @@ func TestProjectResponsesDoNotExposePlatformInternals(t *testing.T) {
 		}
 		body := rec.Body.String()
 		for _, token := range []string{
-			"conversationId",
-			"agentId",
-			"marqueeId",
-			"playgroundId",
-			"playspecId",
-			"propId",
-			"repoUrl",
-			"UserID",
-			"ConversationID",
+			`"conversationId"`,
+			`"agentId"`,
+			`"marqueeId"`,
+			`"playgroundId"`,
+			`"playspecId"`,
+			`"propId"`,
+			`"repoUrl"`,
+			`"UserID"`,
+			`"ConversationID"`,
 			"server.example.test/source",
 		} {
 			if strings.Contains(body, token) {
@@ -1330,17 +1330,19 @@ esac
 		t.Fatal(err)
 	}
 	project := &Project{
-		ID:             "project-message-order",
-		UserID:         user.ID,
-		Title:          "Order",
-		ConversationID: "conv-order",
-		AgentID:        "agent-1",
-		PreviewURL:     "http://preview.example.test",
-		Status:         "ready",
+		ID:                   "project-message-order",
+		UserID:               user.ID,
+		Title:                "Order",
+		ConversationID:       "conv-order",
+		AgentID:              "agent-1",
+		PreviewURL:           "http://preview.example.test",
+		Status:               "ready",
+		PlaygroundLastUsedAt: time.Now().UTC().Add(-9 * time.Hour).Format(time.RFC3339Nano),
 	}
 	if err := store.CreateProject(t.Context(), project); err != nil {
 		t.Fatal(err)
 	}
+	previousLastUsedAt := project.PlaygroundLastUsedAt
 
 	req := httptest.NewRequest(http.MethodPost, "/api/projects/project-message-order/messages", strings.NewReader(`{"text":"change the heading"}`))
 	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "token-a"})
@@ -1381,6 +1383,13 @@ esac
 	}
 	if !strings.Contains(readFile(t, stdinPath), "change the heading") {
 		t.Fatalf("agent prompt was not sent: %s", readFile(t, stdinPath))
+	}
+	stored, err := store.ProjectForUser(t.Context(), user.ID, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.PlaygroundLastUsedAt == "" || stored.PlaygroundLastUsedAt == previousLastUsedAt {
+		t.Fatalf("playground_last_used_at=%q, previous=%q; want message touch", stored.PlaygroundLastUsedAt, previousLastUsedAt)
 	}
 }
 
@@ -2578,10 +2587,12 @@ func TestProjectPlaygroundLifecycleActions(t *testing.T) {
 	if err := store.CreateSession(t.Context(), user.ID, "project-token", time.Hour); err != nil {
 		t.Fatal(err)
 	}
-	project := &Project{ID: "project-control", UserID: user.ID, Title: "Control", ConversationID: "conv-control", AgentID: "agent-1", PlaygroundID: "playground-1", Status: "ready"}
+	oldUsage := time.Now().UTC().Add(-9 * time.Hour).Format(time.RFC3339Nano)
+	project := &Project{ID: "project-control", UserID: user.ID, Title: "Control", ConversationID: "conv-control", AgentID: "agent-1", PlaygroundID: "playground-1", Status: "ready", PlaygroundLastUsedAt: oldUsage}
 	if err := store.CreateProject(t.Context(), project); err != nil {
 		t.Fatal(err)
 	}
+	lastUsedAt := oldUsage
 	for _, tc := range []struct {
 		action string
 		status string
@@ -2591,6 +2602,7 @@ func TestProjectPlaygroundLifecycleActions(t *testing.T) {
 		{action: "start", status: "launching", cmd: "playgrounds start playground-1"},
 		{action: "restart", status: "launching", cmd: "playgrounds hard-restart playground-1"},
 	} {
+		time.Sleep(time.Millisecond)
 		req := httptest.NewRequest(http.MethodPost, "/api/projects/project-control/playground", strings.NewReader(`{"action":"`+tc.action+`"}`))
 		req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "project-token"})
 		rec := httptest.NewRecorder()
@@ -2607,9 +2619,100 @@ func TestProjectPlaygroundLifecycleActions(t *testing.T) {
 		if stored.Status != tc.status {
 			t.Fatalf("%s status=%q, want %q", tc.action, stored.Status, tc.status)
 		}
+		if stored.PlaygroundLastUsedAt == "" || stored.PlaygroundLastUsedAt == lastUsedAt {
+			t.Fatalf("%s playground_last_used_at=%q, previous=%q; want touch", tc.action, stored.PlaygroundLastUsedAt, lastUsedAt)
+		}
+		lastUsedAt = stored.PlaygroundLastUsedAt
 		if log := readFile(t, logPath); !strings.Contains(log, tc.cmd) {
 			t.Fatalf("%s missing command %q; log=%s", tc.action, tc.cmd, log)
 		}
+	}
+}
+
+func TestProjectExplicitActivityTouchesUsageButPassivePreviewDoesNot(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	cliPath, _, _ := fakeFibeCLI(t)
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url": "server.test:3000",
+		"fibe_api_key":  "test-key",
+		"fibe_cli_path": cliPath,
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	user, err := store.UpsertUser(t.Context(), "activity@example.com", "Activity", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateSession(t.Context(), user.ID, "activity-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	oldUsage := time.Now().UTC().Add(-9 * time.Hour).Format(time.RFC3339Nano)
+	switchProject := &Project{ID: "project-service-activity", UserID: user.ID, Title: "Service", ConversationID: "conv-service-activity", AgentID: "agent-1", PlaygroundID: "playground-service-activity", PreviewURL: "http://app.example.test", Status: "ready", PlaygroundLastUsedAt: oldUsage}
+	if err := store.CreateProject(t.Context(), switchProject); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ReplaceProjectResources(t.Context(), switchProject.ID, nil, []ProjectService{
+		{ProjectID: switchProject.ID, Name: "app", URL: "http://app.example.test", Type: "dynamic", Visibility: "external"},
+		{ProjectID: switchProject.ID, Name: "api", URL: "http://api.example.test", Type: "dynamic", Visibility: "external"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPatch, "/api/projects/project-service-activity", strings.NewReader(`{"selectedServiceName":"api"}`))
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "activity-token"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("service switch returned %d: %s", rec.Code, rec.Body.String())
+	}
+	updated, err := store.ProjectForUser(t.Context(), user.ID, switchProject.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.PlaygroundLastUsedAt == oldUsage {
+		t.Fatalf("service switch did not touch playground_last_used_at")
+	}
+
+	interruptProject := &Project{ID: "project-interrupt-activity", UserID: user.ID, Title: "Interrupt", ConversationID: "conv-interrupt-activity", AgentID: "agent-1", PlaygroundID: "playground-interrupt-activity", Status: "ready", PlaygroundLastUsedAt: oldUsage}
+	if err := store.CreateProject(t.Context(), interruptProject); err != nil {
+		t.Fatal(err)
+	}
+	req = httptest.NewRequest(http.MethodPost, "/api/projects/project-interrupt-activity/agent/interrupt", nil)
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "activity-token"})
+	rec = httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("interrupt returned %d: %s", rec.Code, rec.Body.String())
+	}
+	updated, err = store.ProjectForUser(t.Context(), user.ID, interruptProject.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.PlaygroundLastUsedAt == oldUsage {
+		t.Fatalf("interrupt did not touch playground_last_used_at")
+	}
+
+	passiveProject := &Project{ID: "project-passive-preview", UserID: user.ID, Title: "Passive", ConversationID: "conv-passive-preview", AgentID: "agent-1", PlaygroundID: "playground-passive-preview", Status: "ready", PlaygroundLastUsedAt: oldUsage}
+	if err := store.CreateProject(t.Context(), passiveProject); err != nil {
+		t.Fatal(err)
+	}
+	req = httptest.NewRequest(http.MethodGet, "/api/projects/project-passive-preview/preview-status", nil)
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "activity-token"})
+	rec = httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("preview status returned %d: %s", rec.Code, rec.Body.String())
+	}
+	updated, err = store.ProjectForUser(t.Context(), user.ID, passiveProject.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.PlaygroundLastUsedAt != oldUsage {
+		t.Fatalf("passive preview changed playground_last_used_at from %q to %q", oldUsage, updated.PlaygroundLastUsedAt)
 	}
 }
 
@@ -2722,7 +2825,7 @@ func TestIdleProjectStopTaskStopsPlayground(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	project := &Project{ID: "project-idle", UserID: user.ID, Title: "Idle", ConversationID: "conv-idle", AgentID: "agent-1", PlaygroundID: "playground-idle", Status: "ready"}
+	project := &Project{ID: "project-idle", UserID: user.ID, Title: "Idle", ConversationID: "conv-idle", AgentID: "agent-1", PlaygroundID: "playground-idle", Status: "ready", PlaygroundLastUsedAt: time.Now().UTC().Add(-idleProjectStopAfter - time.Minute).Format(time.RFC3339Nano)}
 	if err := store.CreateProject(t.Context(), project); err != nil {
 		t.Fatal(err)
 	}
@@ -2747,6 +2850,53 @@ func TestIdleProjectStopTaskStopsPlayground(t *testing.T) {
 	}
 }
 
+func TestIdleProjectStopTaskSkipsAfterRecentUsageReset(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	cliPath, logPath, _ := fakeFibeCLI(t)
+	if err := os.WriteFile(logPath, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url": "server.test:3000",
+		"fibe_api_key":  "test-key",
+		"fibe_cli_path": cliPath,
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	user, err := store.UpsertUser(t.Context(), "idle-reset@example.com", "Idle", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{ID: "project-idle-reset", UserID: user.ID, Title: "Idle", ConversationID: "conv-idle-reset", AgentID: "agent-1", PlaygroundID: "playground-idle-reset", Status: "ready", PlaygroundLastUsedAt: time.Now().UTC().Add(-idleProjectStopAfter - time.Minute).Format(time.RFC3339Nano)}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+	payload, _ := json.Marshal(projectJobPayload{UserID: user.ID, UserEmail: user.Email, ProjectID: project.ID})
+	if err := store.TouchProjectPlaygroundUsage(t.Context(), project.ID, user.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := server.handleStopIdleProjectTask(t.Context(), asynq.NewTask(taskStopIdleProject, payload)); err != nil {
+		t.Fatal(err)
+	}
+
+	stored, err := store.ProjectForUser(t.Context(), user.ID, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != "ready" {
+		t.Fatalf("status=%q, want ready", stored.Status)
+	}
+	if log := readFile(t, logPath); strings.Contains(log, "playgrounds stop playground-idle-reset") {
+		t.Fatalf("unexpected stop command after recent usage reset; log=%s", log)
+	}
+}
+
 func TestIdleProjectStopTaskTreatsAlreadyStoppedAsSuccess(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {
@@ -2766,7 +2916,7 @@ func TestIdleProjectStopTaskTreatsAlreadyStoppedAsSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	project := &Project{ID: "project-idle-already-stopped", UserID: user.ID, Title: "Idle", ConversationID: "conv-idle-already-stopped", AgentID: "agent-1", PlaygroundID: "playground-idle", Status: "ready"}
+	project := &Project{ID: "project-idle-already-stopped", UserID: user.ID, Title: "Idle", ConversationID: "conv-idle-already-stopped", AgentID: "agent-1", PlaygroundID: "playground-idle", Status: "ready", PlaygroundLastUsedAt: time.Now().UTC().Add(-idleProjectStopAfter - time.Minute).Format(time.RFC3339Nano)}
 	if err := store.CreateProject(t.Context(), project); err != nil {
 		t.Fatal(err)
 	}
