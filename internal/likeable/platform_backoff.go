@@ -1,6 +1,7 @@
 package likeable
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
@@ -10,7 +11,7 @@ import (
 	fibegateway "github.com/fibegg/likeable/internal/fibe"
 )
 
-const platformRateLimitBackoff = 60 * time.Second
+const platformBackoff = 60 * time.Second
 
 type platformBackoffState struct {
 	mu    sync.Mutex
@@ -32,12 +33,12 @@ func (s *Server) platformBackoffRemaining() (time.Duration, bool) {
 }
 
 func (s *Server) observePlatformError(err error) {
-	if !isPlatformRateLimited(err) {
+	if !isPlatformBackoffError(err) {
 		return
 	}
 	s.platform.mu.Lock()
 	defer s.platform.mu.Unlock()
-	until := time.Now().Add(platformRateLimitBackoff)
+	until := time.Now().Add(platformBackoff)
 	if until.After(s.platform.until) {
 		s.platform.until = until
 	}
@@ -69,4 +70,38 @@ func isPlatformRateLimited(err error) bool {
 	}
 	message := strings.ToLower(err.Error())
 	return strings.Contains(message, "status 429") || strings.Contains(message, "too many requests") || strings.Contains(message, "rate limit")
+}
+
+func isPlatformBackoffError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if isPlatformRateLimited(err) || errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var platformErr *fibegateway.PlatformError
+	if errors.As(err, &platformErr) {
+		code := strings.ToUpper(strings.TrimSpace(platformErr.Code))
+		message := strings.ToLower(strings.TrimSpace(platformErr.Message + "\n" + platformErr.Stderr))
+		if platformErr.Status == http.StatusRequestTimeout || platformErr.Status == http.StatusTooEarly || platformErr.Status == http.StatusBadGateway || platformErr.Status == http.StatusServiceUnavailable || platformErr.Status == http.StatusGatewayTimeout {
+			return true
+		}
+		if code == "SERVICE_UNAVAILABLE" || code == "TIMEOUT" {
+			return true
+		}
+		if containsAny(message, "context deadline exceeded", "client.timeout", "timeout awaiting headers", "signal: killed") {
+			return true
+		}
+	}
+	message := strings.ToLower(err.Error())
+	return containsAny(message, "context deadline exceeded", "client.timeout", "timeout awaiting headers", "signal: killed")
+}
+
+func containsAny(value string, needles ...string) bool {
+	for _, needle := range needles {
+		if strings.Contains(value, needle) {
+			return true
+		}
+	}
+	return false
 }

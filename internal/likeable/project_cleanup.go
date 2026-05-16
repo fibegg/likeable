@@ -95,6 +95,9 @@ func (s *Server) completeProjectResourceSnapshot(ctx context.Context, userEmail 
 	if strings.TrimSpace(project.PlaygroundName) == "" {
 		project.PlaygroundName = projecttext.SourceNameForProject(project)
 	}
+	if projectHasDeleteReadySnapshot(project) {
+		return fibeClient, nil
+	}
 	if strings.TrimSpace(project.PlaygroundID) != "" {
 		recovered, err := fibeClient.GreenfieldByPlaygroundID(ctx, project.PlaygroundID)
 		if err != nil {
@@ -123,4 +126,11 @@ func (s *Server) deleteProjectLocally(ctx context.Context, project *Project, use
 
 func projectHasProvisionedResources(project *Project) bool {
 	return project != nil && (project.PlaygroundID != "" || project.PlayspecID != "" || project.PropID != "" || project.RepoURL != "" || project.PreviewURL != "" || len(project.Repositories) > 0 || len(project.Services) > 0)
+}
+
+func projectHasDeleteReadySnapshot(project *Project) bool {
+	return project != nil &&
+		strings.TrimSpace(project.PlaygroundID) != "" &&
+		strings.TrimSpace(project.PlayspecID) != "" &&
+		(strings.TrimSpace(project.PropID) != "" || strings.TrimSpace(project.RepoURL) != "" || len(project.Repositories) > 0)
 }

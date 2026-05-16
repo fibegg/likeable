@@ -17,6 +17,7 @@ import (
 
 const projectResourceRefreshInterval = 60 * time.Second
 const projectProvisioningRecoveryGrace = 2 * time.Minute
+const projectProvisioningRecoveryEnqueueTTL = projectProvisioningRecoveryGrace
 
 func (s *Server) ensureDefaultProject(ctx context.Context, user *User) {
 	if user == nil {
@@ -72,7 +73,7 @@ func (s *Server) createProjectRecord(ctx context.Context, user *User, title stri
 
 func (s *Server) provisionProjectAsync(userID, userEmail, projectID, prompt string) error {
 	if s.jobs != nil {
-		if err := s.enqueueProjectJob(context.Background(), taskProvisionProject, projectJobPayload{UserID: userID, UserEmail: userEmail, ProjectID: projectID, Prompt: prompt}, asynq.Queue("critical"), asynq.MaxRetry(6), asynq.Timeout(15*time.Minute), asynq.Unique(projectProvisionUniqueTTL)); err != nil {
+		if err := s.enqueueProjectJob(context.Background(), taskProvisionProject, projectJobPayload{UserID: userID, UserEmail: userEmail, ProjectID: projectID, Prompt: prompt}, asynq.Queue(projectProvisionQueue), asynq.MaxRetry(6), asynq.Timeout(15*time.Minute), asynq.Unique(projectProvisionUniqueTTL)); err != nil {
 			log.Printf("enqueue project provisioning %s: %v", projectID, err)
 			return err
 		}
@@ -218,8 +219,13 @@ func (s *Server) recoverProjectsAsync(userID, userEmail string, projects []Proje
 
 func (s *Server) recoverProjectAsync(userID, userEmail string, project *Project) {
 	if projectNeedsProvisioningRecovery(project) {
+		key := "provisioning:" + userID + ":" + project.ID
+		if !s.reserveProjectRecovery(key, projectProvisioningRecoveryEnqueueTTL) {
+			return
+		}
 		log.Printf("recover project %s by retrying provisioning", project.ID)
 		if err := s.provisionProjectAsync(userID, userEmail, project.ID, ""); err != nil {
+			s.recovering.Delete(key)
 			log.Printf("schedule project provisioning recovery %s: %v", project.ID, err)
 		}
 		return
@@ -227,8 +233,8 @@ func (s *Server) recoverProjectAsync(userID, userEmail string, project *Project)
 	if !projectNeedsReadinessRecovery(project) {
 		return
 	}
-	key := userID + ":" + project.ID
-	if _, loaded := s.recovering.LoadOrStore(key, true); loaded {
+	key := "readiness:" + userID + ":" + project.ID
+	if !s.reserveProjectRecovery(key, 0) {
 		return
 	}
 	if s.jobs != nil {
@@ -257,6 +263,18 @@ func (s *Server) recoverProjectAsync(userID, userEmail string, project *Project)
 			return
 		}
 	}()
+}
+
+func (s *Server) reserveProjectRecovery(key string, ttl time.Duration) bool {
+	if _, loaded := s.recovering.LoadOrStore(key, true); loaded {
+		return false
+	}
+	if ttl > 0 {
+		time.AfterFunc(ttl, func() {
+			s.recovering.Delete(key)
+		})
+	}
+	return true
 }
 
 func (s *Server) recoverProjectReadiness(ctx context.Context, userID string, project *Project, fibe *fibe.Client) error {
@@ -342,7 +360,7 @@ func (s *Server) refreshProjectResources(ctx context.Context, user *User, projec
 	}
 	if !force {
 		if remaining, ok := s.platformBackoffRemaining(); ok {
-			log.Printf("skip project resource refresh for %s while platform is rate limited for %s", project.ID, remaining.Round(time.Second))
+			log.Printf("skip project resource refresh for %s while platform is temporarily unavailable for %s", project.ID, remaining.Round(time.Second))
 			return project, nil
 		}
 		key := user.ID + ":" + project.ID + ":resources"

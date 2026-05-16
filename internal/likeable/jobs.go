@@ -18,6 +18,7 @@ import (
 
 const projectProvisionRetryDelay = 2 * time.Minute
 const projectProvisionUniqueTTL = 24 * time.Hour
+const projectProvisionQueue = "provisioning"
 const projectCleanupQueue = "default"
 const projectCleanupUniqueTTL = 10 * time.Minute
 const idleProjectStopAfter = domain.PlaygroundIdleStopAfter
@@ -78,9 +79,10 @@ func newJobSystem(redisOpt asynq.RedisClientOpt, s *Server) *JobSystem {
 		Concurrency:     4,
 		ShutdownTimeout: 20 * time.Second,
 		Queues: map[string]int{
-			"critical": 8,
-			"default":  4,
-			"low":      1,
+			projectProvisionQueue: 12,
+			"critical":            6,
+			"default":             4,
+			"low":                 1,
 		},
 		ErrorHandler: asynq.ErrorHandlerFunc(func(ctx context.Context, task *asynq.Task, err error) {
 			retried, _ := asynq.GetRetryCount(ctx)
@@ -205,7 +207,7 @@ func (s *Server) enqueueProjectDeletionSweep(ctx context.Context, delay time.Dur
 	if s.jobs == nil {
 		return
 	}
-	opts := []asynq.Option{asynq.Queue("critical"), asynq.MaxRetry(2), asynq.Timeout(15 * time.Minute), asynq.Unique(10 * time.Minute)}
+	opts := []asynq.Option{asynq.Queue(projectCleanupQueue), asynq.MaxRetry(2), asynq.Timeout(15 * time.Minute), asynq.Unique(10 * time.Minute)}
 	if delay > 0 {
 		opts = append(opts, asynq.ProcessIn(delay))
 	}
@@ -294,7 +296,7 @@ func (s *Server) enqueueDeferredProjectProvisionRetry(ctx context.Context, paylo
 	if delay <= 0 {
 		delay = projectProvisionRetryDelay
 	}
-	err := s.enqueueProjectJob(ctx, taskProvisionProject, payload, asynq.Queue("critical"), asynq.MaxRetry(6), asynq.Timeout(15*time.Minute), asynq.ProcessIn(delay), asynq.Unique(projectProvisionUniqueTTL))
+	err := s.enqueueProjectJob(ctx, taskProvisionProject, payload, asynq.Queue(projectProvisionQueue), asynq.MaxRetry(6), asynq.Timeout(15*time.Minute), asynq.ProcessIn(delay), asynq.Unique(projectProvisionUniqueTTL))
 	if err != nil {
 		log.Printf("enqueue deferred project provisioning retry %s: %v", payload.ProjectID, err)
 		return false
@@ -499,7 +501,7 @@ func (s *Server) handleProjectQuotaSweepTask(ctx context.Context, _ *asynq.Task)
 		}
 		for j := range excess {
 			project := &excess[j]
-			if err := s.enqueueProjectJob(ctx, taskArchiveDeleteProject, projectJobPayload{UserID: user.ID, UserEmail: user.Email, ProjectID: project.ID, Reason: "project quota exceeded"}, asynq.Queue("critical"), asynq.MaxRetry(10), asynq.Timeout(20*time.Minute), asynq.Unique(24*time.Hour)); err != nil {
+			if err := s.enqueueProjectJob(ctx, taskArchiveDeleteProject, projectJobPayload{UserID: user.ID, UserEmail: user.Email, ProjectID: project.ID, Reason: "project quota exceeded"}, asynq.Queue(projectCleanupQueue), asynq.MaxRetry(10), asynq.Timeout(20*time.Minute), asynq.Unique(24*time.Hour)); err != nil {
 				return err
 			}
 		}

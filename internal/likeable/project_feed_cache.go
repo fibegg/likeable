@@ -11,18 +11,18 @@ import (
 )
 
 const (
-	projectFeedFullActiveTTL       = 6 * time.Second
-	projectFeedFullIdleTTL         = 12 * time.Second
-	projectFeedLiveActiveTTL       = 1200 * time.Millisecond
-	projectFeedLiveIdleTTL         = 4 * time.Second
-	projectFeedForegroundTTL       = 10 * time.Second
-	projectFeedForegroundDelay     = 15 * time.Second
-	projectFeedRateLimitedWarning  = "Live updates are paused briefly because the workspace platform is rate limited."
-	projectFeedUnavailableWarning  = "Live updates are temporarily unavailable."
-	projectMessagesWarning         = "Workspace messages are temporarily unavailable."
-	projectActivityWarning         = "Workspace activity is temporarily unavailable."
-	projectLiveWarning             = "Live workspace status is temporarily unavailable."
-	projectFeedRateLimitedLogLabel = "workspace platform rate limited"
+	projectFeedFullActiveTTL      = 6 * time.Second
+	projectFeedFullIdleTTL        = 12 * time.Second
+	projectFeedLiveActiveTTL      = 1200 * time.Millisecond
+	projectFeedLiveIdleTTL        = 4 * time.Second
+	projectFeedForegroundTTL      = 10 * time.Second
+	projectFeedForegroundDelay    = 15 * time.Second
+	projectFeedBackoffWarning     = "Live updates are paused briefly because the workspace platform is temporarily unavailable."
+	projectFeedUnavailableWarning = "Live updates are temporarily unavailable."
+	projectMessagesWarning        = "Workspace messages are temporarily unavailable."
+	projectActivityWarning        = "Workspace activity is temporarily unavailable."
+	projectLiveWarning            = "Live workspace status is temporarily unavailable."
+	projectFeedBackoffLogLabel    = "workspace platform temporarily unavailable"
 )
 
 type projectFeedCacheEntry struct {
@@ -107,10 +107,15 @@ func (s *Server) loadProjectFeedSnapshot(ctx context.Context, user *User, projec
 		}
 	}
 
+	if !projectFeedWorkspaceAvailable(project) {
+		entry.snapshot = base.clone()
+		return base.clone(), nil
+	}
+
 	if remaining, ok := s.platformBackoffRemaining(); ok {
-		base.warning = projectFeedRateLimitedWarning
+		base.warning = projectFeedBackoffWarning
 		if remaining > 0 {
-			log.Printf("%s for project %s; skipping feed refresh for %s", projectFeedRateLimitedLogLabel, project.ID, remaining.Round(time.Second))
+			log.Printf("%s for project %s; skipping feed refresh for %s", projectFeedBackoffLogLabel, project.ID, remaining.Round(time.Second))
 		}
 		entry.snapshot = base.clone()
 		return base.clone(), nil
@@ -176,7 +181,7 @@ func (s *Server) refreshProjectFeedFull(ctx context.Context, fibeClient *fibegat
 		} else {
 			log.Printf("load project feed messages for project %s: %v", project.ID, err)
 			warnings = append(warnings, warningForProjectFeedError(err, projectMessagesWarning))
-			if isPlatformRateLimited(err) {
+			if isPlatformBackoffError(err) {
 				snapshot.warning = joinWarnings(warnings)
 				return
 			}
@@ -198,7 +203,7 @@ func (s *Server) refreshProjectFeedFull(ctx context.Context, fibeClient *fibegat
 			} else {
 				log.Printf("load project feed activity for project %s: %v", project.ID, activityErr)
 				warnings = append(warnings, warningForProjectFeedError(activityErr, projectActivityWarning))
-				if isPlatformRateLimited(activityErr) {
+				if isPlatformBackoffError(activityErr) {
 					snapshot.messages = sanitizeAgentProtocolMessages(messages)
 					snapshot.warning = joinWarnings(warnings)
 					return
@@ -224,7 +229,7 @@ func (s *Server) refreshProjectFeedFull(ctx context.Context, fibeClient *fibegat
 				log.Printf("load project feed live state for project %s: %v", project.ID, liveErr)
 				warnings = append(warnings, warningForProjectFeedError(liveErr, projectLiveWarning))
 				live = idleConversationLiveState(project.ConversationID)
-				if isPlatformRateLimited(liveErr) {
+				if isPlatformBackoffError(liveErr) {
 					snapshot.messages = sanitizeAgentProtocolMessages(messages)
 					snapshot.warning = joinWarnings(warnings)
 					return
@@ -262,7 +267,7 @@ func (s *Server) refreshProjectFeedLive(ctx context.Context, fibeClient *fibegat
 		} else {
 			log.Printf("load project feed live state for project %s: %v", project.ID, err)
 			snapshot.warning = warningForProjectFeedError(err, projectLiveWarning)
-			if isPlatformRateLimited(err) {
+			if isPlatformBackoffError(err) {
 				return
 			}
 			live = idleConversationLiveState(project.ConversationID)
@@ -307,9 +312,18 @@ func projectFeedLiveActive(live *fibegateway.ConversationLiveState) bool {
 	return live.IsProcessing || live.QueuedTurns > 0 || strings.TrimSpace(live.StreamText) != ""
 }
 
+func projectFeedWorkspaceAvailable(project *Project) bool {
+	if project == nil {
+		return false
+	}
+	return strings.TrimSpace(project.PlaygroundID) != "" &&
+		strings.TrimSpace(project.AgentID) != "" &&
+		strings.TrimSpace(project.ConversationID) != ""
+}
+
 func warningForProjectFeedError(err error, fallback string) string {
-	if isPlatformRateLimited(err) {
-		return projectFeedRateLimitedWarning
+	if isPlatformBackoffError(err) {
+		return projectFeedBackoffWarning
 	}
 	return fallback
 }

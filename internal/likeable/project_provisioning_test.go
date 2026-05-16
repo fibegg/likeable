@@ -35,6 +35,35 @@ func TestRetryProjectProvisionLaterRequiresProvisionedResources(t *testing.T) {
 	}
 }
 
+func TestProjectHasFibeResourcesIgnoresSyntheticIdentifiers(t *testing.T) {
+	project := &Project{
+		ID:             "project-synthetic-only",
+		ConversationID: "conv-synthetic-only",
+		PlaygroundName: "project-synthetic-only",
+	}
+	if projectHasFibeResources(project) {
+		t.Fatal("synthetic project name and conversation id should not count as remote resources")
+	}
+
+	project.PlaygroundID = "123"
+	if !projectHasFibeResources(project) {
+		t.Fatal("playground id should count as a remote resource")
+	}
+}
+
+func TestProjectHasDeleteReadySnapshotRequiresDeletableResourceIds(t *testing.T) {
+	project := &Project{PlaygroundID: "123", PreviewURL: "https://preview.example.test"}
+	if projectHasDeleteReadySnapshot(project) {
+		t.Fatal("preview URL without playspec or source ids should not skip snapshot recovery")
+	}
+
+	project.PlayspecID = "456"
+	project.PropID = "789"
+	if !projectHasDeleteReadySnapshot(project) {
+		t.Fatal("playground, playspec, and source ids should be enough for deletion")
+	}
+}
+
 func TestEnsureDefaultProjectSkipsRestrictedUser(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {
@@ -155,6 +184,24 @@ func TestProjectNeedsProvisioningRecoveryWaitsForFreshOrLockedProject(t *testing
 	if projectNeedsProvisioningRecovery(project) {
 		t.Fatal("active provisioning lease should suppress recovery")
 	}
+}
+
+func TestReserveProjectRecoveryDeduplicatesUntilTTL(t *testing.T) {
+	server := &Server{}
+	if !server.reserveProjectRecovery("project:recovery", 25*time.Millisecond) {
+		t.Fatal("first recovery reservation should be accepted")
+	}
+	if server.reserveProjectRecovery("project:recovery", 25*time.Millisecond) {
+		t.Fatal("duplicate recovery reservation should be suppressed")
+	}
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if server.reserveProjectRecovery("project:recovery", 25*time.Millisecond) {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("recovery reservation should expire after ttl")
 }
 
 func TestProvisionProjectTaskDoesNotRetryDefaultTemplateConfigurationFailure(t *testing.T) {
