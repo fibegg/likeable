@@ -51,6 +51,15 @@ func testStripeSignature(secret string, body []byte) string {
 	return "t=" + strconv.FormatInt(timestamp, 10) + ",v1=" + hex.EncodeToString(mac.Sum(nil))
 }
 
+func responseClearsCookie(response *http.Response, name string) bool {
+	for _, cookie := range response.Cookies() {
+		if cookie.Name == name && cookie.MaxAge < 0 && cookie.Value == "" {
+			return true
+		}
+	}
+	return false
+}
+
 func TestHealthzChecksSQLite(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {
@@ -2420,6 +2429,9 @@ func TestProfileDeleteAllDeletesFibeResourcesAndLocalData(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("delete-all returned %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
+	if !responseClearsCookie(rec.Result(), "likeable_session") {
+		t.Fatal("delete-all response did not clear likeable_session")
+	}
 	log := readFile(t, logPath)
 	for _, want := range []string{
 		"playgrounds delete playground-1",
@@ -2458,6 +2470,95 @@ func TestProfileDeleteAllDeletesFibeResourcesAndLocalData(t *testing.T) {
 	}
 	if strings.Contains(cfg["signup_allowed_emails"], "pilot@example.com") || !strings.Contains(cfg["signup_allowed_emails"], "@trusted.test") {
 		t.Fatalf("allowlist=%q, want deleted email removed and other entries preserved", cfg["signup_allowed_emails"])
+	}
+}
+
+func TestProfileDeleteAllUsesStoredResourcesWhenDebugHydrationFails(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	dir := t.TempDir()
+	cliPath := filepath.Join(dir, "fibe")
+	logPath := filepath.Join(dir, "commands.log")
+	script := `#!/bin/sh
+printf '%s\n' "$*" >> "` + logPath + `"
+case "$*" in
+  *"playgrounds debug"*)
+    echo '{"error":{"message":"debug timeout","code":"UNKNOWN_ERROR","status":500}}' >&2
+    exit 1
+    ;;
+  *"playspecs get"*)
+    echo '{"id":"playspec-1","source_template":{"id":321,"name":"delete-all-abc12345"},"source_template_version_id":654}'
+    ;;
+  *"templates versions list"*)
+    echo '{"Data":[{"id":654,"source":{"prop_id":"prop-1"}}]}'
+    ;;
+  *"playgrounds delete"*|*"playspecs delete"*|*"templates versions destroy"*|*"templates delete"*|*"props delete"*|*"agents delete-conversation"*)
+    echo '{"ok":true}'
+    ;;
+  *)
+    echo "unexpected command: $*" >&2
+    exit 64
+    ;;
+esac
+`
+	if err := os.WriteFile(cliPath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url": "server.test:3000",
+		"fibe_api_key":  "test-key",
+		"fibe_cli_path": cliPath,
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	user, err := store.UpsertUser(t.Context(), "pilot@example.com", "Pilot", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateSession(t.Context(), user.ID, "delete-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{
+		ID:             "project-delete-all",
+		UserID:         user.ID,
+		Title:          "Delete all",
+		ConversationID: "conv-delete-all",
+		AgentID:        "agent-1",
+		PlaygroundID:   "playground-1",
+		PlayspecID:     "playspec-1",
+		PropID:         "prop-1",
+		Status:         "ready",
+	}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/profile/delete-all", strings.NewReader(`{"email":"pilot@example.com"}`))
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "delete-token"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("delete-all returned %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if _, err := store.UserByID(t.Context(), user.ID); err == nil {
+		t.Fatal("user still exists after delete-all")
+	}
+	log := readFile(t, logPath)
+	for _, want := range []string{
+		"playgrounds debug playground-1",
+		"playgrounds delete playground-1",
+		"playspecs delete playspec-1",
+		"props delete prop-1",
+		"agents delete-conversation agent-1 --conversation-id conv-delete-all",
+	} {
+		if !strings.Contains(log, want) {
+			t.Fatalf("missing CLI command %q; log=%s", want, log)
+		}
 	}
 }
 

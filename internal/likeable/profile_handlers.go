@@ -44,8 +44,10 @@ func (s *Server) handleProfileDeleteAll(w http.ResponseWriter, r *http.Request) 
 		fibe, err := s.completeProjectResourceSnapshot(cleanupCtx, user.Email, project)
 		if err != nil {
 			log.Printf("delete all configure workspace cleanup for project %s: %v", project.ID, err)
-			writeError(w, http.StatusBadGateway, "could not configure workspace cleanup")
-			return
+			if fibe == nil || !projectHasFibeResources(project) {
+				writeError(w, http.StatusBadGateway, "could not configure workspace cleanup")
+				return
+			}
 		}
 		if err := fibe.DeleteProjectResources(cleanupCtx, project); err != nil {
 			log.Printf("delete all workspace cleanup for project %s: %v", project.ID, err)
