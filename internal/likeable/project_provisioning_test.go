@@ -35,6 +35,33 @@ func TestRetryProjectProvisionLaterRequiresProvisionedResources(t *testing.T) {
 	}
 }
 
+func TestEnsureDefaultProjectSkipsRestrictedUser(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	user, err := store.UpsertUser(t.Context(), "pilot@example.com", "Pilot", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	user, err = store.UpdateUserAccess(t.Context(), user.ID, "restricted", "account deletion requested")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store}
+
+	server.ensureDefaultProject(t.Context(), user)
+
+	count, err := store.ProjectCountForUser(t.Context(), user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("project count=%d, want 0", count)
+	}
+}
+
 func TestRecordProjectProvisionFailureMarksPreGreenfieldFailureAsError(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {

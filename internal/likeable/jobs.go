@@ -17,6 +17,9 @@ import (
 )
 
 const projectProvisionRetryDelay = 2 * time.Minute
+const projectProvisionUniqueTTL = 15 * time.Minute
+const projectCleanupQueue = "default"
+const projectCleanupUniqueTTL = 10 * time.Minute
 const idleProjectStopAfter = domain.PlaygroundIdleStopAfter
 
 const (
@@ -350,10 +353,11 @@ func (s *Server) handleDeleteProjectResourcesTask(ctx context.Context, task *asy
 	}
 	fibeClient, err := s.completeProjectResourceSnapshot(ctx, payload.UserEmail, project)
 	if err != nil {
-		_ = s.store.UpdateProjectCleanupError(ctx, project.ID, payload.UserID, err.Error())
 		if fibeClient == nil || !projectHasFibeResources(project) {
+			_ = s.store.UpdateProjectCleanupError(ctx, project.ID, payload.UserID, err.Error())
 			return err
 		}
+		log.Printf("delete project %s resources: continuing with stored resources after snapshot error: %v", project.ID, err)
 	}
 	if projectHasFibeResources(project) {
 		if err := fibeClient.DeleteProjectResources(ctx, project); err != nil {
@@ -395,7 +399,7 @@ func (s *Server) finalizeAccountDeletion(ctx context.Context, payload accountDel
 		if s.jobs != nil {
 			for i := range projects {
 				project := &projects[i]
-				if err := s.enqueueProjectJob(ctx, taskDeleteProjectResources, projectJobPayload{UserID: user.ID, UserEmail: user.Email, ProjectID: project.ID}, asynq.Queue("critical"), asynq.MaxRetry(10), asynq.Timeout(20*time.Minute), asynq.Unique(time.Minute)); err != nil {
+				if err := s.enqueueProjectJob(ctx, taskDeleteProjectResources, projectJobPayload{UserID: user.ID, UserEmail: user.Email, ProjectID: project.ID}, asynq.Queue(projectCleanupQueue), asynq.MaxRetry(10), asynq.Timeout(20*time.Minute), asynq.Unique(projectCleanupUniqueTTL)); err != nil {
 					return err
 				}
 			}
@@ -426,7 +430,7 @@ func (s *Server) handleProjectDeletionSweepTask(ctx context.Context, _ *asynq.Ta
 			}
 			return err
 		}
-		if err := s.enqueueProjectJob(ctx, taskDeleteProjectResources, projectJobPayload{UserID: user.ID, UserEmail: user.Email, ProjectID: project.ID}, asynq.Queue("critical"), asynq.MaxRetry(10), asynq.Timeout(20*time.Minute), asynq.Unique(time.Minute)); err != nil {
+		if err := s.enqueueProjectJob(ctx, taskDeleteProjectResources, projectJobPayload{UserID: user.ID, UserEmail: user.Email, ProjectID: project.ID}, asynq.Queue(projectCleanupQueue), asynq.MaxRetry(10), asynq.Timeout(20*time.Minute), asynq.Unique(projectCleanupUniqueTTL)); err != nil {
 			return err
 		}
 	}
@@ -470,7 +474,7 @@ func (s *Server) handleArchiveDeleteProjectTask(ctx context.Context, task *asynq
 	if err := s.store.UpdateProjectStatus(ctx, project.ID, user.ID, "deleting"); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
-	return s.enqueueProjectJob(ctx, taskDeleteProjectResources, projectJobPayload{UserID: user.ID, UserEmail: user.Email, ProjectID: project.ID}, asynq.Queue("critical"), asynq.MaxRetry(10), asynq.Timeout(20*time.Minute))
+	return s.enqueueProjectJob(ctx, taskDeleteProjectResources, projectJobPayload{UserID: user.ID, UserEmail: user.Email, ProjectID: project.ID}, asynq.Queue(projectCleanupQueue), asynq.MaxRetry(10), asynq.Timeout(20*time.Minute), asynq.Unique(projectCleanupUniqueTTL))
 }
 
 func (s *Server) handleSendEmailTask(ctx context.Context, task *asynq.Task) error {

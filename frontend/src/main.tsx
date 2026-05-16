@@ -22,6 +22,8 @@ const COLLAPSED_CHAT_EDGE_MARGIN = 28;
 const ONBOARDING_DISMISSED_KEY = 'likeable.onboarding.dismissedProjects';
 const PULL_REFRESH_TRIGGER = 74;
 const PULL_REFRESH_MAX = 118;
+const PULL_REFRESH_SETTLE_DELAY_MS = 180;
+const PULL_REFRESH_TIMEOUT_MS = 3500;
 
 function App() {
   const [me, setMe] = useState<Me | null>(null);
@@ -1298,15 +1300,28 @@ function usePullToRefresh(enabled: boolean, onRefresh: () => Promise<void> | voi
   const [state, setState] = useState<PullRefreshState>({ distance: 0, ready: false, refreshing: false, visible: false });
   const refreshRef = useRef(onRefresh);
   const gestureRef = useRef({ active: false, startY: 0, distance: 0, refreshing: false });
+  const resetTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     refreshRef.current = onRefresh;
   }, [onRefresh]);
 
   useEffect(() => {
+    const clearResetTimer = () => {
+      if (resetTimerRef.current == null) return;
+      window.clearTimeout(resetTimerRef.current);
+      resetTimerRef.current = null;
+    };
+    const clearRefreshState = () => {
+      clearResetTimer();
+      gestureRef.current.refreshing = false;
+      gestureRef.current.distance = 0;
+      setState({ distance: 0, ready: false, refreshing: false, visible: false });
+    };
+
     if (!enabled) {
       gestureRef.current = { active: false, startY: 0, distance: 0, refreshing: false };
-      setState({ distance: 0, ready: false, refreshing: false, visible: false });
+      clearRefreshState();
       return;
     }
 
@@ -1364,15 +1379,17 @@ function usePullToRefresh(enabled: boolean, onRefresh: () => Promise<void> | voi
       }
       gestureRef.current.refreshing = true;
       setState({ distance: PULL_REFRESH_TRIGGER, ready: true, refreshing: true, visible: true });
-      Promise.resolve(refreshRef.current())
+      const complete = () => {
+        if (!gestureRef.current.refreshing) return;
+        clearResetTimer();
+        resetTimerRef.current = window.setTimeout(clearRefreshState, PULL_REFRESH_SETTLE_DELAY_MS);
+      };
+      clearResetTimer();
+      resetTimerRef.current = window.setTimeout(clearRefreshState, PULL_REFRESH_TIMEOUT_MS);
+      Promise.resolve()
+        .then(() => refreshRef.current())
         .catch(() => undefined)
-        .finally(() => {
-          window.setTimeout(() => {
-            gestureRef.current.refreshing = false;
-            gestureRef.current.distance = 0;
-            setState({ distance: 0, ready: false, refreshing: false, visible: false });
-          }, 180);
-        });
+        .finally(complete);
     };
 
     window.addEventListener('touchstart', start, { passive: true });
@@ -1384,6 +1401,7 @@ function usePullToRefresh(enabled: boolean, onRefresh: () => Promise<void> | voi
       window.removeEventListener('touchmove', move);
       window.removeEventListener('touchend', finish);
       window.removeEventListener('touchcancel', reset);
+      clearResetTimer();
     };
   }, [enabled]);
 

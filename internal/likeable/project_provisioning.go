@@ -22,6 +22,9 @@ func (s *Server) ensureDefaultProject(ctx context.Context, user *User) {
 	if user == nil {
 		return
 	}
+	if strings.EqualFold(strings.TrimSpace(user.AccessStatus), "restricted") {
+		return
+	}
 	projects, err := s.store.ProjectsForUser(ctx, user.ID)
 	if err != nil {
 		log.Printf("load projects for starter: %v", err)
@@ -69,7 +72,7 @@ func (s *Server) createProjectRecord(ctx context.Context, user *User, title stri
 
 func (s *Server) provisionProjectAsync(userID, userEmail, projectID, prompt string) error {
 	if s.jobs != nil {
-		if err := s.enqueueProjectJob(context.Background(), taskProvisionProject, projectJobPayload{UserID: userID, UserEmail: userEmail, ProjectID: projectID, Prompt: prompt}, asynq.Queue("critical"), asynq.MaxRetry(6), asynq.Timeout(15*time.Minute), asynq.Unique(30*time.Second)); err != nil {
+		if err := s.enqueueProjectJob(context.Background(), taskProvisionProject, projectJobPayload{UserID: userID, UserEmail: userEmail, ProjectID: projectID, Prompt: prompt}, asynq.Queue("critical"), asynq.MaxRetry(6), asynq.Timeout(15*time.Minute), asynq.Unique(projectProvisionUniqueTTL)); err != nil {
 			log.Printf("enqueue project provisioning %s: %v", projectID, err)
 			return err
 		}
