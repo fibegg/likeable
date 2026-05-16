@@ -82,6 +82,7 @@ func (s *Store) migrate(ctx context.Context) error {
 			error_message TEXT NOT NULL DEFAULT '',
 			provisioning_lock_until TEXT NOT NULL DEFAULT '',
 			cleanup_last_error TEXT NOT NULL DEFAULT '',
+			cleanup_lock_until TEXT NOT NULL DEFAULT '',
 			playground_last_used_at TEXT NOT NULL DEFAULT '',
 			created_at TEXT NOT NULL,
 			updated_at TEXT NOT NULL
@@ -258,6 +259,9 @@ func (s *Store) migrate(ctx context.Context) error {
 		return err
 	}
 	if err := s.ensureColumn(ctx, "projects", "cleanup_last_error", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := s.ensureColumn(ctx, "projects", "cleanup_lock_until", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
 	if err := s.ensureColumn(ctx, "projects", "playground_last_used_at", "TEXT NOT NULL DEFAULT ''"); err != nil {

@@ -55,6 +55,83 @@ func TestTryAcquireProjectProvisioningLeasesProject(t *testing.T) {
 	}
 }
 
+func TestTryAcquireProjectCleanupLeasesDeletingProject(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	user, err := store.UpsertUser(t.Context(), "cleanup-lease@example.com", "Cleanup Lease", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{
+		ID:             "project-cleanup-lease",
+		UserID:         user.ID,
+		Title:          "Cleanup Lease",
+		ConversationID: "conv-cleanup-lease",
+		Status:         "deleting",
+	}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+
+	acquired, err := store.TryAcquireProjectCleanup(t.Context(), project.ID, user.ID, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !acquired {
+		t.Fatal("first cleanup lease was not acquired")
+	}
+	acquired, err = store.TryAcquireProjectCleanup(t.Context(), project.ID, user.ID, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if acquired {
+		t.Fatal("duplicate cleanup lease was acquired")
+	}
+	if err := store.ClearProjectCleanupLease(t.Context(), project.ID, user.ID); err != nil {
+		t.Fatal(err)
+	}
+	acquired, err = store.TryAcquireProjectCleanup(t.Context(), project.ID, user.ID, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !acquired {
+		t.Fatal("cleanup lease was not acquired after clearing")
+	}
+}
+
+func TestTryAcquireProjectCleanupSkipsActiveProject(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	user, err := store.UpsertUser(t.Context(), "active-cleanup@example.com", "Active Cleanup", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{
+		ID:             "project-active-cleanup",
+		UserID:         user.ID,
+		Title:          "Active Cleanup",
+		ConversationID: "conv-active-cleanup",
+		Status:         "ready",
+	}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+
+	acquired, err := store.TryAcquireProjectCleanup(t.Context(), project.ID, user.ID, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if acquired {
+		t.Fatal("cleanup lease should not be acquired for active project")
+	}
+}
+
 func TestSaveProjectProvisioningSnapshotDoesNotResurrectDeletingProject(t *testing.T) {
 	store, err := Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {

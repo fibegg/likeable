@@ -16,7 +16,7 @@ import (
 
 func (s *Server) deleteProjectResourcesAsync(userID, userEmail string, project *Project) {
 	if s.jobs != nil {
-		if err := s.enqueueProjectJob(context.Background(), taskDeleteProjectResources, projectJobPayload{UserID: userID, UserEmail: userEmail, ProjectID: project.ID}, asynq.Queue(projectCleanupQueue), asynq.MaxRetry(10), asynq.Timeout(20*time.Minute), asynq.Unique(projectCleanupUniqueTTL)); err != nil {
+		if err := s.enqueueProjectJob(context.Background(), taskDeleteProjectResources, projectJobPayload{UserID: userID, UserEmail: userEmail, ProjectID: project.ID}, asynq.Queue(projectCleanupQueue), asynq.MaxRetry(10), asynq.Timeout(projectCleanupTaskTimeout), asynq.Unique(projectCleanupUniqueTTL)); err != nil {
 			log.Printf("enqueue project delete %s: %v", project.ID, err)
 		}
 		s.enqueueProjectDeletionSweep(context.Background(), 2*time.Minute)
@@ -24,7 +24,7 @@ func (s *Server) deleteProjectResourcesAsync(userID, userEmail string, project *
 	}
 	snapshot := *project
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), projectCleanupTaskTimeout)
 		defer cancel()
 		if snapshot.Status == "archived" {
 			if err := s.deleteProjectLocally(ctx, &snapshot, userID); err != nil {
@@ -36,7 +36,7 @@ func (s *Server) deleteProjectResourcesAsync(userID, userEmail string, project *
 		if err != nil {
 			if fibeClient == nil || !projectHasFibeResources(&snapshot) {
 				log.Printf("delete project %s resources: %v", snapshot.ID, err)
-				_ = s.store.UpdateProjectCleanupError(ctx, snapshot.ID, userID, err.Error())
+				_ = s.store.UpdateProjectCleanupError(context.Background(), snapshot.ID, userID, err.Error())
 				return
 			}
 			log.Printf("delete project %s resources: continuing with stored resources after snapshot error: %v", snapshot.ID, err)
@@ -44,7 +44,7 @@ func (s *Server) deleteProjectResourcesAsync(userID, userEmail string, project *
 		if projectHasFibeResources(&snapshot) {
 			if err := fibeClient.DeleteProjectResources(ctx, &snapshot); err != nil {
 				log.Printf("delete project %s resources: %v", snapshot.ID, err)
-				_ = s.store.UpdateProjectCleanupError(ctx, snapshot.ID, userID, err.Error())
+				_ = s.store.UpdateProjectCleanupError(context.Background(), snapshot.ID, userID, err.Error())
 				return
 			}
 		} else {
@@ -59,11 +59,11 @@ func (s *Server) deleteProjectResourcesAsync(userID, userEmail string, project *
 func (s *Server) deleteAccountAsync(userID, userEmail string) error {
 	payload := accountDeletionPayload{UserID: userID, UserEmail: userEmail}
 	if s.jobs != nil {
-		return s.enqueueAccountDeletionJob(context.Background(), payload, asynq.Queue(projectCleanupQueue), asynq.MaxRetry(30), asynq.Timeout(20*time.Minute), asynq.ProcessIn(5*time.Second))
+		return s.enqueueAccountDeletionJob(context.Background(), payload, asynq.Queue(projectCleanupQueue), asynq.MaxRetry(30), asynq.Timeout(projectCleanupSweepTimeout), asynq.ProcessIn(5*time.Second))
 	}
 	go func() {
 		for attempt := 0; attempt < 120; attempt++ {
-			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+			ctx, cancel := context.WithTimeout(context.Background(), projectCleanupSweepTimeout)
 			err := s.finalizeAccountDeletion(ctx, payload)
 			cancel()
 			if err == nil {

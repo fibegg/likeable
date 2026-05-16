@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	resourceDeleteMaxAttempts       = 18
-	resourceDeleteRetryDelay        = 10 * time.Second
+	resourceDeleteMaxAttempts       = 3
+	resourceDeleteRetryDelay        = 5 * time.Second
 	platformCodeResourceNotFound    = "RESOURCE_NOT_FOUND"
 	platformCodeGone                = "GONE"
 	platformCodeConflict            = "CONFLICT"

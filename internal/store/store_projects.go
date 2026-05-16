@@ -86,6 +86,33 @@ func (s *Store) UpdateProjectCleanupError(ctx context.Context, projectID, userID
 	return err
 }
 
+func (s *Store) TryAcquireProjectCleanup(ctx context.Context, projectID, userID string, ttl time.Duration) (bool, error) {
+	if ttl <= 0 {
+		ttl = 2 * time.Minute
+	}
+	now := nowString()
+	lockUntil := time.Now().UTC().Add(ttl).Format(time.RFC3339Nano)
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE projects
+		SET cleanup_lock_until = ?, updated_at = ?
+		WHERE id = ? AND user_id = ? AND status IN ('deleting', 'archived') AND (cleanup_lock_until = '' OR cleanup_lock_until <= ?)
+	`, lockUntil, now, projectID, userID, now)
+	if err != nil {
+		return false, err
+	}
+	rows, _ := result.RowsAffected()
+	return rows > 0, nil
+}
+
+func (s *Store) ClearProjectCleanupLease(ctx context.Context, projectID, userID string) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE projects
+		SET cleanup_lock_until = '', updated_at = ?
+		WHERE id = ? AND user_id = ?
+	`, nowString(), projectID, userID)
+	return err
+}
+
 func (s *Store) UpdateProjectError(ctx context.Context, projectID, userID, message string) error {
 	return s.updateProjectError(ctx, projectID, userID, publicProjectErrorMessage(message))
 }

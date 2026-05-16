@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,8 +20,13 @@ import (
 const projectProvisionRetryDelay = 2 * time.Minute
 const projectProvisionUniqueTTL = 24 * time.Hour
 const projectProvisionQueue = "provisioning"
-const projectCleanupQueue = "default"
-const projectCleanupUniqueTTL = 10 * time.Minute
+const projectCleanupQueue = "cleanup"
+const projectCleanupUniqueTTL = 30 * time.Minute
+const projectCleanupTaskTimeout = 2 * time.Minute
+const projectCleanupLeaseTTL = projectCleanupTaskTimeout + 30*time.Second
+const projectCleanupSweepTimeout = 30 * time.Second
+const maxConcurrentProjectCleanup = 1
+const defaultJobWorkerConcurrency = 32
 const idleProjectStopAfter = domain.PlaygroundIdleStopAfter
 
 const (
@@ -36,6 +42,8 @@ const (
 	taskSendEmail                   = "likeable:email:send"
 	taskProjectQuotaSweep           = "likeable:project_quota:sweep"
 )
+
+var errProjectCleanupConcurrencyLimit = errors.New("project cleanup concurrency limit reached")
 
 type JobSystem struct {
 	client *asynq.Client
@@ -76,12 +84,13 @@ func newJobSystem(redisOpt asynq.RedisClientOpt, s *Server) *JobSystem {
 	mux.HandleFunc(taskSendEmail, s.handleSendEmailTask)
 	mux.HandleFunc(taskProjectQuotaSweep, s.handleProjectQuotaSweepTask)
 	server := asynq.NewServer(redisOpt, asynq.Config{
-		Concurrency:     4,
+		Concurrency:     jobWorkerConcurrency(),
 		ShutdownTimeout: 20 * time.Second,
 		Queues: map[string]int{
 			projectProvisionQueue: 12,
 			"critical":            6,
 			"default":             4,
+			projectCleanupQueue:   1,
 			"low":                 1,
 		},
 		ErrorHandler: asynq.ErrorHandlerFunc(func(ctx context.Context, task *asynq.Task, err error) {
@@ -91,6 +100,19 @@ func newJobSystem(redisOpt asynq.RedisClientOpt, s *Server) *JobSystem {
 		}),
 	})
 	return &JobSystem{client: asynq.NewClient(redisOpt), server: server, mux: mux}
+}
+
+func jobWorkerConcurrency() int {
+	raw := strings.TrimSpace(os.Getenv("LIKEABLE_JOB_CONCURRENCY"))
+	if raw == "" {
+		return defaultJobWorkerConcurrency
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value < 1 {
+		log.Printf("invalid LIKEABLE_JOB_CONCURRENCY=%q; using %d", raw, defaultJobWorkerConcurrency)
+		return defaultJobWorkerConcurrency
+	}
+	return value
 }
 
 func newJobClient(redisOpt asynq.RedisClientOpt) *JobSystem {
@@ -165,7 +187,7 @@ func (s *Server) enqueueAccountDeletionJob(ctx context.Context, payload accountD
 		return err
 	}
 	if len(opts) == 0 {
-		opts = []asynq.Option{asynq.Queue("critical"), asynq.MaxRetry(30), asynq.Timeout(20 * time.Minute)}
+		opts = []asynq.Option{asynq.Queue(projectCleanupQueue), asynq.MaxRetry(30), asynq.Timeout(projectCleanupTaskTimeout)}
 	}
 	_, err = s.jobs.client.EnqueueContext(ctx, asynq.NewTask(taskDeleteAccount, data), opts...)
 	if errors.Is(err, asynq.ErrDuplicateTask) {
@@ -207,7 +229,7 @@ func (s *Server) enqueueProjectDeletionSweep(ctx context.Context, delay time.Dur
 	if s.jobs == nil {
 		return
 	}
-	opts := []asynq.Option{asynq.Queue(projectCleanupQueue), asynq.MaxRetry(2), asynq.Timeout(15 * time.Minute), asynq.Unique(10 * time.Minute)}
+	opts := []asynq.Option{asynq.Queue(projectCleanupQueue), asynq.MaxRetry(2), asynq.Timeout(projectCleanupSweepTimeout), asynq.Unique(10 * time.Minute)}
 	if delay > 0 {
 		opts = append(opts, asynq.ProcessIn(delay))
 	}
@@ -260,6 +282,18 @@ func decodeTaskPayload[T any](task *asynq.Task) (T, error) {
 		return payload, err
 	}
 	return payload, nil
+}
+
+func (s *Server) tryAcquireProjectCleanupSlot() (func(), bool) {
+	s.cleanupOnce.Do(func() {
+		s.cleanupSlots = make(chan struct{}, maxConcurrentProjectCleanup)
+	})
+	select {
+	case s.cleanupSlots <- struct{}{}:
+		return func() { <-s.cleanupSlots }, true
+	default:
+		return nil, false
+	}
 }
 
 func (s *Server) handleProvisionProjectTask(ctx context.Context, task *asynq.Task) error {
@@ -344,10 +378,27 @@ func (s *Server) handleDeleteProjectResourcesTask(ctx context.Context, task *asy
 		}
 		return err
 	}
+	acquired, err := s.store.TryAcquireProjectCleanup(ctx, project.ID, payload.UserID, projectCleanupLeaseTTL)
+	if err != nil {
+		return err
+	}
+	if !acquired {
+		return nil
+	}
+	defer func() {
+		if err := s.store.ClearProjectCleanupLease(context.Background(), project.ID, payload.UserID); err != nil {
+			log.Printf("clear project cleanup lease %s: %v", project.ID, err)
+		}
+	}()
+	releaseCleanup, ok := s.tryAcquireProjectCleanupSlot()
+	if !ok {
+		return errProjectCleanupConcurrencyLimit
+	}
+	defer releaseCleanup()
 	log.Printf("delete project %s resources: started", project.ID)
 	if project.Status == "archived" {
 		if err := s.deleteProjectLocally(ctx, project, payload.UserID); err != nil {
-			_ = s.store.UpdateProjectCleanupError(ctx, project.ID, payload.UserID, err.Error())
+			_ = s.store.UpdateProjectCleanupError(context.Background(), project.ID, payload.UserID, err.Error())
 			return err
 		}
 		log.Printf("delete archived project %s locally: completed", project.ID)
@@ -356,21 +407,21 @@ func (s *Server) handleDeleteProjectResourcesTask(ctx context.Context, task *asy
 	fibeClient, err := s.completeProjectResourceSnapshot(ctx, payload.UserEmail, project)
 	if err != nil {
 		if fibeClient == nil || !projectHasFibeResources(project) {
-			_ = s.store.UpdateProjectCleanupError(ctx, project.ID, payload.UserID, err.Error())
+			_ = s.store.UpdateProjectCleanupError(context.Background(), project.ID, payload.UserID, err.Error())
 			return err
 		}
 		log.Printf("delete project %s resources: continuing with stored resources after snapshot error: %v", project.ID, err)
 	}
 	if projectHasFibeResources(project) {
 		if err := fibeClient.DeleteProjectResources(ctx, project); err != nil {
-			_ = s.store.UpdateProjectCleanupError(ctx, project.ID, payload.UserID, err.Error())
+			_ = s.store.UpdateProjectCleanupError(context.Background(), project.ID, payload.UserID, err.Error())
 			return err
 		}
 	} else {
 		log.Printf("delete project %s resources: no remote resources found", project.ID)
 	}
 	if err := s.deleteProjectLocally(ctx, project, payload.UserID); err != nil {
-		_ = s.store.UpdateProjectCleanupError(ctx, project.ID, payload.UserID, err.Error())
+		_ = s.store.UpdateProjectCleanupError(context.Background(), project.ID, payload.UserID, err.Error())
 		return err
 	}
 	log.Printf("delete project %s resources: completed", project.ID)
@@ -401,7 +452,7 @@ func (s *Server) finalizeAccountDeletion(ctx context.Context, payload accountDel
 		if s.jobs != nil {
 			for i := range projects {
 				project := &projects[i]
-				if err := s.enqueueProjectJob(ctx, taskDeleteProjectResources, projectJobPayload{UserID: user.ID, UserEmail: user.Email, ProjectID: project.ID}, asynq.Queue(projectCleanupQueue), asynq.MaxRetry(10), asynq.Timeout(20*time.Minute), asynq.Unique(projectCleanupUniqueTTL)); err != nil {
+				if err := s.enqueueProjectJob(ctx, taskDeleteProjectResources, projectJobPayload{UserID: user.ID, UserEmail: user.Email, ProjectID: project.ID}, asynq.Queue(projectCleanupQueue), asynq.MaxRetry(10), asynq.Timeout(projectCleanupTaskTimeout), asynq.Unique(projectCleanupUniqueTTL)); err != nil {
 					return err
 				}
 			}
@@ -432,7 +483,7 @@ func (s *Server) handleProjectDeletionSweepTask(ctx context.Context, _ *asynq.Ta
 			}
 			return err
 		}
-		if err := s.enqueueProjectJob(ctx, taskDeleteProjectResources, projectJobPayload{UserID: user.ID, UserEmail: user.Email, ProjectID: project.ID}, asynq.Queue(projectCleanupQueue), asynq.MaxRetry(10), asynq.Timeout(20*time.Minute), asynq.Unique(projectCleanupUniqueTTL)); err != nil {
+		if err := s.enqueueProjectJob(ctx, taskDeleteProjectResources, projectJobPayload{UserID: user.ID, UserEmail: user.Email, ProjectID: project.ID}, asynq.Queue(projectCleanupQueue), asynq.MaxRetry(10), asynq.Timeout(projectCleanupTaskTimeout), asynq.Unique(projectCleanupUniqueTTL)); err != nil {
 			return err
 		}
 	}
@@ -476,7 +527,7 @@ func (s *Server) handleArchiveDeleteProjectTask(ctx context.Context, task *asynq
 	if err := s.store.UpdateProjectStatus(ctx, project.ID, user.ID, "deleting"); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
-	return s.enqueueProjectJob(ctx, taskDeleteProjectResources, projectJobPayload{UserID: user.ID, UserEmail: user.Email, ProjectID: project.ID}, asynq.Queue(projectCleanupQueue), asynq.MaxRetry(10), asynq.Timeout(20*time.Minute), asynq.Unique(projectCleanupUniqueTTL))
+	return s.enqueueProjectJob(ctx, taskDeleteProjectResources, projectJobPayload{UserID: user.ID, UserEmail: user.Email, ProjectID: project.ID}, asynq.Queue(projectCleanupQueue), asynq.MaxRetry(10), asynq.Timeout(projectCleanupTaskTimeout), asynq.Unique(projectCleanupUniqueTTL))
 }
 
 func (s *Server) handleSendEmailTask(ctx context.Context, task *asynq.Task) error {
@@ -501,7 +552,7 @@ func (s *Server) handleProjectQuotaSweepTask(ctx context.Context, _ *asynq.Task)
 		}
 		for j := range excess {
 			project := &excess[j]
-			if err := s.enqueueProjectJob(ctx, taskArchiveDeleteProject, projectJobPayload{UserID: user.ID, UserEmail: user.Email, ProjectID: project.ID, Reason: "project quota exceeded"}, asynq.Queue(projectCleanupQueue), asynq.MaxRetry(10), asynq.Timeout(20*time.Minute), asynq.Unique(24*time.Hour)); err != nil {
+			if err := s.enqueueProjectJob(ctx, taskArchiveDeleteProject, projectJobPayload{UserID: user.ID, UserEmail: user.Email, ProjectID: project.ID, Reason: "project quota exceeded"}, asynq.Queue(projectCleanupQueue), asynq.MaxRetry(10), asynq.Timeout(projectCleanupTaskTimeout), asynq.Unique(24*time.Hour)); err != nil {
 				return err
 			}
 		}
