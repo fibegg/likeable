@@ -17,7 +17,7 @@ import (
 )
 
 const projectProvisionRetryDelay = 2 * time.Minute
-const projectProvisionUniqueTTL = 15 * time.Minute
+const projectProvisionUniqueTTL = 24 * time.Hour
 const projectCleanupQueue = "default"
 const projectCleanupUniqueTTL = 10 * time.Minute
 const idleProjectStopAfter = domain.PlaygroundIdleStopAfter
@@ -294,7 +294,7 @@ func (s *Server) enqueueDeferredProjectProvisionRetry(ctx context.Context, paylo
 	if delay <= 0 {
 		delay = projectProvisionRetryDelay
 	}
-	err := s.enqueueProjectJob(ctx, taskProvisionProject, payload, asynq.Queue("critical"), asynq.MaxRetry(6), asynq.Timeout(15*time.Minute), asynq.ProcessIn(delay))
+	err := s.enqueueProjectJob(ctx, taskProvisionProject, payload, asynq.Queue("critical"), asynq.MaxRetry(6), asynq.Timeout(15*time.Minute), asynq.ProcessIn(delay), asynq.Unique(projectProvisionUniqueTTL))
 	if err != nil {
 		log.Printf("enqueue deferred project provisioning retry %s: %v", payload.ProjectID, err)
 		return false
