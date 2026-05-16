@@ -1,6 +1,6 @@
 const en = {
   'app.title': 'Likeable',
-  'app.description': 'Build and iterate on Fibe playground apps from a mobile-ready canvas.',
+  'app.description': 'Build apps in a playground. Iterate with Fibe from any device.',
   'app.loading': 'Loading',
   'page.about.title': 'About',
   'page.adminSettings.title': 'Admin settings',
@@ -10,7 +10,7 @@ const en = {
   'nav.admin': 'Admin',
   'auth.signIn': 'Sign in',
   'auth.signInToBuild': 'Sign in to build',
-  'auth.signInToCreateProjects': 'Sign in to create projects',
+  'auth.signInToCreateProjects': 'Sign in to create playgrounds',
   'auth.signInToOpenProfile': 'Sign in to open profile',
   'auth.dev': 'Dev',
   'auth.signOut': 'Sign out',
@@ -19,7 +19,7 @@ const en = {
   'language.english': 'English',
   'language.ukrainian': 'Ukrainian',
   'notice.offlineTitle': 'Offline',
-  'notice.offlineBody': 'Cached app shell is available; live projects and messages need the network.',
+  'notice.offlineBody': 'The app is cached. Live playgrounds and messages need a connection.',
   'notice.system': 'System',
   'notice.dismiss': 'Dismiss notice',
   'common.close': 'Close',
@@ -48,17 +48,18 @@ const en = {
   'common.you': 'You',
   'common.system': 'System',
   'common.messages': 'messages',
-  'common.projects': 'projects',
+  'common.projects': 'playgrounds',
   'common.credits': 'credits',
   'common.users': 'users',
   'common.until': 'until',
-  'common.nextReset': 'next reset {date}',
+  'common.nextReset': 'resets {date}',
   'common.expires': 'expires {date}',
   'duration.fiveHours': '5h',
   'duration.lessThanMinute': 'less than 1m',
   'duration.dayShort': 'd',
   'duration.hourShort': 'h',
   'duration.minuteShort': 'm',
+  'duration.secondShort': 's',
   'status.ready': 'ready',
   'status.creating': 'creating',
   'status.launching': 'launching',
@@ -70,10 +71,10 @@ const en = {
   'status.unknown': 'unknown',
   'dialog.close': 'Close dialog',
   'dialog.requestFailed.title': 'Request failed',
-  'dialog.stopFailed.title': 'Stop failed',
-  'dialog.projectFailed.title': 'Project failed',
+  'dialog.stopFailed.title': 'Could not stop',
+  'dialog.projectFailed.title': 'Playground failed',
   'dialog.renameFailed.title': 'Rename failed',
-  'dialog.serviceSwitchFailed.title': 'Service switch failed',
+  'dialog.serviceSwitchFailed.title': 'Could not switch service',
   'dialog.deleteFailed.title': 'Delete failed',
   'dialog.playgroundActionFailed.title': 'Playground action failed',
   'dialog.exportReady.title': 'Export ready',
@@ -81,22 +82,22 @@ const en = {
   'dialog.exportReady.bodyProject': '{title} was pushed to {url}.',
   'dialog.exportReady.openGitHub': 'Open GitHub',
   'dialog.exportFailed.title': 'Export failed',
-  'dialog.zipExportFailed.title': 'Zip export failed',
-  'builder.agent.transmitting': 'Transmitting request',
-  'builder.agent.synthesizing': 'Synthesizing canvas',
+  'dialog.zipExportFailed.title': 'ZIP export failed',
+  'builder.agent.transmitting': 'Sending request',
+  'builder.agent.synthesizing': 'Building the playground',
   'builder.mode.basic': 'Basic',
   'builder.mode.split': 'Split',
   'builder.view.useBasic': 'Use basic view',
   'builder.view.useSplit': 'Use split view',
   'builder.preview.open': 'Open preview',
   'builder.preview.frameTitle': 'preview',
-  'builder.brand.tooltip': 'Link stable',
-  'builder.projects.tooltip': 'Projects',
-  'builder.project.new': 'New project',
-  'builder.project.name': 'Project name',
+  'builder.brand.tooltip': 'Stable link',
+  'builder.projects.tooltip': 'Playgrounds',
+  'builder.project.new': 'New playground',
+  'builder.project.name': 'Playground name',
   'builder.stopAgent': 'Stop agent',
   'builder.busy.queue': 'Queue new messages',
-  'builder.busy.steer': 'Steer conversation',
+  'builder.busy.steer': 'Steer this run',
   'builder.messages.left': 'Messages left',
   'builder.messageQuota.tooltip': '{paid} paid credits · resets in {reset}',
   'builder.profile.tooltip': 'Profile',
@@ -104,72 +105,129 @@ const en = {
   'builder.chat.collapse': 'Collapse chat',
   'help.tooltip': 'Help and policies',
   'help.eyebrow': 'Help',
-  'help.title': 'Project and policy notes',
+  'help.title': 'How Likeable works',
   'help.close': 'Close help',
-  'help.markdown': `# Project basics
+  'help.markdown': `# How Likeable works
 
-Describe any application in the composer. Likeable will build the canvas, then you can keep iterating in chat.
+Describe the app you want in the composer. Fibe builds the first playground in a few minutes, then keeps refining it in chat.
 
-- Be specific about workflow, data, screens, and visual style.
-- Ask for changes in small steps after the first version appears.
-- Use this text for ToS, privacy, project notes, or onboarding copy.
+## Writing great prompts
 
-<details open>
-<summary>Example collapsible section</summary>
+- Lead with the goal — who uses it and what they do.
+- Name the screens, the data, and how they connect.
+- Mention the visual style (clean, dense, playful) and any references.
+- After the first version, ask for small, focused changes — one thing at a time.
+- Attach screenshots, mockups, or example UIs when the look matters.
+- If something breaks, describe what you saw — Fibe can usually trace it back.
 
-Create sections inside the i18n value with native details markup:
+## What you get
 
-\`<details>\`
-\`<summary>Terms of service</summary>\`
-\`Regular **markdown** goes here.\`
-\`</details>\`
+- A live playground to open and use, with the frontend and any backing services.
+- Source code, downloadable as a ZIP or pushed to a private GitHub repository.
+- Conversation history — the playground keeps evolving as the chat continues.
+
+## Limits and lifecycle
+
+- Free messages refill on a window. Paid credits roll over.
+- Playgrounds auto-pause when inactive. Start them again from the menu.
+- Archived playgrounds stay downloadable for a while after archiving.
+- Delete a playground or the whole account from Profile — everything goes with it.
+
+<details>
+<summary>Terms of Service</summary>
+
+Likeable is a service for building applications by describing them. By signing in and using Likeable you agree to use the service in good faith.
+
+**Acceptable use.** You agree not to use Likeable to generate or host malicious code, infringing material, or anything you don't have the rights to publish. Automated scraping, attempts to overload the platform, and sharing accounts are not allowed.
+
+**Your content.** You own the prompts you write and the source code generated for your playgrounds. You grant Likeable the rights needed to operate the service, including storing your projects and running them on our infrastructure.
+
+**Service availability.** Likeable is provided on a best-effort basis. Playgrounds may be paused, restarted, or temporarily unavailable for maintenance. Uninterrupted service is not guaranteed.
+
+**Suspension.** Accounts that violate these terms, abuse the platform, or expose other users to risk may be suspended or terminated. Where possible, notice will be given before that happens.
+
+**Limitation of liability.** Likeable is provided "as is". To the extent permitted by law, we are not liable for indirect or consequential damages arising from use of the service.
+
+**Changes.** These terms may be updated as the service evolves. Material changes will be announced before they take effect.
 
 </details>
 
 <details>
-<summary>Privacy placeholder</summary>
+<summary>Privacy</summary>
 
-Replace this with privacy copy. Links are supported, for example [Privacy Policy](/privacy).
+A short summary of how Likeable handles your data.
+
+**What we collect**
+
+- Account info from Google when you sign in (name, email, profile picture).
+- The prompts you send and the messages Fibe returns.
+- Project data — generated source code, attached files, playground state.
+- Billing data when you pay for credits or slots (handled by Stripe; card numbers are not stored).
+- Usage data such as IP address, browser, and timestamps, used for security and abuse prevention.
+
+**How we use it**
+
+- To run the service: build playgrounds, deliver messages, store your projects.
+- To bill you and send receipts.
+- To improve reliability and prevent abuse.
+- To contact you about your account or about major service changes.
+
+**Who we share it with**
+
+- Google (sign-in), Stripe (payments), GitHub (when you connect it for export), and the AI provider behind Fibe (to generate code from your prompts).
+- Your data is not sold.
+
+**Retention and deletion**
+
+- Active playgrounds and conversations are kept while your account is open.
+- Archived playgrounds remain downloadable for a limited time after archiving.
+- Deleting an account from Profile permanently removes its playgrounds, messages, payments, and connections.
+
+**Your choices**
+
+- Export any playground to GitHub or as a ZIP from the playground menu.
+- Delete individual playgrounds or the whole account from Profile.
+- Contact support with questions or requests for a copy of your data.
 
 </details>`,
   'builder.poweredBy': 'Powered by',
   'builder.dropFiles': 'Drop files to attach',
   'builder.attachFiles': 'Attach files',
   'builder.removeAttachment': 'Remove {name}',
-  'builder.expandChat': 'Expand',
-  'builder.resizeChat': 'Resize',
+  'builder.expandChat': 'Expand chat',
+  'builder.resizeChat': 'Resize chat',
   'builder.placeholder.signIn': 'Sign in with Google to start building...',
-  'builder.placeholder.starting': 'Canvas is starting...',
-  'builder.placeholder.archived': 'This project is archived. Export it or start a new one.',
-  'builder.placeholder.error': 'Project needs attention...',
-  'builder.placeholder.single': 'Describe your ideas...',
+  'builder.placeholder.starting': 'Playground is starting...',
+  'builder.placeholder.archived': 'This playground is archived. Export it or start a new one.',
+  'builder.placeholder.error': 'Playground needs attention...',
+  'builder.placeholder.single': 'Describe your idea...',
   'builder.placeholder.default': 'Describe what you want to build...',
   'builder.status.agentWorking': 'Fibe working',
   'builder.status.maintenance': 'Maintenance',
-  'builder.status.canvasLive': 'Canvas live',
-  'builder.status.canvasStarting': 'Canvas starting',
-  'builder.status.canvasStopped': 'Canvas stopped',
+  'builder.status.canvasLive': 'Playground live',
+  'builder.status.canvasStarting': 'Playground starting',
+  'builder.status.canvasStopped': 'Playground stopped',
   'builder.status.canvasArchived': 'Archived',
-  'builder.status.canvasError': 'Canvas error',
-  'builder.status.canvasIdle': 'Canvas idle',
-  'builder.idleStop.label': 'Auto-stops in {time}',
-  'builder.idleStop.tooltip': 'Auto-stops after idle: {time}',
-  'builder.preview.startingTitle': 'Starting canvas',
-  'builder.preview.preparingTitle': 'Preparing canvas',
-  'builder.preview.launchingBody': 'Likeable is preparing the project workspace. The 8-hour idle window starts from this action.',
-  'builder.preview.preparingBody': 'Likeable is deploying a default project',
-  'builder.preview.respondedBody': 'The canvas responded. Opening the preview.',
-  'builder.preview.warmingBody': 'The canvas route is warming up. Likeable will open it automatically when it is ready.',
-  'builder.preview.launchFailedTitle': 'Canvas launch failed',
-  'builder.preview.launchFailedBody': 'Oops, something went wrong. Check with admin, please',
-  'builder.preview.connectingTitle': 'Connecting canvas',
-  'builder.preview.stoppedTitle': 'Canvas stopped',
-  'builder.preview.stoppedBody': 'This playground is stopped. Start it from the project menu when you need the canvas again; manual actions reset the idle window.',
-  'builder.preview.archivedTitle': 'Project archived',
-  'builder.preview.archivedBody': 'This project is export-only. Create a new project to keep developing.',
-  'onboarding.eyebrow': 'First project',
+  'builder.status.canvasError': 'Playground error',
+  'builder.status.canvasIdle': 'Playground idle',
+  'builder.idleStop.label': 'Pauses in {time}',
+  'builder.idleStop.tooltip': 'Pauses when inactive: {time}',
+  'builder.preview.startingTitle': 'Starting playground',
+  'builder.preview.preparingTitle': 'Preparing playground',
+  'builder.preview.launchingBody': 'Fibe is preparing your playground.',
+  'builder.preview.preparingBody': 'Setting up a new playground.',
+  'builder.preview.respondedBody': 'Playground is ready. Opening the preview.',
+  'builder.preview.warmingBody': "The playground is warming up. It will open as soon as it's ready.",
+  'builder.preview.launchFailedTitle': 'Playground launch failed',
+  'builder.preview.launchFailedBody': 'The playground could not start. Please try again, or contact support.',
+  'builder.preview.connectingTitle': 'Connecting playground',
+  'builder.preview.stoppedTitle': 'Playground stopped',
+  'builder.preview.stoppedBody': 'This playground is stopped. Start it again from the menu when needed.',
+  'builder.preview.archivedTitle': 'Playground archived',
+  'builder.preview.archivedBody': 'This playground is export-only. Create a new one to keep building.',
+  'onboarding.eyebrow': 'First playground',
   'onboarding.title': 'Build by describing it',
-  'onboarding.body': 'Ask for any app, then keep iterating in chat as the canvas changes.',
+  'onboarding.body': 'Ask for any app, then keep iterating in chat as the playground takes shape.',
   'onboarding.card.productTitle': 'Product UI',
   'onboarding.card.productBody': 'Dashboards, landing pages, forms, and internal tools.',
   'onboarding.card.opsTitle': 'Workflow app',
@@ -185,43 +243,43 @@ Replace this with privacy copy. Links are supported, for example [Privacy Policy
   'service.current': 'Current',
   'service.close': 'Close preview services',
   'service.show': 'Show {name}',
-  'projects.title': 'Projects',
-  'projects.close': 'Close projects',
-  'projects.count.one': '{count} project',
-  'projects.count.many': '{count} projects',
-  'projects.count.cap': '{count}/{cap} projects',
+  'projects.title': 'Playgrounds',
+  'projects.close': 'Close playgrounds',
+  'projects.count.one': '{count} playground',
+  'projects.count.many': '{count} playgrounds',
+  'projects.count.cap': '{count}/{cap} playgrounds',
   'projects.rename.aria': 'Rename {title}',
   'projects.delete.aria': 'Delete {title}',
   'projects.export.aria': 'Export {title}',
-  'projects.export.title': 'Export project',
-  'projects.actions.aria': 'Project actions for {title}',
-  'projects.actions.title': 'Project actions',
+  'projects.export.title': 'Export playground',
+  'projects.actions.aria': 'Actions for {title}',
+  'projects.actions.title': 'Playground actions',
   'projects.start': 'Start playground',
   'projects.stop': 'Stop playground',
   'projects.restart': 'Restart playground',
-  'projects.saveName': 'Save project name',
+  'projects.saveName': 'Save name',
   'projects.cancelRename': 'Cancel rename',
-  'projects.new': 'New project',
+  'projects.new': 'New playground',
   'message.sent': 'Sent',
   'message.attachedFiles': 'Attached files',
   'message.attachments': 'Attachments',
   'notification.receiving': 'Receiving update',
-  'notification.canvasUpdated': 'Canvas updated',
-  'empty.awaitingTitle': 'Awaiting transmission',
-  'empty.awaitingBody': 'The canvas is ready. Describe the scene and Fibe will rebuild this view.',
-  'newProject.eyebrow': 'New project',
-  'newProject.title': 'Create another project?',
-  'newProject.body': 'Likeable will immediately start a fresh project using the default canvas.',
+  'notification.canvasUpdated': 'Playground updated',
+  'empty.awaitingTitle': 'Awaiting your prompt',
+  'empty.awaitingBody': 'Your playground is ready. Describe what to build and Fibe will create it.',
+  'newProject.eyebrow': 'New playground',
+  'newProject.title': 'Create another playground?',
+  'newProject.body': 'A fresh playground will start right away.',
   'newProject.placeholder': 'New playground {number}',
-  'newProject.quota': 'Projects: {count}/{cap}',
+  'newProject.quota': 'Playgrounds: {count}/{cap}',
   'newProject.capReached': 'Cap reached',
-  'deleteProject.eyebrow': 'Delete project',
-  'deleteProject.title': 'Delete this project?',
-  'deleteProject.body': '{title} will be removed from Likeable, including its workspace and private source archive.',
-  'exportProject.eyebrow': 'Project export',
-  'exportProject.title': 'Export project?',
-  'exportProject.body': 'Download a local ZIP or push the current source for {title} to GitHub.',
-  'exportProject.archivedBody': 'Download the stored ZIP archive for {title}.',
+  'deleteProject.eyebrow': 'Delete playground',
+  'deleteProject.title': 'Delete this playground?',
+  'deleteProject.body': '{title} and its files will be permanently removed.',
+  'exportProject.eyebrow': 'Playground export',
+  'exportProject.title': 'Export playground?',
+  'exportProject.body': 'Download a ZIP or push the source for {title} to GitHub.',
+  'exportProject.archivedBody': 'Download the ZIP archive for {title}.',
   'exportProject.repositoryName': 'Repository name',
   'exportProject.privateRepo': 'Private repository',
   'exportProject.invalidName': 'Use only letters, numbers, dots, underscores, and hyphens.',
@@ -230,7 +288,7 @@ Replace this with privacy copy. Links are supported, for example [Privacy Policy
   'exportProject.exportGithub': 'Export to GitHub',
   'deleteAll.eyebrow': 'danger zone',
   'deleteAll.title': 'Delete everything?',
-  'deleteAll.body': 'This permanently deletes every Likeable record for this account and first attempts to remove the related workspaces, conversations, source data, and private repositories.',
+  'deleteAll.body': 'Permanently removes every playground, message, and connected repository for this account.',
   'deleteAll.confirmInstruction': 'Type {email} to confirm.',
   'deleteAll.button': 'DELETE ALL',
   'profile.title': 'Profile',
@@ -238,8 +296,8 @@ Replace this with privacy copy. Links are supported, for example [Privacy Policy
   'profile.loadMessagesFailed': 'Could not load messages',
   'profile.loadArchivesFailed': 'Could not load archives',
   'profile.checkoutFailed': 'Checkout failed',
-  'profile.messageFailed': 'Message failed',
-  'profile.deleteAllFailed': 'Delete all failed',
+  'profile.messageFailed': 'Could not send message',
+  'profile.deleteAllFailed': 'Delete failed',
   'profile.signedIn': 'Signed in',
   'profile.signedInAs': 'Signed in as',
   'profile.githubExport': 'Repository export',
@@ -249,28 +307,28 @@ Replace this with privacy copy. Links are supported, for example [Privacy Policy
   'profile.messages': 'Messages',
   'profile.freeQuota': 'Free message quota',
   'profile.freeInWindow': '{remaining}/{limit} free in {hours}h',
-  'profile.quotaDetail': '{paid} paid credits · resets in {reset} · {lifetime} lifetime sent',
-  'profile.projects': 'Projects',
-  'profile.projectQuota': 'Project quota',
-  'profile.projectSlots': '{used}/{limit} project slots',
+  'profile.quotaDetail': '{paid} paid credits · resets in {reset} · {lifetime} sent in total',
+  'profile.projects': 'Playgrounds',
+  'profile.projectQuota': 'Playground quota',
+  'profile.projectSlots': '{used}/{limit} playground slots',
   'profile.projectSlotDetail': '{paid} paid monthly slots{reset}',
   'profile.addSlot': '+1 slot',
   'profile.session': 'Session',
-  'profile.sessionBody': 'End your current session on this device.',
+  'profile.sessionBody': 'End your session on this device.',
   'profile.dangerZone': 'Danger zone',
   'profile.deleteAllTitle': 'Delete all account data',
-  'profile.deleteAllBody': 'Removes projects, workspaces, messages, OAuth connections, payments, sessions, and this profile.',
-  'profile.archives.title': 'Archived Projects',
-  'profile.archives.body': 'Archives are kept for 90 days after quota cleanup. Download them here if GitHub export was unavailable.',
+  'profile.deleteAllBody': 'Removes all playgrounds, messages, linked accounts, payments, and this profile.',
+  'profile.archives.title': 'Archived playgrounds',
+  'profile.archives.body': 'Download archived playgrounds here. Available for a limited time.',
   'profile.mailbox.title': 'Messages',
-  'profile.mailbox.body': 'System messages from Likeable and your messages to admin support stay here.',
+  'profile.mailbox.body': 'Messages from Likeable and to support stay here.',
   'profile.dismissed': 'Dismissed',
-  'profile.noMessages': 'No system messages yet.',
-  'profile.support.placeholder': 'Message admin support...',
+  'profile.noMessages': 'No messages yet.',
+  'profile.support.placeholder': 'Message support...',
   'profile.support.send': 'Send',
   'profile.support.sendAria': 'Send support message',
   'admin.customers.title': 'Customers',
-  'admin.customers.body': 'Search, filter, inspect usage, moderate access, message users, and clean up projects.',
+  'admin.customers.body': 'Search, filter, inspect usage, moderate access, message users, and clean up playgrounds.',
   'admin.search': 'Search',
   'admin.search.placeholder': 'email, name, or user id',
   'admin.access': 'Access',
@@ -279,7 +337,7 @@ Replace this with privacy copy. Links are supported, for example [Privacy Policy
   'admin.sort.newest': 'newest',
   'admin.sort.messages': 'messages',
   'admin.sort.paid': 'paid',
-  'admin.sort.projects': 'projects',
+  'admin.sort.projects': 'playgrounds',
   'admin.sort.email': 'email',
   'admin.subscriptionLegacy': 'legacy subscription',
   'admin.noGithub': 'No GitHub',
@@ -289,13 +347,13 @@ Replace this with privacy copy. Links are supported, for example [Privacy Policy
   'admin.previous': 'Previous',
   'admin.next': 'Next',
   'admin.pagination': '{page}/{totalPages} · {total} users',
-  'admin.selectUser': 'Select a user to inspect projects, payments, notices, and access controls.',
+  'admin.selectUser': 'Select a user to inspect playgrounds, payments, notices, and access.',
   'admin.customer': 'Customer',
   'admin.metric.free5h': 'Free window',
-  'admin.metric.lifetimeSent': 'Lifetime Sent',
-  'admin.metric.paidCredits': 'Paid Credits',
-  'admin.metric.projects': 'Projects',
-  'admin.metric.paidSlots': 'Paid Slots',
+  'admin.metric.lifetimeSent': 'Lifetime sent',
+  'admin.metric.paidCredits': 'Paid credits',
+  'admin.metric.projects': 'Playgrounds',
+  'admin.metric.paidSlots': 'Paid slots',
   'admin.metric.github': 'GitHub',
   'admin.metric.paid': 'Paid',
   'admin.accessNote': 'Access note',
@@ -303,7 +361,7 @@ Replace this with privacy copy. Links are supported, for example [Privacy Policy
   'admin.restoreAccess': 'Restore access',
   'admin.restrictAccess': 'Restrict access',
   'admin.messages.title': 'Messages',
-  'admin.messages.body': 'User support messages and system notices sent from admin stay in one timeline.',
+  'admin.messages.body': 'Support messages and admin notices stay in one timeline.',
   'admin.unsend': 'Unsend',
   'admin.dismissedByUser': 'Dismissed by user',
   'admin.unsent': 'Unsent',
@@ -311,42 +369,42 @@ Replace this with privacy copy. Links are supported, for example [Privacy Policy
   'admin.severity': 'Severity',
   'admin.notice.placeholder': 'Write a system message to this user...',
   'admin.send': 'Send',
-  'admin.projects.title': 'Projects',
-  'admin.projects.body': 'Deletion uses the same workspace cleanup path as user-initiated deletion.',
+  'admin.projects.title': 'Playgrounds',
+  'admin.projects.body': 'Deleting a playground here works the same as if the user deleted it.',
   'admin.assignment': 'Agent pair',
-  'admin.assignment.none': 'No stored pair',
-  'admin.assignment.failed': 'Assignment update failed',
-  'admin.noActiveProjects': 'No active projects.',
+  'admin.assignment.none': 'No pair set',
+  'admin.assignment.failed': 'Could not update pair',
+  'admin.noActiveProjects': 'No active playgrounds.',
   'admin.deleteProject.aria': 'Delete {title}',
   'admin.loadUsersFailed': 'Could not load users',
-  'admin.accessUpdateFailed': 'Access update failed',
-  'admin.noticeFailed': 'Notice failed',
-  'admin.unsendFailed': 'Unsend failed',
-  'admin.projectDeleteFailed': 'Project delete failed',
+  'admin.accessUpdateFailed': 'Could not update access',
+  'admin.noticeFailed': 'Could not send notice',
+  'admin.unsendFailed': 'Could not unsend',
+  'admin.projectDeleteFailed': 'Could not delete playground',
   'admin.restrictDialog.title': 'Restrict user?',
-  'admin.restrictDialog.body': 'The user will keep seeing system notices, but app actions will be blocked until access is restored.',
+  'admin.restrictDialog.body': 'The user still receives system notices, but app actions are blocked until access is restored.',
   'admin.unsendDialog.title': 'Unsend system message?',
-  'admin.unsendDialog.body': 'It will disappear from the user mailbox and active banners.',
-  'admin.deleteProjectDialog.title': 'Delete user project?',
-  'admin.deleteProjectDialog.body': 'This removes the project from Likeable and runs the workspace cleanup path.',
+  'admin.unsendDialog.body': 'It disappears from the user mailbox and any active banners.',
+  'admin.deleteProjectDialog.title': 'Delete user playground?',
+  'admin.deleteProjectDialog.body': 'Permanently removes this playground.',
   'admin.panel.title': 'Admin',
   'admin.poolIncomplete': 'Every pool row needs both an agent ID and a server ID.',
-  'admin.saveFailed': 'Save failed',
+  'admin.saveFailed': 'Could not save',
   'admin.noSettings': 'No settings exposed for this section.',
   'admin.accessCard.title': 'Access',
-  'admin.accessCard.body': 'Signup starts closed. Use allowlist mode with one email or domain per line, or open signup to everyone.',
+  'admin.accessCard.body': 'Signup starts closed. Use allowlist with one email or domain per line, or open signup to everyone.',
   'admin.signupMode.label': 'Signup mode',
   'admin.signupMode.forbidden': 'forbidden',
   'admin.signupMode.allowlist': 'allowlist',
   'admin.signupMode.all': 'all',
   'admin.signupAllowedEmails.label': 'Allowed emails and domains',
   'admin.signupAllowedEmails.placeholder': 'pilot@gmail.com\nfounder@gmail.com\n@trusted.test',
-  'admin.fibe.title': 'Fibe Integration',
-  'admin.fibe.body': 'Connection used for project creation, workspace provisioning, and agent messaging.',
-  'admin.pool.title': 'Agent and Server Pool',
-  'admin.pool.body': 'New projects store a deterministic active pair selected from project ID. Existing projects keep their stored pair.',
+  'admin.fibe.title': 'Fibe integration',
+  'admin.fibe.body': 'Connection used to create playgrounds and talk to Fibe.',
+  'admin.pool.title': 'Agent and server pool',
+  'admin.pool.body': 'New playgrounds pick a pair from this pool. Existing playgrounds keep theirs.',
   'admin.pool.add': 'Add pair',
-  'admin.pool.empty': 'No pool pairs configured. Add one agent and server pair before onboarding users.',
+  'admin.pool.empty': 'No pool pairs configured. Add one before onboarding users.',
   'admin.pool.label': 'Label',
   'admin.pool.pair': 'Pair {number}',
   'admin.pool.agentId': 'Agent ID',
@@ -356,38 +414,38 @@ Replace this with privacy copy. Links are supported, for example [Privacy Policy
   'admin.pool.status.draining': 'Draining',
   'admin.pool.status.retiring': 'Retiring',
   'admin.pool.status.retired': 'Retired',
-  'admin.pool.stats': '{projects} projects · {archived} archived · {archives} ZIPs',
-  'admin.pool.stats.empty': '0 projects',
+  'admin.pool.stats': '{projects} playgrounds · {archived} archived · {archives} ZIPs',
+  'admin.pool.stats.empty': '0 playgrounds',
   'admin.pool.retire': 'Archive',
-  'admin.pool.retired': 'Pair archived and retired',
+  'admin.pool.retired': 'Pair archived',
   'admin.pool.agentPlaceholder': 'agent_...',
   'admin.pool.serverPlaceholder': 'server_...',
   'admin.pool.remove': 'Remove pair',
-  'admin.config.secretHelp': 'Secrets are write-only; leave them blank to keep the current value.',
+  'admin.config.secretHelp': 'Secrets are write-only; leave blank to keep the current value.',
   'admin.config.set': 'set',
-  'admin.config.github.title': 'GitHub Integration',
-  'admin.config.github.body': 'OAuth app used when users connect GitHub for repository export.',
-  'admin.config.google.title': 'Google Integration',
-  'admin.config.google.body': 'OAuth app used for sign in.',
-  'admin.config.stripe.title': 'Stripe Integration',
-  'admin.config.stripe.body': 'Checkout and webhook credentials for one-time message packs and monthly project quota slots.',
-  'admin.config.application.title': 'Application Settings',
-  'admin.config.application.body': 'Defaults, caps, and SMTP delivery used for Likeable user notifications.',
+  'admin.config.github.title': 'GitHub integration',
+  'admin.config.github.body': 'App used when users connect GitHub to export their playground.',
+  'admin.config.google.title': 'Google integration',
+  'admin.config.google.body': 'App used for sign-in.',
+  'admin.config.stripe.title': 'Stripe integration',
+  'admin.config.stripe.body': 'Checkout and webhook credentials for message packs and playground slots.',
+  'admin.config.application.title': 'Application settings',
+  'admin.config.application.body': 'Defaults, caps, and email delivery for user notifications.',
   'admin.config.stripe_publishable_key': 'Publishable key',
   'admin.config.stripe_secret_key': 'Secret key',
   'admin.config.stripe_price_id_10': '10 messages price ID',
   'admin.config.stripe_price_id_100': '100 messages price ID',
   'admin.config.stripe_price_id_1000': '1000 messages price ID',
-  'admin.config.stripe_project_quota_price_id': 'Project quota price ID',
+  'admin.config.stripe_project_quota_price_id': 'Playground quota price ID',
   'admin.config.stripe_webhook_secret': 'Webhook secret',
   'admin.config.free_messages': 'Free messages per window',
   'admin.config.free_message_window_hours': 'Free message window hours',
-  'admin.config.project_cap': 'Base project cap'
+  'admin.config.project_cap': 'Base playground cap'
 } as const;
 
 const uk: Record<keyof typeof en, string> = {
   'app.title': 'Likeable',
-  'app.description': 'Створюйте й доопрацьовуйте Fibe-плейграунди з полотна, готового для мобільних пристроїв.',
+  'app.description': 'Створення застосунків у майданчику. Доопрацювання з Fibe на будь-якому пристрої.',
   'app.loading': 'Завантаження',
   'page.about.title': 'Про застосунок',
   'page.adminSettings.title': 'Налаштування адміна',
@@ -396,17 +454,17 @@ const uk: Record<keyof typeof en, string> = {
   'nav.profile': 'Профіль',
   'nav.admin': 'Адмін',
   'auth.signIn': 'Увійти',
-  'auth.signInToBuild': 'Увійдіть, щоб створювати',
-  'auth.signInToCreateProjects': 'Увійдіть, щоб створювати проєкти',
-  'auth.signInToOpenProfile': 'Увійдіть, щоб відкрити профіль',
+  'auth.signInToBuild': 'Вхід, щоб створювати',
+  'auth.signInToCreateProjects': 'Вхід, щоб створювати майданчики',
+  'auth.signInToOpenProfile': 'Вхід, щоб відкрити профіль',
   'auth.dev': 'Dev',
   'auth.signOut': 'Вийти',
-  'language.switch': 'Перемкнути мову',
+  'language.switch': 'Змінити мову',
   'language.current': 'Мова: {language}',
   'language.english': 'Англійська',
   'language.ukrainian': 'Українська',
   'notice.offlineTitle': 'Офлайн',
-  'notice.offlineBody': 'Кешована оболонка застосунку доступна; для живих проєктів і повідомлень потрібна мережа.',
+  'notice.offlineBody': 'Застосунок у кеші. Для майданчиків і повідомлень потрібен звʼязок.',
   'notice.system': 'Система',
   'notice.dismiss': 'Закрити сповіщення',
   'common.close': 'Закрити',
@@ -419,7 +477,7 @@ const uk: Record<keyof typeof en, string> = {
   'common.saved': 'Збережено',
   'common.open': 'Відкрити',
   'common.github': 'GitHub',
-  'common.zip': 'Zip',
+  'common.zip': 'ZIP',
   'common.connected': 'підключено',
   'common.missing': 'відсутній',
   'common.paid': 'оплачено',
@@ -435,17 +493,18 @@ const uk: Record<keyof typeof en, string> = {
   'common.you': 'Ви',
   'common.system': 'Система',
   'common.messages': 'повідомлення',
-  'common.projects': 'проєкти',
+  'common.projects': 'майданчики',
   'common.credits': 'кредити',
   'common.users': 'користувачі',
   'common.until': 'до',
-  'common.nextReset': 'наступне оновлення {date}',
+  'common.nextReset': 'оновлення {date}',
   'common.expires': 'діє до {date}',
   'duration.fiveHours': '5 год',
   'duration.lessThanMinute': 'менше 1 хв',
   'duration.dayShort': 'д',
   'duration.hourShort': 'год',
   'duration.minuteShort': 'хв',
+  'duration.secondShort': 'с',
   'status.ready': 'готовий',
   'status.creating': 'створюється',
   'status.launching': 'запускається',
@@ -453,110 +512,167 @@ const uk: Record<keyof typeof en, string> = {
   'status.deleting': 'видаляється',
   'status.error': 'помилка',
   'status.archived': 'архівовано',
-  'status.processing': 'обробляється',
+  'status.processing': 'обробка',
   'status.unknown': 'невідомо',
   'dialog.close': 'Закрити діалог',
   'dialog.requestFailed.title': 'Запит не виконано',
   'dialog.stopFailed.title': 'Не вдалося зупинити',
-  'dialog.projectFailed.title': 'Помилка проєкту',
+  'dialog.projectFailed.title': 'Помилка майданчика',
   'dialog.renameFailed.title': 'Не вдалося перейменувати',
   'dialog.serviceSwitchFailed.title': 'Не вдалося перемкнути сервіс',
   'dialog.deleteFailed.title': 'Не вдалося видалити',
-  'dialog.playgroundActionFailed.title': 'Не вдалося виконати дію з плейграундом',
+  'dialog.playgroundActionFailed.title': 'Не вдалося виконати дію в майданчику',
   'dialog.exportReady.title': 'Експорт готовий',
-  'dialog.exportReady.body': 'Ваш GitHub-репозиторій готовий.',
-  'dialog.exportReady.bodyProject': '{title} відправлено до {url}.',
+  'dialog.exportReady.body': 'Репозиторій GitHub готовий.',
+  'dialog.exportReady.bodyProject': '{title} надіслано до {url}.',
   'dialog.exportReady.openGitHub': 'Відкрити GitHub',
   'dialog.exportFailed.title': 'Не вдалося експортувати',
-  'dialog.zipExportFailed.title': 'Не вдалося експортувати Zip',
+  'dialog.zipExportFailed.title': 'Не вдалося експортувати ZIP',
   'builder.agent.transmitting': 'Надсилання запиту',
-  'builder.agent.synthesizing': 'Агент оновлює полотно',
+  'builder.agent.synthesizing': 'Fibe оновлює майданчик',
   'builder.mode.basic': 'Базовий',
   'builder.mode.split': 'Розділений',
-  'builder.view.useBasic': 'Увімкнути базовий вигляд',
-  'builder.view.useSplit': 'Увімкнути розділений вигляд',
+  'builder.view.useBasic': 'Базовий вигляд',
+  'builder.view.useSplit': 'Розділений вигляд',
   'builder.preview.open': 'Відкрити превʼю',
   'builder.preview.frameTitle': 'превʼю',
   'builder.brand.tooltip': 'Стабільне посилання',
-  'builder.projects.tooltip': 'Проєкти',
-  'builder.project.new': 'Новий проєкт',
-  'builder.project.name': 'Назва проєкту',
+  'builder.projects.tooltip': 'Майданчики',
+  'builder.project.new': 'Новий майданчик',
+  'builder.project.name': 'Назва майданчика',
   'builder.stopAgent': 'Зупинити агента',
-  'builder.busy.queue': 'Поставити нові повідомлення в чергу',
-  'builder.busy.steer': 'Спрямувати поточний запуск',
-  'builder.messages.left': 'Доступні повідомлення в цьому вікні',
+  'builder.busy.queue': 'Додати в чергу',
+  'builder.busy.steer': 'Скоригувати запуск',
+  'builder.messages.left': 'Доступні повідомлення',
   'builder.messageQuota.tooltip': '{paid} платних кредитів · оновлення через {reset}',
   'builder.profile.tooltip': 'Профіль',
   'builder.admin.tooltip': 'Адмін',
   'builder.chat.collapse': 'Згорнути чат',
   'help.tooltip': 'Допомога та правила',
   'help.eyebrow': 'Допомога',
-  'help.title': 'Нотатки про проєкт і правила',
-  'help.close': 'Закрити довідку',
-  'help.markdown': `# Основи проєкту
+  'help.title': 'Як працює Likeable',
+  'help.close': 'Закрити допомогу',
+  'help.markdown': `# Як працює Likeable
 
-Опишіть будь-який застосунок у полі повідомлення. Likeable побудує canvas, а потім ви зможете ітерувати в чаті.
+Опис застосунку — у полі повідомлення. Fibe створює перший майданчик за кілька хвилин і далі доопрацьовує його в чаті.
 
-- Опишіть workflow, дані, екрани й візуальний стиль.
-- Після першої версії просіть зміни невеликими кроками.
-- Використовуйте цей текст для ToS, privacy, нотаток про проєкт або онбордингу.
+## Як писати хороші запити
 
-<details open>
-<summary>Приклад секції, що розгортається</summary>
+- Спочатку — мета: хто користується і що робить.
+- Назви екранів, дані та звʼязки між ними.
+- Візуальний стиль (мінімалістичний, щільний, грайливий) і приклади-референси.
+- Після першої версії — невеликі, точкові зміни по одній за раз.
+- Знімки екрана, макети чи приклади UI допомагають, коли важливий вигляд.
+- Якщо щось зламалося — опис того, що сталося. Fibe зазвичай знаходить причину.
 
-Створюйте секції всередині i18n-значення через native details markup:
+## Результат
 
-\`<details>\`
-\`<summary>Terms of service</summary>\`
-\`Тут може бути звичайний **markdown**.\`
-\`</details>\`
+- Живий майданчик, доступний для роботи, з фронтендом і всіма потрібними сервісами.
+- Вихідний код — для завантаження як ZIP або відправки в приватний репозиторій GitHub.
+- Історія розмови — майданчик продовжує розвиватися, поки триває діалог.
+
+## Ліміти та життєвий цикл
+
+- Безплатні повідомлення оновлюються кожне вікно. Платні кредити переходять на наступний період.
+- Майданчики автоматично призупиняються в стані спокою. Запустити знову — з меню.
+- Архівовані майданчики можна завантажити обмежений час після архівування.
+- Видалення майданчика чи всього акаунта — у Профілі. Усе зникає разом.
+
+<details>
+<summary>Умови використання</summary>
+
+Likeable — сервіс для створення застосунків через їхній опис. Користуючись Likeable, ви погоджуєтеся використовувати сервіс сумлінно.
+
+**Прийнятне використання.** Не використовуйте Likeable для генерації чи хостингу шкідливого коду, матеріалів, що порушують права інших, або того, на що у вас немає прав. Автоматичний скрейпінг, спроби перевантажити платформу та спільне користування акаунтами заборонені.
+
+**Ваш контент.** Вам належать запити, які ви пишете, і вихідний код, згенерований для ваших майданчиків. Ви надаєте Likeable права, необхідні для роботи сервісу: зберігання проєктів і їх виконання на нашій інфраструктурі.
+
+**Доступність сервісу.** Likeable надається за принципом найкращих зусиль. Майданчики можуть призупинятися, перезапускатися або бути тимчасово недоступні для обслуговування. Безперервна робота не гарантується.
+
+**Призупинення.** Акаунти, які порушують ці умови, зловживають платформою чи створюють ризик для інших користувачів, можуть бути призупинені або закриті. За можливості — з попередженням.
+
+**Обмеження відповідальності.** Likeable надається "як є". У межах, дозволених законом, ми не несемо відповідальності за непрямі чи наслідкові збитки від використання сервісу.
+
+**Зміни.** Ці умови можуть оновлюватися з розвитком сервісу. Про істотні зміни попереджаємо до набуття чинності.
 
 </details>
 
 <details>
-<summary>Privacy placeholder</summary>
+<summary>Конфіденційність</summary>
 
-Замініть це на privacy-текст. Посилання підтримуються, наприклад [Privacy Policy](/privacy).
+Короткий опис того, як Likeable працює з даними.
+
+**Що збираємо**
+
+- Інформацію акаунта з Google під час входу (імʼя, email, фото профілю).
+- Ваші запити та відповіді Fibe.
+- Дані проєктів — згенерований код, вкладені файли, стан майданчика.
+- Платіжні дані під час оплати кредитів або місць (обробляються Stripe; номери карток не зберігаються).
+- Дані використання — IP, браузер, часові мітки — для безпеки та запобігання зловживанням.
+
+**Як використовуємо**
+
+- Для роботи сервісу: створення майданчиків, доставка повідомлень, зберігання проєктів.
+- Для білінгу та надсилання чеків.
+- Для підвищення стабільності та запобігання зловживанням.
+- Для звʼязку щодо акаунта чи суттєвих змін у сервісі.
+
+**Кому передаємо**
+
+- Google (вхід), Stripe (платежі), GitHub (коли підключено для експорту) і AI-провайдеру за Fibe (для генерації коду із запитів).
+- Ваші дані не продаються.
+
+**Зберігання та видалення**
+
+- Активні майданчики й розмови зберігаються, поки акаунт активний.
+- Архівовані майданчики доступні для завантаження обмежений час після архівування.
+- Видалення акаунта з Профілю остаточно прибирає всі майданчики, повідомлення, платежі та підключення.
+
+**Можливості**
+
+- Експорт будь-якого майданчика в GitHub або як ZIP — з меню майданчика.
+- Видалення окремих майданчиків або всього акаунта — з Профілю.
+- Звернення в підтримку з питаннями або щоб отримати копію даних.
 
 </details>`,
   'builder.poweredBy': 'На платформі',
-  'builder.dropFiles': 'Перетягніть файли, щоб додати',
+  'builder.dropFiles': 'Перетягніть файли сюди',
   'builder.attachFiles': 'Додати файли',
   'builder.removeAttachment': 'Прибрати {name}',
   'builder.expandChat': 'Розгорнути чат',
   'builder.resizeChat': 'Змінити розмір чату',
-  'builder.placeholder.signIn': 'Увійдіть через Google, щоб почати створювати...',
-  'builder.placeholder.starting': 'Полотно запускається...',
-  'builder.placeholder.archived': 'Цей проєкт архівовано. Експортуйте його або створіть новий.',
-  'builder.placeholder.error': 'Проєкт потребує уваги...',
-  'builder.placeholder.single': 'Опишіть полотно...',
-  'builder.placeholder.default': 'Опишіть, що має зʼявитися на полотні...',
-  'builder.status.agentWorking': 'Агент працює',
+  'builder.placeholder.signIn': 'Вхід через Google, щоб почати...',
+  'builder.placeholder.starting': 'Запуск майданчика...',
+  'builder.placeholder.archived': 'Майданчик архівовано. Експорт або новий майданчик.',
+  'builder.placeholder.error': 'Майданчик потребує уваги...',
+  'builder.placeholder.single': 'Опишіть ідею...',
+  'builder.placeholder.default': 'Опишіть, що створити...',
+  'builder.status.agentWorking': 'Fibe працює',
   'builder.status.maintenance': 'Обслуговування',
-  'builder.status.canvasLive': 'Полотно активне',
-  'builder.status.canvasStarting': 'Полотно запускається',
-  'builder.status.canvasStopped': 'Полотно зупинено',
+  'builder.status.canvasLive': 'Майданчик активний',
+  'builder.status.canvasStarting': 'Запуск майданчика',
+  'builder.status.canvasStopped': 'Майданчик зупинено',
   'builder.status.canvasArchived': 'Архівовано',
-  'builder.status.canvasError': 'Помилка полотна',
-  'builder.status.canvasIdle': 'Полотно очікує',
-  'builder.idleStop.label': 'Автостоп за {time}',
-  'builder.idleStop.tooltip': 'Автостоп після простою: {time}',
-  'builder.preview.startingTitle': 'Запуск полотна',
-  'builder.preview.preparingTitle': 'Підготовка полотна',
-  'builder.preview.launchingBody': 'Likeable готує робоче середовище проєкту. 8-годинне вікно простою починається з цієї дії.',
-  'builder.preview.preparingBody': 'Likeable створює приватне робоче середовище з базового стартера.',
-  'builder.preview.respondedBody': 'Полотно відповіло. Відкриваємо превʼю.',
-  'builder.preview.warmingBody': 'Маршрут полотна прогрівається. Likeable відкриє його автоматично, щойно він буде готовий.',
-  'builder.preview.launchFailedTitle': 'Не вдалося запустити полотно',
-  'builder.preview.launchFailedBody': 'Полотно не вдалося запустити. Перевірте налаштування робочого середовища в Адміні, потім створіть новий проєкт.',
-  'builder.preview.connectingTitle': 'Підключення полотна',
-  'builder.preview.stoppedTitle': 'Полотно зупинено',
-  'builder.preview.stoppedBody': 'Цей плейграунд зупинено. Запустіть його з меню проєкту, коли полотно знову знадобиться; ручні дії скидають вікно простою.',
-  'builder.preview.archivedTitle': 'Проєкт архівовано',
-  'builder.preview.archivedBody': 'Цей проєкт доступний лише для експорту. Створіть новий, щоб продовжити розробку.',
-  'onboarding.eyebrow': 'Перший проєкт',
-  'onboarding.title': 'Створюйте через опис',
-  'onboarding.body': 'Попросіть будь-який застосунок, а потім доопрацьовуйте його в чаті, поки полотно змінюється.',
+  'builder.status.canvasError': 'Помилка майданчика',
+  'builder.status.canvasIdle': 'Майданчик у спокої',
+  'builder.idleStop.label': 'Зупинка через {time}',
+  'builder.idleStop.tooltip': 'Зупинка при неактивності: {time}',
+  'builder.preview.startingTitle': 'Запуск майданчика',
+  'builder.preview.preparingTitle': 'Підготовка майданчика',
+  'builder.preview.launchingBody': 'Fibe готує майданчик.',
+  'builder.preview.preparingBody': 'Підготовка нового майданчика.',
+  'builder.preview.respondedBody': 'Майданчик готовий. Відкриття превʼю.',
+  'builder.preview.warmingBody': 'Майданчик прогрівається. Відкриється автоматично, щойно буде готовий.',
+  'builder.preview.launchFailedTitle': 'Не вдалося запустити майданчик',
+  'builder.preview.launchFailedBody': 'Не вдалося запустити майданчик. Спробуйте ще раз або звʼяжіться з підтримкою.',
+  'builder.preview.connectingTitle': 'Підключення майданчика',
+  'builder.preview.stoppedTitle': 'Майданчик зупинено',
+  'builder.preview.stoppedBody': 'Майданчик зупинено. Запустити знову — з меню.',
+  'builder.preview.archivedTitle': 'Майданчик архівовано',
+  'builder.preview.archivedBody': 'Майданчик доступний лише для експорту. Створіть новий, щоб продовжити.',
+  'onboarding.eyebrow': 'Перший майданчик',
+  'onboarding.title': 'Створення через опис',
+  'onboarding.body': 'Будь-який застосунок — на запит. Далі — доопрацювання в чаті, поки майданчик змінюється.',
   'onboarding.card.productTitle': 'Продуктовий UI',
   'onboarding.card.productBody': 'Дашборди, лендінги, форми та внутрішні інструменти.',
   'onboarding.card.opsTitle': 'Workflow-застосунок',
@@ -572,52 +688,52 @@ const uk: Record<keyof typeof en, string> = {
   'service.current': 'Поточний',
   'service.close': 'Закрити сервіси превʼю',
   'service.show': 'Показати {name}',
-  'projects.title': 'Проєкти',
-  'projects.close': 'Закрити проєкти',
-  'projects.count.one': '{count} проєкт',
-  'projects.count.many': '{count} проєктів',
-  'projects.count.cap': '{count}/{cap} проєктів',
+  'projects.title': 'Майданчики',
+  'projects.close': 'Закрити майданчики',
+  'projects.count.one': '{count} майданчик',
+  'projects.count.many': '{count} майданчиків',
+  'projects.count.cap': '{count}/{cap} майданчиків',
   'projects.rename.aria': 'Перейменувати {title}',
   'projects.delete.aria': 'Видалити {title}',
   'projects.export.aria': 'Експортувати {title}',
-  'projects.export.title': 'Експорт проєкту',
-  'projects.actions.aria': 'Дії проєкту {title}',
-  'projects.actions.title': 'Дії проєкту',
-  'projects.start': 'Запустити плейграунд',
-  'projects.stop': 'Зупинити плейграунд',
-  'projects.restart': 'Перезапустити плейграунд',
-  'projects.saveName': 'Зберегти назву проєкту',
+  'projects.export.title': 'Експорт майданчика',
+  'projects.actions.aria': 'Дії для {title}',
+  'projects.actions.title': 'Дії з майданчиком',
+  'projects.start': 'Запустити майданчик',
+  'projects.stop': 'Зупинити майданчик',
+  'projects.restart': 'Перезапустити майданчик',
+  'projects.saveName': 'Зберегти назву',
   'projects.cancelRename': 'Скасувати перейменування',
-  'projects.new': 'Новий проєкт',
+  'projects.new': 'Новий майданчик',
   'message.sent': 'Надіслано',
   'message.attachedFiles': 'Додані файли',
   'message.attachments': 'Вкладення',
   'notification.receiving': 'Отримання оновлення',
-  'notification.canvasUpdated': 'Полотно оновлено',
-  'empty.awaitingTitle': 'Очікування команди',
-  'empty.awaitingBody': 'Полотно готове. Опишіть сцену, і агент перебудує цей вигляд.',
-  'newProject.eyebrow': 'Новий проєкт',
-  'newProject.title': 'Створити ще один проєкт?',
-  'newProject.body': 'Likeable одразу запустить нове приватне робоче середовище з базового стартера.',
-  'newProject.placeholder': 'Новий плейграунд {number}',
-  'newProject.quota': 'Проєкти: {count}/{cap}',
+  'notification.canvasUpdated': 'Майданчик оновлено',
+  'empty.awaitingTitle': 'Очікування запиту',
+  'empty.awaitingBody': 'Майданчик готовий. Опишіть задум — Fibe його створить.',
+  'newProject.eyebrow': 'Новий майданчик',
+  'newProject.title': 'Створити ще один майданчик?',
+  'newProject.body': 'Новий майданчик запуститься одразу.',
+  'newProject.placeholder': 'Новий майданчик {number}',
+  'newProject.quota': 'Майданчики: {count}/{cap}',
   'newProject.capReached': 'Ліміт досягнуто',
-  'deleteProject.eyebrow': 'Видалення проєкту',
-  'deleteProject.title': 'Видалити цей проєкт?',
-  'deleteProject.body': '{title} буде видалено з Likeable разом із робочим середовищем і приватним архівом джерел.',
-  'exportProject.eyebrow': 'Експорт проєкту',
-  'exportProject.title': 'Експортувати проєкт?',
-  'exportProject.body': 'Завантажте локальний zip або відправте поточний код {title} на GitHub.',
-  'exportProject.archivedBody': 'Завантажте збережений ZIP-архів для {title}.',
+  'deleteProject.eyebrow': 'Видалення майданчика',
+  'deleteProject.title': 'Видалити цей майданчик?',
+  'deleteProject.body': '{title} і його файли буде остаточно видалено.',
+  'exportProject.eyebrow': 'Експорт майданчика',
+  'exportProject.title': 'Експортувати майданчик?',
+  'exportProject.body': 'Завантажити ZIP або надіслати код {title} на GitHub.',
+  'exportProject.archivedBody': 'Завантажити ZIP-архів для {title}.',
   'exportProject.repositoryName': 'Назва репозиторію',
   'exportProject.privateRepo': 'Приватний репозиторій',
-  'exportProject.invalidName': 'Використовуйте лише літери, цифри, крапки, підкреслення та дефіси.',
+  'exportProject.invalidName': 'Лише літери, цифри, крапки, підкреслення та дефіси.',
   'exportProject.connectGithub': 'Підключити GitHub',
   'exportProject.reconnectGithub': 'Перепідключити GitHub',
   'exportProject.exportGithub': 'Експортувати в GitHub',
   'deleteAll.eyebrow': 'небезпечна зона',
   'deleteAll.title': 'Видалити все?',
-  'deleteAll.body': 'Це назавжди видалить усі записи Likeable для цього акаунта і спершу спробує прибрати повʼязані робочі середовища, розмови, джерельні дані та приватні репозиторії.',
+  'deleteAll.body': 'Назавжди видаляє всі майданчики, повідомлення та повʼязані репозиторії для цього акаунта.',
   'deleteAll.confirmInstruction': 'Введіть {email}, щоб підтвердити.',
   'deleteAll.button': 'ВИДАЛИТИ ВСЕ',
   'profile.title': 'Профіль',
@@ -626,8 +742,8 @@ const uk: Record<keyof typeof en, string> = {
   'profile.loadArchivesFailed': 'Не вдалося завантажити архіви',
   'profile.checkoutFailed': 'Не вдалося перейти до оплати',
   'profile.messageFailed': 'Не вдалося надіслати повідомлення',
-  'profile.deleteAllFailed': 'Не вдалося видалити все',
-  'profile.signedIn': 'Ви увійшли',
+  'profile.deleteAllFailed': 'Не вдалося видалити',
+  'profile.signedIn': 'Вхід виконано',
   'profile.signedInAs': 'Вхід виконано як',
   'profile.githubExport': 'Експорт репозиторію',
   'profile.connect': 'Підключити',
@@ -636,28 +752,28 @@ const uk: Record<keyof typeof en, string> = {
   'profile.messages': 'Повідомлення',
   'profile.freeQuota': 'Безплатний ліміт повідомлень',
   'profile.freeInWindow': '{remaining}/{limit} безплатно за {hours} год',
-  'profile.quotaDetail': '{paid} платних кредитів · оновлення через {reset} · {lifetime} надіслано за весь час',
-  'profile.projects': 'Проєкти',
-  'profile.projectQuota': 'Ліміт проєктів',
-  'profile.projectSlots': '{used}/{limit} місць для проєктів',
+  'profile.quotaDetail': '{paid} платних кредитів · оновлення через {reset} · {lifetime} надіслано загалом',
+  'profile.projects': 'Майданчики',
+  'profile.projectQuota': 'Ліміт майданчиків',
+  'profile.projectSlots': '{used}/{limit} місць для майданчиків',
   'profile.projectSlotDetail': '{paid} платних місячних місць{reset}',
   'profile.addSlot': '+1 місце',
   'profile.session': 'Сесія',
-  'profile.sessionBody': 'Завершити поточну сесію на цьому пристрої.',
+  'profile.sessionBody': 'Завершити сесію на цьому пристрої.',
   'profile.dangerZone': 'Небезпечна зона',
   'profile.deleteAllTitle': 'Видалити всі дані акаунта',
-  'profile.deleteAllBody': 'Видаляє проєкти, робочі середовища, повідомлення, OAuth-підключення, платежі, сесії та цей профіль.',
-  'profile.archives.title': 'Архівовані проєкти',
-  'profile.archives.body': 'Архіви зберігаються 90 днів після очищення через ліміт. Завантажте їх тут, якщо експорт у GitHub був недоступний.',
+  'profile.deleteAllBody': 'Видаляє всі майданчики, повідомлення, повʼязані акаунти, платежі та цей профіль.',
+  'profile.archives.title': 'Архівовані майданчики',
+  'profile.archives.body': 'Тут можна завантажити архівовані майданчики. Доступні обмежений час.',
   'profile.mailbox.title': 'Повідомлення',
-  'profile.mailbox.body': 'Системні повідомлення Likeable і ваші повідомлення до підтримки зберігаються тут.',
+  'profile.mailbox.body': 'Повідомлення від Likeable і до підтримки зберігаються тут.',
   'profile.dismissed': 'Закрито',
-  'profile.noMessages': 'Системних повідомлень ще немає.',
-  'profile.support.placeholder': 'Повідомлення адміну...',
+  'profile.noMessages': 'Повідомлень ще немає.',
+  'profile.support.placeholder': 'Повідомлення до підтримки...',
   'profile.support.send': 'Надіслати',
   'profile.support.sendAria': 'Надіслати повідомлення підтримці',
   'admin.customers.title': 'Клієнти',
-  'admin.customers.body': 'Шукайте, фільтруйте, переглядайте використання, керуйте доступом, пишіть користувачам і очищайте проєкти.',
+  'admin.customers.body': 'Пошук, фільтри, перегляд використання, керування доступом, повідомлення та чистка майданчиків.',
   'admin.search': 'Пошук',
   'admin.search.placeholder': 'email, імʼя або id користувача',
   'admin.access': 'Доступ',
@@ -666,22 +782,22 @@ const uk: Record<keyof typeof en, string> = {
   'admin.sort.newest': 'новіші',
   'admin.sort.messages': 'повідомлення',
   'admin.sort.paid': 'оплата',
-  'admin.sort.projects': 'проєкти',
+  'admin.sort.projects': 'майданчики',
   'admin.sort.email': 'email',
   'admin.subscriptionLegacy': 'стара підписка',
   'admin.noGithub': 'Немає GitHub',
   'admin.lifetime': 'за весь час',
   'admin.loadingUsers': 'Завантаження користувачів...',
-  'admin.noUsers': 'Немає користувачів за цими фільтрами.',
+  'admin.noUsers': 'Користувачі за цими фільтрами не знайдені.',
   'admin.previous': 'Попередня',
   'admin.next': 'Наступна',
   'admin.pagination': '{page}/{totalPages} · {total} користувачів',
-  'admin.selectUser': 'Виберіть користувача, щоб переглянути проєкти, платежі, сповіщення та керування доступом.',
+  'admin.selectUser': 'Виберіть користувача, щоб переглянути майданчики, платежі, сповіщення та доступ.',
   'admin.customer': 'Клієнт',
   'admin.metric.free5h': 'Безплатно у вікні',
   'admin.metric.lifetimeSent': 'Надіслано загалом',
   'admin.metric.paidCredits': 'Платні кредити',
-  'admin.metric.projects': 'Проєкти',
+  'admin.metric.projects': 'Майданчики',
   'admin.metric.paidSlots': 'Платні місця',
   'admin.metric.github': 'GitHub',
   'admin.metric.paid': 'Оплачено',
@@ -690,38 +806,38 @@ const uk: Record<keyof typeof en, string> = {
   'admin.restoreAccess': 'Відновити доступ',
   'admin.restrictAccess': 'Обмежити доступ',
   'admin.messages.title': 'Повідомлення',
-  'admin.messages.body': 'Повідомлення підтримки користувача і системні повідомлення від адміна зберігаються в одній стрічці.',
+  'admin.messages.body': 'Повідомлення підтримки та системні сповіщення — в одній стрічці.',
   'admin.unsend': 'Скасувати надсилання',
   'admin.dismissedByUser': 'Закрито користувачем',
   'admin.unsent': 'Не надіслано',
   'admin.noMessages': 'Повідомлень ще немає.',
   'admin.severity': 'Рівень',
-  'admin.notice.placeholder': 'Напишіть системне повідомлення цьому користувачу...',
+  'admin.notice.placeholder': 'Системне повідомлення цьому користувачу...',
   'admin.send': 'Надіслати',
-  'admin.projects.title': 'Проєкти',
-  'admin.projects.body': 'Видалення використовує той самий шлях очищення робочого середовища, що й видалення користувачем.',
+  'admin.projects.title': 'Майданчики',
+  'admin.projects.body': 'Видалення тут працює так само, як якби майданчик видалив сам користувач.',
   'admin.assignment': 'Пара агента',
-  'admin.assignment.none': 'Пару не збережено',
+  'admin.assignment.none': 'Пара не задана',
   'admin.assignment.failed': 'Не вдалося оновити пару',
-  'admin.noActiveProjects': 'Активних проєктів немає.',
+  'admin.noActiveProjects': 'Активних майданчиків немає.',
   'admin.deleteProject.aria': 'Видалити {title}',
   'admin.loadUsersFailed': 'Не вдалося завантажити користувачів',
   'admin.accessUpdateFailed': 'Не вдалося оновити доступ',
   'admin.noticeFailed': 'Не вдалося надіслати сповіщення',
-  'admin.unsendFailed': 'Не вдалося скасувати надсилання',
-  'admin.projectDeleteFailed': 'Не вдалося видалити проєкт',
+  'admin.unsendFailed': 'Не вдалося скасувати',
+  'admin.projectDeleteFailed': 'Не вдалося видалити майданчик',
   'admin.restrictDialog.title': 'Обмежити користувача?',
-  'admin.restrictDialog.body': 'Користувач і далі бачитиме системні сповіщення, але дії в застосунку будуть заблоковані, доки доступ не буде відновлено.',
+  'admin.restrictDialog.body': 'Користувач і далі бачитиме системні сповіщення, але дії в застосунку будуть заблоковані до відновлення доступу.',
   'admin.unsendDialog.title': 'Скасувати системне повідомлення?',
   'admin.unsendDialog.body': 'Воно зникне з поштової скриньки користувача та активних банерів.',
-  'admin.deleteProjectDialog.title': 'Видалити проєкт користувача?',
-  'admin.deleteProjectDialog.body': 'Це прибере проєкт із Likeable і запустить очищення робочого середовища.',
+  'admin.deleteProjectDialog.title': 'Видалити майданчик користувача?',
+  'admin.deleteProjectDialog.body': 'Остаточно видаляє цей майданчик.',
   'admin.panel.title': 'Адмін',
   'admin.poolIncomplete': 'У кожному рядку пулу потрібні Agent ID і Server ID.',
   'admin.saveFailed': 'Не вдалося зберегти',
-  'admin.noSettings': 'Для цього розділу немає відкритих налаштувань.',
+  'admin.noSettings': 'Налаштувань для цього розділу немає.',
   'admin.accessCard.title': 'Доступ',
-  'admin.accessCard.body': 'Реєстрація спочатку закрита. Використовуйте allowlist з одним email або доменом у рядку або відкрийте реєстрацію для всіх.',
+  'admin.accessCard.body': 'Реєстрація закрита за замовчуванням. Allowlist з одним email або доменом у рядку — або відкрита реєстрація для всіх.',
   'admin.signupMode.label': 'Режим реєстрації',
   'admin.signupMode.forbidden': 'заборонено',
   'admin.signupMode.allowlist': 'allowlist',
@@ -729,47 +845,47 @@ const uk: Record<keyof typeof en, string> = {
   'admin.signupAllowedEmails.label': 'Дозволені email і домени',
   'admin.signupAllowedEmails.placeholder': 'pilot@gmail.com\nfounder@gmail.com\n@trusted.test',
   'admin.fibe.title': 'Інтеграція Fibe',
-  'admin.fibe.body': 'Підключення для створення проєктів, підготовки робочих середовищ і повідомлень агенту.',
+  'admin.fibe.body': 'Підключення для створення майданчиків і звʼязку з Fibe.',
   'admin.pool.title': 'Пул агентів і серверів',
-  'admin.pool.body': 'Нові проєкти зберігають детерміновану активну пару, вибрану за ID проєкту. Існуючі проєкти зберігають свою пару.',
+  'admin.pool.body': 'Нові майданчики беруть пару з цього пулу. Існуючі залишаються зі своєю.',
   'admin.pool.add': 'Додати пару',
-  'admin.pool.empty': 'Пари пулу не налаштовані. Додайте пару агента й сервера перед онбордингом користувачів.',
+  'admin.pool.empty': 'Пар у пулі немає. Додайте хоча б одну перед онбордингом користувачів.',
   'admin.pool.label': 'Мітка',
   'admin.pool.pair': 'Пара {number}',
   'admin.pool.agentId': 'Agent ID',
   'admin.pool.serverId': 'Server ID',
   'admin.pool.status': 'Статус',
-  'admin.pool.status.active': 'Активний',
-  'admin.pool.status.draining': 'Дрейниться',
+  'admin.pool.status.active': 'Активна',
+  'admin.pool.status.draining': 'Згортається',
   'admin.pool.status.retiring': 'Архівується',
-  'admin.pool.status.retired': 'Архівовано',
-  'admin.pool.stats': '{projects} проєктів · {archived} архівовано · {archives} ZIP',
-  'admin.pool.stats.empty': '0 проєктів',
+  'admin.pool.status.retired': 'Архівована',
+  'admin.pool.stats': '{projects} майданчиків · {archived} архівованих · {archives} ZIP',
+  'admin.pool.stats.empty': '0 майданчиків',
   'admin.pool.retire': 'Архівувати',
-  'admin.pool.retired': 'Пару заархівовано та завершено',
+  'admin.pool.retired': 'Пару архівовано',
   'admin.pool.agentPlaceholder': 'agent_...',
   'admin.pool.serverPlaceholder': 'server_...',
   'admin.pool.remove': 'Прибрати пару',
-  'admin.config.secretHelp': 'Секрети доступні лише для запису; залиште поле порожнім, щоб зберегти поточне значення.',
+  'admin.config.secretHelp': 'Секрети доступні лише для запису; залиште порожнім, щоб зберегти поточне значення.',
   'admin.config.set': 'задано',
   'admin.config.github.title': 'Інтеграція GitHub',
-  'admin.config.github.body': 'OAuth-застосунок, який використовується, коли користувачі підключають GitHub для експорту репозиторію.',
+  'admin.config.github.body': 'Застосунок для підключення GitHub і експорту майданчика.',
   'admin.config.google.title': 'Інтеграція Google',
-  'admin.config.google.body': 'OAuth-застосунок для входу.',
+  'admin.config.google.body': 'Застосунок для входу.',
   'admin.config.stripe.title': 'Інтеграція Stripe',
-  'admin.config.stripe.body': 'Дані Checkout і webhook для одноразових пакетів повідомлень і місячних місць проєктів.',
+  'admin.config.stripe.body': 'Дані Checkout і webhook для пакетів повідомлень і місць майданчиків.',
   'admin.config.application.title': 'Налаштування застосунку',
-  'admin.config.application.body': 'Стандартні значення, ліміти та SMTP-доставка для сповіщень користувачів Likeable.',
+  'admin.config.application.body': 'Стандартні значення, ліміти та доставка email для сповіщень користувачів.',
   'admin.config.stripe_publishable_key': 'Публічний ключ',
   'admin.config.stripe_secret_key': 'Секретний ключ',
   'admin.config.stripe_price_id_10': 'Price ID для 10 повідомлень',
   'admin.config.stripe_price_id_100': 'Price ID для 100 повідомлень',
   'admin.config.stripe_price_id_1000': 'Price ID для 1000 повідомлень',
-  'admin.config.stripe_project_quota_price_id': 'Price ID ліміту проєктів',
+  'admin.config.stripe_project_quota_price_id': 'Price ID ліміту майданчиків',
   'admin.config.stripe_webhook_secret': 'Webhook secret',
   'admin.config.free_messages': 'Безплатних повідомлень за вікно',
   'admin.config.free_message_window_hours': 'Години вікна безплатних повідомлень',
-  'admin.config.project_cap': 'Базовий ліміт проєктів'
+  'admin.config.project_cap': 'Базовий ліміт майданчиків'
 };
 
 export const TRANSLATIONS = { en, uk } as const;

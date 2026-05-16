@@ -75,6 +75,13 @@ export function resetCountdownLabels(t: (key: TranslationKey) => string) {
   };
 }
 
+export function elapsedDurationLabels(t: (key: TranslationKey) => string) {
+  return {
+    minute: t('duration.minuteShort'),
+    second: t('duration.secondShort')
+  };
+}
+
 export function statusLabel(status: string | undefined, t: (key: TranslationKey) => string): string {
   switch ((status ?? '').trim().toLowerCase()) {
     case 'ready':

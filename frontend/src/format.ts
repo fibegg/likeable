@@ -36,17 +36,23 @@ export function formatResetCountdown(value?: string, now = Date.now(), labels: R
   return `${minutes}${labels.minute}`;
 }
 
-export function formatElapsedDuration(ms?: number): string {
+type ElapsedDurationLabels = {
+  minute: string;
+  second: string;
+};
+
+const defaultElapsedDurationLabels: ElapsedDurationLabels = {
+  minute: 'm',
+  second: 's'
+};
+
+export function formatElapsedDuration(ms?: number, labels: ElapsedDurationLabels = defaultElapsedDurationLabels): string {
   if (typeof ms !== 'number' || !Number.isFinite(ms) || ms < 0) return '';
   const totalSeconds = Math.max(1, Math.round(ms / 1000));
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
-  if (minutes <= 0) return `${seconds}s`;
-  return `${minutes}m${String(seconds).padStart(2, '0')}s`;
-}
-
-export function projectLaunchErrorMessage(_value?: string): string {
-  return 'The canvas could not start. Check workspace settings in Admin, then create a new project.';
+  if (minutes <= 0) return `${seconds}${labels.second}`;
+  return `${minutes}${labels.minute}${String(seconds).padStart(2, '0')}${labels.second}`;
 }
 
 export function formatShortDate(value?: string, locale?: string): string {

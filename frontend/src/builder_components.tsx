@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { Check, Download, FileOutput, GitBranch, Loader2, MoreHorizontal, Paperclip, Pencil, Play, Plus, RotateCcw, Sparkles, Square, Trash2, X } from 'lucide-react';
 import type { AppDialogConfig, MessageAttachment, Project, ProjectService, UserFeedRow } from './domain';
 import { formatElapsedDuration, formatMessageTime } from './format';
-import { statusLabel, useI18n } from './i18n';
+import { elapsedDurationLabels, statusLabel, useI18n } from './i18n';
 
 export function ProjectList({ projects, activeID, projectCap, busy, exportingID, controllingID, onSelect, onNew, onRename, onDelete, onExport, onControlPlayground, onClose }: { projects: Project[]; activeID: string; projectCap: number | null; busy: boolean; exportingID: string; controllingID: string; onSelect: (id: string) => void; onNew: () => void; onRename: (project: Project, title: string) => Promise<void>; onDelete: (project: Project) => void; onExport: (project: Project) => void; onControlPlayground: (project: Project, action: 'start' | 'stop' | 'restart') => Promise<void>; onClose: () => void }) {
   const { t } = useI18n();
@@ -320,7 +320,7 @@ function AttachmentGrid({ attachments }: { attachments: MessageAttachment[] }) {
 export function AgentNotificationRow({ body, active, elapsedMs }: { body: string; active?: boolean; elapsedMs?: number }) {
   const { t } = useI18n();
   const text = body.trim() || (active ? t('notification.receiving') : t('notification.canvasUpdated'));
-  const elapsed = active ? '' : formatElapsedDuration(elapsedMs);
+  const elapsed = active ? '' : formatElapsedDuration(elapsedMs, elapsedDurationLabels(t));
   return (
     <div className={`notificationRow ${active ? 'active' : ''}`} aria-live="polite">
       <div className="notificationBubble">
