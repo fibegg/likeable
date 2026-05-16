@@ -1,15 +1,12 @@
 package likeable
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 )
 
 func (s *Server) handleProfileDeleteAll(w http.ResponseWriter, r *http.Request) {
@@ -34,28 +31,7 @@ func (s *Server) handleProfileDeleteAll(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	cleanupCtx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
-	defer cancel()
-	for i := range projects {
-		project := &projects[i]
-		if !projectHasFibeResources(project) {
-			continue
-		}
-		fibe, err := s.completeProjectResourceSnapshot(cleanupCtx, user.Email, project)
-		if err != nil {
-			log.Printf("delete all configure workspace cleanup for project %s: %v", project.ID, err)
-			if fibe == nil || !projectHasFibeResources(project) {
-				writeError(w, http.StatusBadGateway, "could not configure workspace cleanup")
-				return
-			}
-		}
-		if err := fibe.DeleteProjectResources(cleanupCtx, project); err != nil {
-			log.Printf("delete all workspace cleanup for project %s: %v", project.ID, err)
-			writeError(w, http.StatusBadGateway, "could not delete all workspace resources")
-			return
-		}
-	}
-	if err := s.deleteLocalProjectAttachmentDirs(projects); err != nil {
+	if _, err := s.store.UpdateUserAccess(r.Context(), user.ID, "restricted", "account deletion requested"); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -63,12 +39,27 @@ func (s *Server) handleProfileDeleteAll(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if err := s.store.DeleteUser(r.Context(), user.ID); err != nil {
+	for i := range projects {
+		project := &projects[i]
+		if project.Status != "deleting" && project.Status != "archived" {
+			if err := s.store.UpdateProjectStatus(r.Context(), project.ID, user.ID, "deleting"); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			project.Status = "deleting"
+		}
+		s.deleteProjectResourcesAsync(user.ID, user.Email, project)
+	}
+	if err := s.deleteAccountAsync(user.ID, user.Email); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := s.store.DeleteUserSessions(r.Context(), user.ID); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	http.SetCookie(w, &http.Cookie{Name: "likeable_session", Value: "", Path: "/", MaxAge: -1, HttpOnly: true})
-	writeJSON(w, http.StatusOK, map[string]bool{"deleted": true})
+	writeJSON(w, http.StatusOK, map[string]any{"deleted": true, "cleanup": "queued"})
 }
 
 func (s *Server) handleProfileArchives(w http.ResponseWriter, r *http.Request) {

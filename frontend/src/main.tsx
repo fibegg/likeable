@@ -19,6 +19,9 @@ installPwa();
 const LOCAL_AGENT_RUN_MAX_MS = 30 * 60_000;
 const LOCAL_AGENT_IDLE_GRACE_MS = 10_000;
 const COLLAPSED_CHAT_EDGE_MARGIN = 28;
+const ONBOARDING_DISMISSED_KEY = 'likeable.onboarding.dismissedProjects';
+const PULL_REFRESH_TRIGGER = 74;
+const PULL_REFRESH_MAX = 118;
 
 function App() {
   const [me, setMe] = useState<Me | null>(null);
@@ -167,6 +170,8 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const [showProfile, setShowProfile] = useState(profileRoute && signedIn);
   const [showHelp, setShowHelp] = useState(false);
   const [showServices, setShowServices] = useState(false);
+  const [manualOnboardingOpen, setManualOnboardingOpen] = useState(false);
+  const [dismissedOnboardingProjects, setDismissedOnboardingProjects] = useState<Record<string, boolean>>(() => readDismissedOnboardingProjects());
   const [confirmNewProject, setConfirmNewProject] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Project | null>(null);
   const [exportTarget, setExportTarget] = useState<Project | null>(null);
@@ -227,11 +232,17 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const githubNeedsReconnect = Boolean(me.githubNeedsReconnect);
   const projectArchived = activeProject?.status === 'archived';
   const isProjectStarting = activeProject?.status === 'creating' || activeProject?.status === 'launching';
-  const showOnboardingGallery = signedIn && isProjectStarting && projects.length <= 1 && (displayFeed?.localMessages?.length ?? 0) === 0 && (displayFeed?.messages?.length ?? 0) === 0;
   const previewRuntimeActive = activeProject?.status === 'ready';
   const previewMaintenance = Boolean(activePreviewURL && previewRuntimeActive && previewStatus?.maintenance);
   const previewReady = Boolean(activePreviewURL && previewRuntimeActive && previewStatus?.ready);
   const previewDisplayable = Boolean(activePreviewURL && previewRuntimeActive && (previewReady || previewMaintenance));
+  const projectHasMessages = (displayFeed?.localMessages?.length ?? 0) > 0 || (displayFeed?.messages?.length ?? 0) > 0;
+  const onboardingDismissed = Boolean(activeProject?.id && dismissedOnboardingProjects[activeProject.id]);
+  const initialOnboardingEligible = signedIn && Boolean(activeProject) && projects.length <= 1 && !projectHasMessages && !onboardingDismissed && (isProjectStarting || activeProject?.status === 'ready');
+  const showOnboardingWizard = signedIn && Boolean(activeProject) && (manualOnboardingOpen || initialOnboardingEligible);
+  const onboardingReady = Boolean(activeProject?.status === 'ready' && activePreviewURL && previewReady);
+  const chatCollapsedForTutorial = viewMode === 'overlay' && showOnboardingWizard;
+  const effectiveChatCollapsed = basicChatCollapsed || chatCollapsedForTutorial;
   const canvasStatusLabel = agentWorking ? t('builder.status.agentWorking') : previewMaintenance ? t('builder.status.maintenance') : activeProject?.status === 'ready' ? (previewReady ? t('builder.status.canvasLive') : t('builder.status.canvasStarting')) : isProjectStarting ? t('builder.status.canvasStarting') : projectArchived ? t('builder.status.canvasArchived') : activeProject?.status === 'stopped' ? t('builder.status.canvasStopped') : activeProject?.status === 'error' ? t('builder.status.canvasError') : t('builder.status.canvasIdle');
   const idleStopCountdown = activeProject?.status === 'ready' && activeProject.playgroundIdleStopAt ? formatResetCountdown(activeProject.playgroundIdleStopAt, quotaNow, resetCountdownLabels(t)) : '';
   const idleStopTooltip = idleStopCountdown ? t('builder.idleStop.tooltip', { time: idleStopCountdown }) : '';
@@ -421,7 +432,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     setPreviewStatus(null);
   }, [activeProject?.id, activePreviewURL, activeProject?.status]);
   useEffect(() => {
-    if (!activeProject?.id || !activePreviewURL || activeProject.status === 'deleting') {
+    if (!activeProject?.id || activeProject.status === 'deleting' || projectArchived) {
       setPreviewStatus(null);
       return;
     }
@@ -452,7 +463,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       cancelled = true;
       clearInterval(timer);
     };
-  }, [activeProject?.id, activePreviewURL, activeProject?.status, agentWorking, previewStatus?.maintenance, previewStatus?.ready]);
+  }, [activeProject?.id, activePreviewURL, activeProject?.status, agentWorking, previewStatus?.maintenance, previewStatus?.ready, projectArchived]);
   useEffect(() => {
     setAttachments([]);
     dragDepthRef.current = 0;
@@ -709,7 +720,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     setAttachments((current) => current.filter((attachment) => attachment.id !== id));
   };
   const startBasicChatResize = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (viewMode !== 'overlay' || basicChatCollapsed) return;
+    if (viewMode !== 'overlay' || effectiveChatCollapsed) return;
     event.preventDefault();
     event.currentTarget.setPointerCapture?.(event.pointerId);
     const startY = event.clientY;
@@ -730,7 +741,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     addEventListener('pointercancel', onUp);
   };
   const startCollapsedChatDrag = (event: React.PointerEvent<HTMLButtonElement>) => {
-    if (viewMode !== 'overlay' || !basicChatCollapsed) return;
+    if (viewMode !== 'overlay' || !effectiveChatCollapsed || chatCollapsedForTutorial) return;
     event.preventDefault();
     event.currentTarget.setPointerCapture?.(event.pointerId);
     const startX = event.clientX;
@@ -771,7 +782,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const chatDragHandlers = {
     onDragEnter: (event: React.DragEvent) => {
       if (!event.dataTransfer.types.includes('Files')) return;
-      event.preventDefault();
+      if (event.cancelable) event.preventDefault();
       dragDepthRef.current += 1;
       setDraggingFiles(true);
     },
@@ -857,6 +868,38 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     setBasicChatCollapsed(false);
     requestAnimationFrame(() => textareaRef.current?.focus());
   };
+  const dismissOnboarding = () => {
+    setManualOnboardingOpen(false);
+    if (!activeProject?.id) return;
+    setDismissedOnboardingProjects((current) => {
+      if (current[activeProject.id]) return current;
+      const next = { ...current, [activeProject.id]: true };
+      writeDismissedOnboardingProjects(next);
+      return next;
+    });
+  };
+  const openOnboardingTutorial = () => {
+    if (!signedIn) return;
+    setManualOnboardingOpen(true);
+    setShowProjects(false);
+    setShowProfile(false);
+    setShowHelp(false);
+    setShowServices(false);
+    if (location.pathname.startsWith('/profile')) nav('/');
+  };
+  const refreshBuilder = async () => {
+    if (!signedIn) return;
+    await Promise.all([
+      loadProjects().catch(() => undefined),
+      refreshQuota(),
+      activeID
+        ? api<Feed>(`/api/projects/${activeID}/feed`)
+          .then((nextFeed) => setFeed((current) => mergeFeedSnapshot(current, nextFeed)))
+          .catch(() => undefined)
+        : Promise.resolve()
+    ]);
+  };
+  const pullRefresh = usePullToRefresh(signedIn, refreshBuilder);
   const serviceSelectorButton = () => hasMultipleServices ? (
     <button
       className={`${showServices ? 'serviceSelectorButton selected' : 'serviceSelectorButton'} serviceSelectorInTitle`}
@@ -944,7 +987,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       {projectTitleButton('chatProjectTitle', true, true)}
       {builderChrome}
       {showProjects && <ProjectList projects={projects} activeID={activeID} projectCap={projectCap} busy={busy} exportingID={exportingID} controllingID={controllingProjectID} onSelect={(id) => { setActiveID(id); setShowProjects(false); }} onNew={() => setConfirmNewProject(true)} onRename={renameProject} onDelete={setDeleteTarget} onExport={requestProjectExport} onControlPlayground={controlProjectPlayground} onClose={() => setShowProjects(false)} />}
-      {showProfile && <ProfilePanel me={me} onClose={closeProfilePanel} />}
+      {showProfile && <ProfilePanel me={me} onClose={closeProfilePanel} onOpenTutorial={openOnboardingTutorial} />}
       {showHelp && <HelpPanel markdown={t('help.markdown')} onClose={() => setShowHelp(false)} />}
       {showServices && activeProject?.services && <ServicePanel services={activeProject.services} selectedName={selectedService?.name} busy={busy} onSelect={(service) => void selectService(service)} onClose={() => setShowServices(false)} />}
       {!utilityScreenOpen && (
@@ -1015,6 +1058,20 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     <>
       {projectArchived ? (
         <CanvasLoader title={t('builder.preview.archivedTitle')} body={t('builder.preview.archivedBody')} />
+      ) : showOnboardingWizard ? (
+        <>
+          {activePreviewURL && previewDisplayable && (
+            <iframe
+              title={t('builder.preview.frameTitle')}
+              src={activePreviewURL}
+              className={iframeLoaded ? 'loaded' : ''}
+              onLoad={() => {
+                if (previewDisplayable) setIframeLoaded(true);
+              }}
+            />
+          )}
+          <OnboardingGallery ready={onboardingReady} onUsePrompt={useOnboardingPrompt} onStart={dismissOnboarding} onDismiss={dismissOnboarding} />
+        </>
       ) : activeProject?.status === 'error' && !previewMaintenance ? (
         <CanvasLoader title={t('builder.preview.launchFailedTitle')} body={t('builder.preview.launchFailedBody')} tone="error" />
       ) : activeProject?.status === 'stopped' ? (
@@ -1032,7 +1089,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
           {(!previewDisplayable || !iframeLoaded) && <CanvasLoader title={t('builder.preview.connectingTitle')} body={connectingCanvasBody} />}
         </>
       ) : isProjectStarting ? (
-        showOnboardingGallery ? <OnboardingGallery onUsePrompt={useOnboardingPrompt} /> : <CanvasLoader title={previewTitle} body={previewBody} />
+        <CanvasLoader title={previewTitle} body={previewBody} />
       ) : activeProject?.status === 'ready' && activePreviewURL ? (
         <>
           <iframe
@@ -1048,18 +1105,21 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     </>
   );
   const preview = (
-    <section className={`previewPane ${viewMode === 'overlay' && !basicChatCollapsed ? 'chatExpanded' : ''}`}>
+    <section
+      className={`previewPane ${viewMode === 'overlay' && !effectiveChatCollapsed ? 'chatExpanded' : ''}`}
+      style={viewMode === 'overlay' && !effectiveChatCollapsed ? ({ '--basic-chat-height': `${basicChatHeight}px` } as React.CSSProperties) : undefined}
+    >
       <div className="previewTopChrome">{builderChrome}</div>
       <div className="previewContent">{previewContent}</div>
       {viewMode === 'overlay' && (
         <div
-          className={`overlayChat ${basicChatCollapsed ? 'collapsed minimized' : ''}`}
-          style={basicChatCollapsed
+          className={`overlayChat ${effectiveChatCollapsed ? 'collapsed minimized' : ''}`}
+          style={effectiveChatCollapsed
             ? collapsedChatStyle(collapsedChatPosition)
             : ({ '--basic-chat-height': `${basicChatHeight}px` } as React.CSSProperties)}
         >
-          {!basicChatCollapsed && <div className="chatResizeHandle" aria-label={t('builder.resizeChat')} onPointerDown={startBasicChatResize} />}
-          {basicChatCollapsed ? minimizedChatBar : chat}
+          {!effectiveChatCollapsed && <div className="chatResizeHandle" aria-label={t('builder.resizeChat')} onPointerDown={startBasicChatResize} />}
+          {effectiveChatCollapsed ? minimizedChatBar : chat}
         </div>
       )}
       {confirmNewProject && <ConfirmNewProject projectCap={projectCap} projectCount={quotaProjectCount} busy={busy} onCancel={() => setConfirmNewProject(false)} onConfirm={createProject} />}
@@ -1070,7 +1130,16 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   );
 
   return (
-    <div className={viewMode === 'split' ? 'builder split' : 'builder overlay'} data-mode={modeLabel}>
+    <div className={`${viewMode === 'split' ? 'builder split' : 'builder overlay'} ${showOnboardingWizard ? 'onboardingActive' : ''}`} data-mode={modeLabel}>
+      <div
+        className={`pullRefreshIndicator ${pullRefresh.visible ? 'visible' : ''} ${pullRefresh.ready ? 'ready' : ''}`}
+        style={{ '--pull-distance': `${pullRefresh.distance}px` } as React.CSSProperties}
+        aria-hidden={!pullRefresh.visible}
+        aria-live="polite"
+      >
+        <span>{pullRefresh.refreshing ? <Loader2 size={15} className="spin" /> : <ChevronDown size={16} />}</span>
+        <strong>{pullRefresh.refreshing ? t('pullRefresh.refreshing') : pullRefresh.ready ? t('pullRefresh.release') : t('pullRefresh.pull')}</strong>
+      </div>
       {viewMode === 'split' && chat}
       {preview}
     </div>
@@ -1216,6 +1285,138 @@ function normalizeActiveNotificationRows(rows: FeedRow[]): FeedRow[] {
     if (latestActiveIndex === latestNotificationIndex && index === latestActiveIndex) return row;
     return { ...row, active: false };
   });
+}
+
+type PullRefreshState = {
+  distance: number;
+  ready: boolean;
+  refreshing: boolean;
+  visible: boolean;
+};
+
+function usePullToRefresh(enabled: boolean, onRefresh: () => Promise<void> | void): PullRefreshState {
+  const [state, setState] = useState<PullRefreshState>({ distance: 0, ready: false, refreshing: false, visible: false });
+  const refreshRef = useRef(onRefresh);
+  const gestureRef = useRef({ active: false, startY: 0, distance: 0, refreshing: false });
+
+  useEffect(() => {
+    refreshRef.current = onRefresh;
+  }, [onRefresh]);
+
+  useEffect(() => {
+    if (!enabled) {
+      gestureRef.current = { active: false, startY: 0, distance: 0, refreshing: false };
+      setState({ distance: 0, ready: false, refreshing: false, visible: false });
+      return;
+    }
+
+    const updateDistance = (distance: number, refreshing = gestureRef.current.refreshing) => {
+      gestureRef.current.distance = distance;
+      setState({
+        distance,
+        refreshing,
+        ready: distance >= PULL_REFRESH_TRIGGER,
+        visible: refreshing || distance > 0
+      });
+    };
+
+    const reset = () => {
+      gestureRef.current.active = false;
+      gestureRef.current.distance = 0;
+      if (!gestureRef.current.refreshing) {
+        setState({ distance: 0, ready: false, refreshing: false, visible: false });
+      }
+    };
+
+    const start = (event: TouchEvent) => {
+      if (gestureRef.current.refreshing || event.touches.length !== 1 || !canPullRefreshFrom(event.target)) return;
+      gestureRef.current.active = true;
+      gestureRef.current.startY = event.touches[0].clientY;
+      gestureRef.current.distance = 0;
+    };
+
+    const move = (event: TouchEvent) => {
+      if (!gestureRef.current.active) return;
+      if (event.touches.length !== 1) {
+        reset();
+        return;
+      }
+      const delta = event.touches[0].clientY - gestureRef.current.startY;
+      if (delta <= 0) {
+        reset();
+        return;
+      }
+      if (!canPullRefreshFrom(event.target)) {
+        reset();
+        return;
+      }
+      if (event.cancelable) event.preventDefault();
+      updateDistance(Math.min(PULL_REFRESH_MAX, Math.pow(delta, 0.88)));
+    };
+
+    const finish = () => {
+      if (!gestureRef.current.active) return;
+      const shouldRefresh = gestureRef.current.distance >= PULL_REFRESH_TRIGGER;
+      gestureRef.current.active = false;
+      if (!shouldRefresh) {
+        reset();
+        return;
+      }
+      gestureRef.current.refreshing = true;
+      setState({ distance: PULL_REFRESH_TRIGGER, ready: true, refreshing: true, visible: true });
+      Promise.resolve(refreshRef.current())
+        .catch(() => undefined)
+        .finally(() => {
+          window.setTimeout(() => {
+            gestureRef.current.refreshing = false;
+            gestureRef.current.distance = 0;
+            setState({ distance: 0, ready: false, refreshing: false, visible: false });
+          }, 180);
+        });
+    };
+
+    window.addEventListener('touchstart', start, { passive: true });
+    window.addEventListener('touchmove', move, { passive: false });
+    window.addEventListener('touchend', finish, { passive: true });
+    window.addEventListener('touchcancel', reset, { passive: true });
+    return () => {
+      window.removeEventListener('touchstart', start);
+      window.removeEventListener('touchmove', move);
+      window.removeEventListener('touchend', finish);
+      window.removeEventListener('touchcancel', reset);
+    };
+  }, [enabled]);
+
+  return state;
+}
+
+function canPullRefreshFrom(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.closest('textarea, input, select, [contenteditable="true"]')) return false;
+  if (window.scrollY > 1) return false;
+
+  let node: HTMLElement | null = target;
+  while (node && node !== document.body && node !== document.documentElement) {
+    const style = window.getComputedStyle(node);
+    const scrollable = /(auto|scroll|overlay)/.test(style.overflowY) && node.scrollHeight > node.clientHeight + 1;
+    if (scrollable && node.scrollTop > 1) return false;
+    node = node.parentElement;
+  }
+  return true;
+}
+
+function readDismissedOnboardingProjects(): Record<string, boolean> {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(ONBOARDING_DISMISSED_KEY) ?? '{}') as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    return Object.fromEntries(Object.entries(parsed).filter(([, value]) => value === true));
+  } catch {
+    return {};
+  }
+}
+
+function writeDismissedOnboardingProjects(value: Record<string, boolean>) {
+  localStorage.setItem(ONBOARDING_DISMISSED_KEY, JSON.stringify(value));
 }
 
 createRoot(document.getElementById('root')!).render(

@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, ExternalLink, FolderOpen, GitBranch, Loader2, LogOut, Send, Trash2, Wallet, X } from 'lucide-react';
+import { BookOpen, Check, ExternalLink, FolderOpen, GitBranch, Loader2, LogOut, Send, Trash2, Wallet, X } from 'lucide-react';
 import { api } from './api';
 import { DeleteAllAccountDialog } from './builder_components';
 import type { Me, ProjectArchive, UserNotice } from './domain';
 import { formatMessageTime, formatResetCountdown, formatShortDate, userInitials } from './format';
 import { resetCountdownLabels, statusLabel, useI18n } from './i18n';
 
-export function ProfilePanel({ me, onClose }: { me: Me; onClose: () => void }) {
+export function ProfilePanel({ me, onClose, onOpenTutorial }: { me: Me; onClose: () => void; onOpenTutorial: () => void }) {
   const { locale, t } = useI18n();
   const [messages, setMessages] = useState<UserNotice[]>([]);
   const [archives, setArchives] = useState<ProjectArchive[]>([]);
@@ -147,6 +147,16 @@ export function ProfilePanel({ me, onClose }: { me: Me; onClose: () => void }) {
           {me.githubConnected && !me.githubNeedsReconnect
             ? <span className="profileConnected"><Check size={15} /> {t('profile.connected')}</span>
             : <a className="ghostButton" href="/api/profile/github/start"><GitBranch size={18} /> {me.githubNeedsReconnect ? t('profile.reconnect') : t('profile.connect')}</a>}
+        </div>
+        <div className="profileCard profileActionCard">
+          <div>
+            <span className="profileLabel">{t('profile.tutorial')}</span>
+            <strong>{t('profile.tutorialTitle')}</strong>
+            <em>{t('profile.tutorialBody')}</em>
+          </div>
+          <button className="ghostButton" onClick={onOpenTutorial}>
+            <BookOpen size={16} /> {t('profile.tutorialOpen')}
+          </button>
         </div>
         <div className="profileCard profileActionCard">
           <div>

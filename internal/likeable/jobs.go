@@ -23,6 +23,7 @@ const (
 	taskProvisionProject            = "likeable:project:provision"
 	taskRecoverProject              = "likeable:project:recover"
 	taskDeleteProjectResources      = "likeable:project:delete_resources"
+	taskDeleteAccount               = "likeable:account:delete"
 	taskProjectDeletionSweep        = "likeable:project:deletion_sweep"
 	taskArchiveDeleteProject        = "likeable:project:archive_delete"
 	taskStopIdleProjectsSweep       = "likeable:project:stop_idle_sweep"
@@ -46,6 +47,11 @@ type projectJobPayload struct {
 	Reason    string `json:"reason,omitempty"`
 }
 
+type accountDeletionPayload struct {
+	UserID    string `json:"user_id"`
+	UserEmail string `json:"user_email"`
+}
+
 type emailJobPayload struct {
 	To      string `json:"to"`
 	Subject string `json:"subject"`
@@ -57,6 +63,7 @@ func newJobSystem(redisOpt asynq.RedisClientOpt, s *Server) *JobSystem {
 	mux.HandleFunc(taskProvisionProject, s.handleProvisionProjectTask)
 	mux.HandleFunc(taskRecoverProject, s.handleRecoverProjectTask)
 	mux.HandleFunc(taskDeleteProjectResources, s.handleDeleteProjectResourcesTask)
+	mux.HandleFunc(taskDeleteAccount, s.handleDeleteAccountTask)
 	mux.HandleFunc(taskProjectDeletionSweep, s.handleProjectDeletionSweepTask)
 	mux.HandleFunc(taskArchiveDeleteProject, s.handleArchiveDeleteProjectTask)
 	mux.HandleFunc(taskStopIdleProjectsSweep, s.handleStopIdleProjectsSweepTask)
@@ -138,6 +145,24 @@ func (s *Server) enqueueProjectJob(ctx context.Context, taskType string, payload
 		return err
 	}
 	_, err = s.jobs.client.EnqueueContext(ctx, asynq.NewTask(taskType, data), opts...)
+	if errors.Is(err, asynq.ErrDuplicateTask) {
+		return nil
+	}
+	return err
+}
+
+func (s *Server) enqueueAccountDeletionJob(ctx context.Context, payload accountDeletionPayload, opts ...asynq.Option) error {
+	if s.jobs == nil {
+		return errors.New("job system is not configured")
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	if len(opts) == 0 {
+		opts = []asynq.Option{asynq.Queue("critical"), asynq.MaxRetry(30), asynq.Timeout(20 * time.Minute)}
+	}
+	_, err = s.jobs.client.EnqueueContext(ctx, asynq.NewTask(taskDeleteAccount, data), opts...)
 	if errors.Is(err, asynq.ErrDuplicateTask) {
 		return nil
 	}
@@ -326,7 +351,9 @@ func (s *Server) handleDeleteProjectResourcesTask(ctx context.Context, task *asy
 	fibeClient, err := s.completeProjectResourceSnapshot(ctx, payload.UserEmail, project)
 	if err != nil {
 		_ = s.store.UpdateProjectCleanupError(ctx, project.ID, payload.UserID, err.Error())
-		return err
+		if fibeClient == nil || !projectHasFibeResources(project) {
+			return err
+		}
 	}
 	if projectHasFibeResources(project) {
 		if err := fibeClient.DeleteProjectResources(ctx, project); err != nil {
@@ -341,6 +368,47 @@ func (s *Server) handleDeleteProjectResourcesTask(ctx context.Context, task *asy
 		return err
 	}
 	log.Printf("delete project %s resources: completed", project.ID)
+	return nil
+}
+
+func (s *Server) handleDeleteAccountTask(ctx context.Context, task *asynq.Task) error {
+	payload, err := decodeTaskPayload[accountDeletionPayload](task)
+	if err != nil {
+		return err
+	}
+	return s.finalizeAccountDeletion(ctx, payload)
+}
+
+func (s *Server) finalizeAccountDeletion(ctx context.Context, payload accountDeletionPayload) error {
+	user, err := s.store.UserByID(ctx, payload.UserID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+	projects, err := s.store.AllProjectsForUser(ctx, payload.UserID)
+	if err != nil {
+		return err
+	}
+	if len(projects) > 0 {
+		if s.jobs != nil {
+			for i := range projects {
+				project := &projects[i]
+				if err := s.enqueueProjectJob(ctx, taskDeleteProjectResources, projectJobPayload{UserID: user.ID, UserEmail: user.Email, ProjectID: project.ID}, asynq.Queue("critical"), asynq.MaxRetry(10), asynq.Timeout(20*time.Minute), asynq.Unique(time.Minute)); err != nil {
+					return err
+				}
+			}
+		}
+		return errors.New("account deletion pending project cleanup")
+	}
+	if err := s.store.RemoveEmailFromSignupAllowlist(ctx, payload.UserEmail); err != nil {
+		return err
+	}
+	if err := s.store.DeleteUser(ctx, payload.UserID); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	log.Printf("delete account %s: completed", payload.UserID)
 	return nil
 }
 

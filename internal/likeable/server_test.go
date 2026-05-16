@@ -60,6 +60,18 @@ func responseClearsCookie(response *http.Response, name string) bool {
 	return false
 }
 
+func eventually(t *testing.T, timeout time.Duration, check func() bool, failure func() string) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if check() {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal(failure())
+}
+
 func TestHealthzChecksSQLite(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {
@@ -2432,6 +2444,15 @@ func TestProfileDeleteAllDeletesFibeResourcesAndLocalData(t *testing.T) {
 	if !responseClearsCookie(rec.Result(), "likeable_session") {
 		t.Fatal("delete-all response did not clear likeable_session")
 	}
+	if _, err := store.UserBySessionToken(t.Context(), "delete-token"); err == nil {
+		t.Fatal("session still resolves immediately after delete-all")
+	}
+	eventually(t, 3*time.Second, func() bool {
+		_, err := store.UserByID(t.Context(), user.ID)
+		return err != nil
+	}, func() string {
+		return "user still exists after delete-all cleanup"
+	})
 	log := readFile(t, logPath)
 	for _, want := range []string{
 		"playgrounds delete playground-1",
@@ -2448,9 +2469,6 @@ func TestProfileDeleteAllDeletesFibeResourcesAndLocalData(t *testing.T) {
 	if !repoDeleted {
 		t.Fatal("Gitea repository was not deleted")
 	}
-	if _, err := store.UserByID(t.Context(), user.ID); err == nil {
-		t.Fatal("user still exists after delete-all")
-	}
 	if _, err := os.Stat(filepath.Join(store.DataDir(), "attachments", project.ID)); !os.IsNotExist(err) {
 		t.Fatalf("attachment directory still exists or stat failed unexpectedly: %v", err)
 	}
@@ -2460,9 +2478,6 @@ func TestProfileDeleteAllDeletesFibeResourcesAndLocalData(t *testing.T) {
 	}
 	if projectRows != 0 {
 		t.Fatalf("project rows=%d, want 0", projectRows)
-	}
-	if _, err := store.UserBySessionToken(t.Context(), "delete-token"); err == nil {
-		t.Fatal("session still resolves after user deletion")
 	}
 	cfg, err := store.ConfigMap(t.Context())
 	if err != nil {
@@ -2545,9 +2560,15 @@ esac
 	if rec.Code != http.StatusOK {
 		t.Fatalf("delete-all returned %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
-	if _, err := store.UserByID(t.Context(), user.ID); err == nil {
-		t.Fatal("user still exists after delete-all")
+	if !responseClearsCookie(rec.Result(), "likeable_session") {
+		t.Fatal("delete-all response did not clear likeable_session")
 	}
+	eventually(t, 3*time.Second, func() bool {
+		_, err := store.UserByID(t.Context(), user.ID)
+		return err != nil
+	}, func() string {
+		return "user still exists after delete-all cleanup"
+	})
 	log := readFile(t, logPath)
 	for _, want := range []string{
 		"playgrounds debug playground-1",
@@ -2592,14 +2613,36 @@ func TestProfileDeleteAllKeepsLocalDataWhenFibeCleanupFails(t *testing.T) {
 	rec := httptest.NewRecorder()
 	server.routes().ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusBadGateway {
-		t.Fatalf("delete-all returned %d, want 502; body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("delete-all returned %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
-	if _, err := store.UserByID(t.Context(), user.ID); err != nil {
-		t.Fatalf("user should remain when remote cleanup fails: %v", err)
+	if !responseClearsCookie(rec.Result(), "likeable_session") {
+		t.Fatal("delete-all response did not clear likeable_session")
 	}
-	if _, err := store.ProjectForUser(t.Context(), user.ID, project.ID); err != nil {
+	if _, err := store.UserBySessionToken(t.Context(), "delete-token"); err == nil {
+		t.Fatal("session still resolves immediately after delete-all")
+	}
+	eventually(t, time.Second, func() bool {
+		stored, err := store.ProjectForUser(t.Context(), user.ID, project.ID)
+		return err == nil && stored.CleanupLastError != ""
+	}, func() string {
+		stored, err := store.ProjectForUser(t.Context(), user.ID, project.ID)
+		if err != nil {
+			return "project missing before failed cleanup could be recorded"
+		}
+		return "cleanup_last_error=" + stored.CleanupLastError
+	})
+	storedUser, err := store.UserByID(t.Context(), user.ID)
+	if err != nil {
+		t.Fatalf("user should remain restricted when remote cleanup fails: %v", err)
+	}
+	if storedUser.AccessStatus != "restricted" {
+		t.Fatalf("access_status=%q, want restricted", storedUser.AccessStatus)
+	}
+	if project, err := store.ProjectForUser(t.Context(), user.ID, project.ID); err != nil {
 		t.Fatalf("project should remain when remote cleanup fails: %v", err)
+	} else if project.Status != "deleting" {
+		t.Fatalf("project status=%q, want deleting", project.Status)
 	}
 }
 

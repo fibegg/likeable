@@ -36,7 +36,9 @@ func (s *Server) deleteProjectResourcesAsync(userID, userEmail string, project *
 		if err != nil {
 			log.Printf("delete project %s resources: %v", snapshot.ID, err)
 			_ = s.store.UpdateProjectCleanupError(ctx, snapshot.ID, userID, err.Error())
-			return
+			if fibeClient == nil || !projectHasFibeResources(&snapshot) {
+				return
+			}
 		}
 		if projectHasFibeResources(&snapshot) {
 			if err := fibeClient.DeleteProjectResources(ctx, &snapshot); err != nil {
@@ -47,10 +49,41 @@ func (s *Server) deleteProjectResourcesAsync(userID, userEmail string, project *
 		} else {
 			log.Printf("delete project %s resources: no remote resources found", snapshot.ID)
 		}
-		if err := s.store.DeleteProject(ctx, snapshot.ID, userID); err != nil {
+		if err := s.deleteProjectLocally(ctx, &snapshot, userID); err != nil {
 			log.Printf("delete local project %s: %v", snapshot.ID, err)
 		}
 	}()
+}
+
+func (s *Server) deleteAccountAsync(userID, userEmail string) error {
+	payload := accountDeletionPayload{UserID: userID, UserEmail: userEmail}
+	if s.jobs != nil {
+		return s.enqueueAccountDeletionJob(context.Background(), payload, asynq.Queue("critical"), asynq.MaxRetry(30), asynq.Timeout(20*time.Minute), asynq.ProcessIn(5*time.Second))
+	}
+	go func() {
+		for attempt := 0; attempt < 120; attempt++ {
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+			err := s.finalizeAccountDeletion(ctx, payload)
+			cancel()
+			if err == nil {
+				return
+			}
+			projects, projectsErr := s.store.AllProjectsForUser(context.Background(), userID)
+			if projectsErr != nil {
+				log.Printf("delete account %s: %v", userID, projectsErr)
+				return
+			}
+			for i := range projects {
+				if strings.TrimSpace(projects[i].CleanupLastError) != "" {
+					log.Printf("delete account %s: blocked by project %s cleanup error: %s", userID, projects[i].ID, projects[i].CleanupLastError)
+					return
+				}
+			}
+			log.Printf("delete account %s: %v", userID, err)
+			time.Sleep(500 * time.Millisecond)
+		}
+	}()
+	return nil
 }
 
 func (s *Server) completeProjectResourceSnapshot(ctx context.Context, userEmail string, project *Project) (*fibe.Client, error) {

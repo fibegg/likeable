@@ -1,5 +1,6 @@
-import { useState, type ReactNode } from 'react';
-import { Check, Download, FileOutput, GitBranch, Loader2, MoreHorizontal, Paperclip, Pencil, Play, Plus, RotateCcw, Sparkles, Square, Trash2, X } from 'lucide-react';
+import { useState, type MouseEvent, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
+import { Check, ChevronLeft, ChevronRight, CircleHelp, Download, FileOutput, GitBranch, Loader2, MessageSquare, Minimize2, MoreHorizontal, Paperclip, Pencil, Play, Plus, RotateCcw, Sparkles, Square, Trash2, X } from 'lucide-react';
 import type { AppDialogConfig, MessageAttachment, Project, ProjectService, UserFeedRow } from './domain';
 import { formatElapsedDuration, formatMessageTime } from './format';
 import { elapsedDurationLabels, statusLabel, useI18n } from './i18n';
@@ -302,19 +303,96 @@ export function UserMessageRow({ row }: { row: UserFeedRow }) {
 
 function AttachmentGrid({ attachments }: { attachments: MessageAttachment[] }) {
   const { t } = useI18n();
+  const [preview, setPreview] = useState<MessageAttachment | null>(null);
   return (
-    <div className="messageAttachments" aria-label={t('message.attachments')}>
-      {attachments.map((attachment) => {
-        const image = Boolean(attachment.url && attachment.contentType?.startsWith('image/'));
-        return (
-          <a className={`messageAttachment ${image ? 'image' : ''}`} key={attachment.id} href={attachment.url || undefined} target={attachment.url ? '_blank' : undefined} rel="noreferrer">
-            {image ? <img src={attachment.url} alt={attachment.filename} loading="lazy" /> : <Paperclip size={15} />}
-            <span>{attachment.filename}</span>
-          </a>
-        );
-      })}
-    </div>
+    <>
+      <div className="messageAttachments" aria-label={t('message.attachments')}>
+        {attachments.map((attachment) => {
+          const kind = attachmentPreviewKind(attachment);
+          const image = kind === 'image' && attachment.url;
+          return (
+            <button
+              className={`messageAttachment ${image ? 'image' : ''}`}
+              key={attachment.id}
+              type="button"
+              onClick={() => setPreview(attachment)}
+              aria-label={t('message.preview.open', { name: attachment.filename })}
+            >
+              {image ? <img src={attachment.url} alt={attachment.filename} loading="lazy" /> : <Paperclip size={15} />}
+              <span>{attachment.filename}</span>
+            </button>
+          );
+        })}
+      </div>
+      {preview && <AttachmentPreviewModal attachment={preview} onClose={() => setPreview(null)} />}
+    </>
   );
+}
+
+function AttachmentPreviewModal({ attachment, onClose }: { attachment: MessageAttachment; onClose: () => void }) {
+  const { t } = useI18n();
+  const kind = attachmentPreviewKind(attachment);
+  const canPreview = Boolean(attachment.url && kind !== 'unsupported');
+  const onScrimMouseDown = (event: MouseEvent<HTMLDivElement>) => {
+    if (event.target === event.currentTarget) onClose();
+  };
+
+  return createPortal(
+    <div className="modalScrim attachmentPreviewScrim" role="presentation" onMouseDown={onScrimMouseDown}>
+      <section className={`attachmentPreviewDialog ${kind}`} role="dialog" aria-modal="true" aria-labelledby="attachment-preview-title">
+        <button className="dialogClose" onClick={onClose} aria-label={t('message.preview.close')}><X size={16} /></button>
+        <div className="attachmentPreviewHeader">
+          <span className="eyebrow">{t('message.preview.eyebrow')}</span>
+          <h2 id="attachment-preview-title">{attachment.filename}</h2>
+        </div>
+        <div className="attachmentPreviewBody">
+          {canPreview && kind === 'image' && <img src={attachment.url} alt={attachment.filename} />}
+          {canPreview && kind === 'pdf' && <iframe title={t('message.preview.pdfTitle', { name: attachment.filename })} src={attachment.url} loading="lazy" />}
+          {!canPreview && (
+            <div className="attachmentPreviewUnsupported">
+              <Paperclip size={26} />
+              <h3>{t('message.preview.unsupportedTitle')}</h3>
+              <p>{t(attachment.url ? 'message.preview.unsupportedBody' : 'message.preview.unavailableBody')}</p>
+            </div>
+          )}
+        </div>
+        {attachment.url && (
+          <div className="attachmentPreviewActions">
+            <a className="ghostButton" href={attachment.url} download={attachment.filename}>
+              <Download size={15} />
+              {t('message.preview.download')}
+            </a>
+          </div>
+        )}
+      </section>
+    </div>,
+    document.body
+  );
+}
+
+type AttachmentPreviewKind = 'image' | 'pdf' | 'unsupported';
+
+function attachmentPreviewKind(attachment: MessageAttachment): AttachmentPreviewKind {
+  if (!attachment.url) return 'unsupported';
+  const contentType = (attachment.contentType ?? '').toLowerCase().split(';')[0].trim();
+  const filename = attachment.filename.toLowerCase();
+  if (isPreviewableImage(contentType, filename)) return 'image';
+  if (contentType === 'application/pdf' || filename.endsWith('.pdf')) return 'pdf';
+  return 'unsupported';
+}
+
+function isPreviewableImage(contentType: string, filename: string): boolean {
+  return [
+    'image/avif',
+    'image/bmp',
+    'image/gif',
+    'image/jpeg',
+    'image/png',
+    'image/svg+xml',
+    'image/webp',
+    'image/x-icon',
+    'image/vnd.microsoft.icon'
+  ].includes(contentType) || /\.(avif|bmp|gif|ico|jpe?g|png|svg|webp)$/.test(filename);
 }
 
 export function AgentNotificationRow({ body, active, elapsedMs }: { body: string; active?: boolean; elapsedMs?: number }) {
@@ -366,8 +444,9 @@ export function CanvasLoader({ title, body, tone }: { title: string; body: strin
   );
 }
 
-export function OnboardingGallery({ onUsePrompt }: { onUsePrompt: (prompt: string) => void }) {
+export function OnboardingGallery({ ready, onUsePrompt, onStart, onDismiss }: { ready: boolean; onUsePrompt: (prompt: string) => void; onStart: () => void; onDismiss: () => void }) {
   const { t } = useI18n();
+  const [slide, setSlide] = useState(0);
   const examples = [
     {
       title: t('onboarding.card.productTitle'),
@@ -385,6 +464,66 @@ export function OnboardingGallery({ onUsePrompt }: { onUsePrompt: (prompt: strin
       prompt: t('onboarding.prompt.game')
     }
   ];
+  const slides = [
+    {
+      icon: <Sparkles size={18} />,
+      title: t('onboarding.slide.buildTitle'),
+      body: t('onboarding.slide.buildBody'),
+      bullets: [
+        t('onboarding.slide.buildBulletOne'),
+        t('onboarding.slide.buildBulletTwo')
+      ],
+      suggestions: true
+    },
+    {
+      icon: <Minimize2 size={18} />,
+      title: t('onboarding.slide.modesTitle'),
+      body: t('onboarding.slide.modesBody'),
+      bullets: [
+        t('onboarding.slide.modesBulletOne'),
+        t('onboarding.slide.modesBulletTwo')
+      ]
+    },
+    {
+      icon: <MessageSquare size={18} />,
+      title: t('onboarding.slide.messagesTitle'),
+      body: t('onboarding.slide.messagesBody'),
+      bullets: [
+        t('onboarding.slide.messagesBulletOne'),
+        t('onboarding.slide.messagesBulletTwo')
+      ]
+    },
+    {
+      icon: <CircleHelp size={18} />,
+      title: t('onboarding.slide.helpTitle'),
+      body: t('onboarding.slide.helpBody'),
+      bullets: [
+        t('onboarding.slide.helpBulletOne'),
+        t('onboarding.slide.helpBulletTwo')
+      ]
+    },
+    {
+      icon: <FileOutput size={18} />,
+      title: t('onboarding.slide.exportTitle'),
+      body: t('onboarding.slide.exportBody'),
+      bullets: [
+        t('onboarding.slide.exportBulletOne'),
+        t('onboarding.slide.exportBulletTwo')
+      ]
+    },
+    {
+      icon: <Download size={18} />,
+      title: t('onboarding.slide.lifecycleTitle'),
+      body: t('onboarding.slide.lifecycleBody'),
+      bullets: [
+        t('onboarding.slide.lifecycleBulletOne'),
+        t('onboarding.slide.lifecycleBulletTwo')
+      ]
+    }
+  ];
+  const active = slides[slide];
+  const previousSlide = () => setSlide((current) => (current + slides.length - 1) % slides.length);
+  const nextSlide = () => setSlide((current) => (current + 1) % slides.length);
   return (
     <div className="emptyPreview onboardingGallery">
       <div className="corner tl" />
@@ -393,21 +532,52 @@ export function OnboardingGallery({ onUsePrompt }: { onUsePrompt: (prompt: strin
       <div className="corner br" />
       <div className="stars" />
       <div className="onboardingContent">
+        <button className="onboardingClose" onClick={onDismiss} aria-label={t('onboarding.close')}><X size={15} /></button>
+        <div className={`onboardingStatus ${ready ? 'ready' : 'loading'}`}>
+          {ready ? <Check size={16} /> : <Loader2 size={16} className="spin" />}
+          <span>{ready ? t('onboarding.status.ready') : t('onboarding.status.loading')}</span>
+        </div>
         <div className="onboardingIntro">
           <span className="eyebrow">{t('onboarding.eyebrow')}</span>
           <h1>{t('onboarding.title')}</h1>
           <p>{t('onboarding.body')}</p>
         </div>
-        <div className="onboardingCards">
-          {examples.map((example) => (
-            <button className="onboardingCard" key={example.title} onClick={() => onUsePrompt(example.prompt)}>
-              <Sparkles size={18} />
-              <span>
-                <strong>{example.title}</strong>
-                <em>{example.body}</em>
-              </span>
-            </button>
-          ))}
+        <div className="onboardingDeck" aria-live="polite">
+          <div className="onboardingSlideKicker">
+            {active.icon}
+            <span>{t('onboarding.slideCount', { current: slide + 1, total: slides.length })}</span>
+          </div>
+          <h2>{active.title}</h2>
+          <p>{active.body}</p>
+          <ul>
+            {active.bullets.map((bullet) => <li key={bullet}>{bullet}</li>)}
+          </ul>
+          {active.suggestions && (
+            <div className="onboardingCards" aria-label={t('onboarding.suggestions')}>
+              {examples.map((example) => (
+                <button className="onboardingCard" key={example.title} onClick={() => onUsePrompt(example.prompt)}>
+                  <Sparkles size={15} />
+                  <span>
+                    <strong>{example.title}</strong>
+                    <em>{example.body}</em>
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="onboardingFooter">
+          <div className="onboardingNav">
+            <button onClick={previousSlide} aria-label={t('onboarding.previous')}><ChevronLeft size={17} /></button>
+            <div className="onboardingDots" aria-hidden="true">
+              {slides.map((item, index) => <span className={index === slide ? 'active' : ''} key={item.title} />)}
+            </div>
+            <button onClick={nextSlide} aria-label={t('onboarding.next')}><ChevronRight size={17} /></button>
+          </div>
+          <button className="primaryButton onboardingStart" disabled={!ready} onClick={onStart}>
+            {ready ? <Play size={16} /> : <Loader2 size={16} className="spin" />}
+            {ready ? t('onboarding.start') : t('onboarding.waiting')}
+          </button>
         </div>
       </div>
     </div>
