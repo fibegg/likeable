@@ -168,6 +168,20 @@ type AgentPoolStat struct {
 	ReadyArchiveCount int    `json:"readyArchiveCount"`
 }
 
+type AgentAssignmentSummary struct {
+	AgentID      string `json:"agentId"`
+	ServerID     string `json:"serverId"`
+	Status       string `json:"status,omitempty"`
+	ProjectCount int    `json:"projectCount,omitempty"`
+}
+
+type AgentPoolOption struct {
+	Label    string `json:"label,omitempty"`
+	AgentID  string `json:"agentId"`
+	ServerID string `json:"serverId"`
+	Status   string `json:"status"`
+}
+
 type UserNotice struct {
 	ID          string `json:"id"`
 	UserID      string `json:"userId,omitempty"`
@@ -181,43 +195,47 @@ type UserNotice struct {
 }
 
 type AdminUserSummary struct {
-	User               User        `json:"user"`
-	ProjectCount       int         `json:"projectCount"`
-	ProjectLimit       int         `json:"projectLimit"`
-	PaidProjectSlots   int         `json:"paidProjectSlots"`
-	ProjectSlotsExpire string      `json:"projectSlotsExpire,omitempty"`
-	MessageCount       int         `json:"messageCount"`
-	DailyMessageCount  int         `json:"dailyMessageCount"`
-	FreeMessageLimit   int         `json:"freeMessageLimit"`
-	PaidCreditBalance  int         `json:"paidCreditBalance"`
-	GithubConnected    bool        `json:"githubConnected"`
-	SubscriptionStatus string      `json:"subscriptionStatus"`
-	PaidTotalCents     int64       `json:"paidTotalCents"`
-	PaidCurrency       string      `json:"paidCurrency"`
-	LastMessageAt      string      `json:"lastMessageAt,omitempty"`
-	LastProjectAt      string      `json:"lastProjectAt,omitempty"`
-	LatestNotice       *UserNotice `json:"latestNotice,omitempty"`
+	User               User                     `json:"user"`
+	ProjectCount       int                      `json:"projectCount"`
+	ProjectLimit       int                      `json:"projectLimit"`
+	PaidProjectSlots   int                      `json:"paidProjectSlots"`
+	ProjectSlotsExpire string                   `json:"projectSlotsExpire,omitempty"`
+	MessageCount       int                      `json:"messageCount"`
+	DailyMessageCount  int                      `json:"dailyMessageCount"`
+	FreeMessageLimit   int                      `json:"freeMessageLimit"`
+	PaidCreditBalance  int                      `json:"paidCreditBalance"`
+	GithubConnected    bool                     `json:"githubConnected"`
+	SubscriptionStatus string                   `json:"subscriptionStatus"`
+	PaidTotalCents     int64                    `json:"paidTotalCents"`
+	PaidCurrency       string                   `json:"paidCurrency"`
+	LastMessageAt      string                   `json:"lastMessageAt,omitempty"`
+	LastProjectAt      string                   `json:"lastProjectAt,omitempty"`
+	LatestNotice       *UserNotice              `json:"latestNotice,omitempty"`
+	AgentPairs         []AgentAssignmentSummary `json:"agentPairs,omitempty"`
 }
 
 type AdminProjectSummary struct {
-	Project      Project `json:"project"`
-	MessageCount int     `json:"messageCount"`
+	Project      Project                `json:"project"`
+	MessageCount int                    `json:"messageCount"`
+	Assignment   AgentAssignmentSummary `json:"assignment"`
 }
 
 type AdminUserDetail struct {
-	Summary  AdminUserSummary      `json:"summary"`
-	Projects []AdminProjectSummary `json:"projects"`
-	Notices  []UserNotice          `json:"notices"`
+	Summary   AdminUserSummary      `json:"summary"`
+	Projects  []AdminProjectSummary `json:"projects"`
+	Notices   []UserNotice          `json:"notices"`
+	AgentPool []AgentPoolOption     `json:"agentPool,omitempty"`
 }
 
 type AdminUserFilters struct {
-	Query   string
-	Status  string
-	Github  string
-	Billing string
-	Sort    string
-	Page    int
-	PerPage int
+	Query              string
+	Status             string
+	Github             string
+	Billing            string
+	Sort               string
+	Page               int
+	PerPage            int
+	MessageWindowStart time.Time
 }
 
 func NormalizeEmail(email string) string {

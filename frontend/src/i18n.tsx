@@ -25,7 +25,6 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     localStorage.setItem(LOCALE_STORAGE_KEY, locale);
     document.documentElement.lang = locale;
-    document.title = translate(locale, 'app.title');
     document.querySelector<HTMLMetaElement>('meta[name="description"]')?.setAttribute('content', translate(locale, 'app.description'));
   }, [locale]);
 
@@ -44,6 +43,13 @@ export function useI18n(): I18nContextValue {
     throw new Error('useI18n must be used inside I18nProvider');
   }
   return context;
+}
+
+export function useDocumentTitle(title: string | null | undefined) {
+  useEffect(() => {
+    if (!title) return;
+    document.title = title;
+  }, [title]);
 }
 
 export function translate(locale: Locale, key: TranslationKey, params?: TranslationParams): string {

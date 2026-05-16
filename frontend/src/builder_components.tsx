@@ -1,6 +1,6 @@
-import { useState } from 'react';
-import { Check, Download, FileOutput, GitBranch, Loader2, MoreHorizontal, Paperclip, Pencil, Play, Plus, RotateCcw, Square, Trash2, X } from 'lucide-react';
-import type { AppDialogConfig, MessageAttachment, Project, UserFeedRow } from './domain';
+import { useState, type ReactNode } from 'react';
+import { Check, Download, FileOutput, GitBranch, Loader2, MoreHorizontal, Paperclip, Pencil, Play, Plus, RotateCcw, Sparkles, Square, Trash2, X } from 'lucide-react';
+import type { AppDialogConfig, MessageAttachment, Project, ProjectService, UserFeedRow } from './domain';
 import { formatElapsedDuration, formatMessageTime } from './format';
 import { statusLabel, useI18n } from './i18n';
 
@@ -117,6 +117,173 @@ export function ProjectList({ projects, activeID, projectCap, busy, exportingID,
   );
 }
 
+export function HelpPanel({ markdown, onClose }: { markdown: string; onClose: () => void }) {
+  const { t } = useI18n();
+  return (
+    <section className="inlinePanel helpInline">
+      <div className="inlinePanelHeader">
+        <div>
+          <span className="eyebrow">{t('help.eyebrow')}</span>
+          <strong>{t('help.title')}</strong>
+        </div>
+        <button className="projectDelete" onClick={onClose} aria-label={t('help.close')}><X size={15} /></button>
+      </div>
+      <MarkdownContent source={markdown} />
+    </section>
+  );
+}
+
+export function ServicePanel({ services, selectedName, busy, onSelect, onClose }: { services: ProjectService[]; selectedName?: string; busy: boolean; onSelect: (service: ProjectService) => void; onClose: () => void }) {
+  const { t } = useI18n();
+  return (
+    <section className="inlinePanel serviceInline">
+      <div className="inlinePanelHeader">
+        <div>
+          <span className="eyebrow">{t('service.preview')}</span>
+          <strong>{selectedName ? t('service.selector', { name: selectedName }) : t('service.menu')}</strong>
+        </div>
+        <button className="projectDelete" onClick={onClose} aria-label={t('service.close')}><X size={15} /></button>
+      </div>
+      <div className="serviceRows" role="radiogroup" aria-label={t('service.menu')}>
+        {services.map((service) => (
+          <button
+            key={service.name}
+            className={service.name === selectedName ? 'serviceOption selected' : 'serviceOption'}
+            disabled={busy}
+            role="radio"
+            aria-checked={service.name === selectedName}
+            onClick={() => onSelect(service)}
+          >
+            <span>{service.name}</span>
+            {service.name === selectedName && <em>{t('service.current')}</em>}
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function MarkdownContent({ source }: { source: string }) {
+  return (
+    <div className="helpMarkdown">
+      {renderMarkdownBlocks(source)}
+    </div>
+  );
+}
+
+function renderMarkdownBlocks(source: string, keyPrefix = 'help'): ReactNode[] {
+  const lines = source.replace(/\r\n/g, '\n').split('\n');
+  return parseMarkdownLines(lines, 0, lines.length, keyPrefix).nodes;
+}
+
+function parseMarkdownLines(lines: string[], start: number, end: number, keyPrefix: string): { nodes: ReactNode[]; next: number } {
+  const nodes: ReactNode[] = [];
+  let index = start;
+  while (index < end) {
+    const raw = lines[index] ?? '';
+    const line = raw.trim();
+    if (!line) {
+      index += 1;
+      continue;
+    }
+    const details = line.match(/^<details(\s+open)?\s*>$/i);
+    if (details) {
+      const parsed = parseDetails(lines, index, end, `${keyPrefix}-${nodes.length}`);
+      nodes.push(parsed.node);
+      index = parsed.next;
+      continue;
+    }
+    if (/^<\/details>$/i.test(line)) {
+      break;
+    }
+    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    if (heading) {
+      const level = heading[1].length;
+      const Tag = (`h${level}` as 'h1' | 'h2' | 'h3');
+      nodes.push(<Tag key={`${keyPrefix}-${nodes.length}`}>{renderInlineMarkdown(heading[2], `${keyPrefix}-${nodes.length}-i`)}</Tag>);
+      index += 1;
+      continue;
+    }
+    if (/^[-*]\s+/.test(line)) {
+      const items: ReactNode[] = [];
+      while (index < end && /^[-*]\s+/.test((lines[index] ?? '').trim())) {
+        const item = (lines[index] ?? '').trim().replace(/^[-*]\s+/, '');
+        items.push(<li key={`${keyPrefix}-li-${index}`}>{renderInlineMarkdown(item, `${keyPrefix}-li-${index}-i`)}</li>);
+        index += 1;
+      }
+      nodes.push(<ul key={`${keyPrefix}-${nodes.length}`}>{items}</ul>);
+      continue;
+    }
+    const paragraph: string[] = [];
+    while (index < end) {
+      const nextLine = (lines[index] ?? '').trim();
+      if (!nextLine || /^(#{1,3})\s+/.test(nextLine) || /^[-*]\s+/.test(nextLine) || /^<details(\s+open)?\s*>$/i.test(nextLine) || /^<\/details>$/i.test(nextLine)) {
+        break;
+      }
+      paragraph.push(nextLine);
+      index += 1;
+    }
+    nodes.push(<p key={`${keyPrefix}-${nodes.length}`}>{renderInlineMarkdown(paragraph.join(' '), `${keyPrefix}-${nodes.length}-i`)}</p>);
+  }
+  return { nodes, next: index };
+}
+
+function parseDetails(lines: string[], start: number, end: number, keyPrefix: string): { node: ReactNode; next: number } {
+  const open = /\sopen\s*/i.test((lines[start] ?? '').trim());
+  let index = start + 1;
+  while (index < end && !(lines[index] ?? '').trim()) index += 1;
+  let summary = '';
+  const summaryMatch = (lines[index] ?? '').trim().match(/^<summary>(.+)<\/summary>$/i);
+  if (summaryMatch) {
+    summary = summaryMatch[1].trim();
+    index += 1;
+  }
+  const contentStart = index;
+  while (index < end && !/^<\/details>$/i.test((lines[index] ?? '').trim())) index += 1;
+  const children = parseMarkdownLines(lines, contentStart, index, `${keyPrefix}-details`).nodes;
+  const next = index < end ? index + 1 : index;
+  return {
+    next,
+    node: (
+      <details key={keyPrefix} open={open}>
+        <summary>{renderInlineMarkdown(summary || 'Details', `${keyPrefix}-summary`)}</summary>
+        <div>{children}</div>
+      </details>
+    )
+  };
+}
+
+function renderInlineMarkdown(text: string, keyPrefix: string): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  const pattern = /(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\([^)]+\))/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(text)) !== null) {
+    if (match.index > lastIndex) nodes.push(text.slice(lastIndex, match.index));
+    const token = match[0];
+    const link = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+    if (link) {
+      const href = safeMarkdownHref(link[2]);
+      nodes.push(href
+        ? <a key={`${keyPrefix}-${nodes.length}`} href={href} target={href.startsWith('http') ? '_blank' : undefined} rel={href.startsWith('http') ? 'noreferrer' : undefined}>{link[1]}</a>
+        : <span key={`${keyPrefix}-${nodes.length}`}>{link[1]}</span>);
+    } else if (token.startsWith('**')) {
+      nodes.push(<strong key={`${keyPrefix}-${nodes.length}`}>{token.slice(2, -2)}</strong>);
+    } else if (token.startsWith('`')) {
+      nodes.push(<code key={`${keyPrefix}-${nodes.length}`}>{token.slice(1, -1)}</code>);
+    }
+    lastIndex = pattern.lastIndex;
+  }
+  if (lastIndex < text.length) nodes.push(text.slice(lastIndex));
+  return nodes;
+}
+
+function safeMarkdownHref(value: string): string {
+  const href = value.trim();
+  if (/^(https?:|mailto:|\/|#)/i.test(href)) return href;
+  return '';
+}
+
 export function UserMessageRow({ row }: { row: UserFeedRow }) {
   const { locale, t } = useI18n();
   const time = formatMessageTime(row.time, locale);
@@ -194,6 +361,54 @@ export function CanvasLoader({ title, body, tone }: { title: string; body: strin
       <div className="emptyCopy">
         <h1>{title}</h1>
         <p>{body}</p>
+      </div>
+    </div>
+  );
+}
+
+export function OnboardingGallery({ onUsePrompt }: { onUsePrompt: (prompt: string) => void }) {
+  const { t } = useI18n();
+  const examples = [
+    {
+      title: t('onboarding.card.productTitle'),
+      body: t('onboarding.card.productBody'),
+      prompt: t('onboarding.prompt.product')
+    },
+    {
+      title: t('onboarding.card.opsTitle'),
+      body: t('onboarding.card.opsBody'),
+      prompt: t('onboarding.prompt.ops')
+    },
+    {
+      title: t('onboarding.card.gameTitle'),
+      body: t('onboarding.card.gameBody'),
+      prompt: t('onboarding.prompt.game')
+    }
+  ];
+  return (
+    <div className="emptyPreview onboardingGallery">
+      <div className="corner tl" />
+      <div className="corner tr" />
+      <div className="corner bl" />
+      <div className="corner br" />
+      <div className="stars" />
+      <div className="onboardingContent">
+        <div className="onboardingIntro">
+          <span className="eyebrow">{t('onboarding.eyebrow')}</span>
+          <h1>{t('onboarding.title')}</h1>
+          <p>{t('onboarding.body')}</p>
+        </div>
+        <div className="onboardingCards">
+          {examples.map((example) => (
+            <button className="onboardingCard" key={example.title} onClick={() => onUsePrompt(example.prompt)}>
+              <Sparkles size={18} />
+              <span>
+                <strong>{example.title}</strong>
+                <em>{example.body}</em>
+              </span>
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );

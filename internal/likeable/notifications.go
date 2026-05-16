@@ -31,7 +31,8 @@ func (s *Server) notifyMessageQuotaIfNeeded(ctx context.Context, user *User) {
 	if limit <= 0 {
 		return
 	}
-	windowStart := messageAllowanceWindowStart(time.Now())
+	windowHours := s.freeMessageWindowHours(ctx)
+	windowStart, _ := s.freeMessageWindow(time.Now(), ctx)
 	used, _, err := s.store.UserMessageWindow(ctx, user.ID, windowStart)
 	if err != nil {
 		log.Printf("message quota notice count for %s: %v", user.Email, err)
@@ -53,7 +54,7 @@ func (s *Server) notifyMessageQuotaIfNeeded(ctx context.Context, user *User) {
 		prefix := "Message quota:"
 		exists, err := s.store.NoticeExistsSince(ctx, user.ID, "system", prefix, windowStart)
 		if err == nil && !exists {
-			body := fmt.Sprintf("%s You have %d/%d free messages remaining in this 5-hour window.", prefix, remaining, limit)
+			body := fmt.Sprintf("%s You have %d/%d free messages remaining in this %d-hour window.", prefix, remaining, limit, windowHours)
 			if paidRemaining > 0 {
 				body += fmt.Sprintf(" Your %d paid credits are used only after free messages are spent.", paidRemaining)
 			} else {

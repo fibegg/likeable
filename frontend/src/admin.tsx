@@ -4,9 +4,9 @@ import { cleanPoolRows, makePoolRow, parsePoolRows } from './admin_pool';
 import { api } from './api';
 import { AppDialog, Metric } from './builder_components';
 import { ADMIN_CONFIG_SECTIONS } from './config';
-import type { AdminConfigEntry, AdminConfigResponse, AdminUserDetail, AdminUserSummary, AdminUsersResponse, AgentPoolStat, AppDialogConfig, PoolRow } from './domain';
+import type { AdminConfigEntry, AdminConfigResponse, AdminProjectSummary, AdminUserDetail, AdminUserSummary, AdminUsersResponse, AgentAssignmentSummary, AgentPoolOption, AgentPoolStat, AppDialogConfig, PoolRow } from './domain';
 import { formatMessageTime, formatShortDate } from './format';
-import { statusLabel, TranslationKey, useI18n } from './i18n';
+import { statusLabel, TranslationKey, useDocumentTitle, useI18n } from './i18n';
 
 function AdminCustomersPanel() {
   const { locale, t } = useI18n();
@@ -16,8 +16,10 @@ function AdminCustomersPanel() {
   const [total, setTotal] = useState(0);
   const [selectedUserID, setSelectedUserID] = useState('');
   const [detail, setDetail] = useState<AdminUserDetail | null>(null);
+  const [agentPool, setAgentPool] = useState<AgentPoolOption[]>([]);
   const [loading, setLoading] = useState(false);
   const [actionError, setActionError] = useState('');
+  const [reassigningProjectID, setReassigningProjectID] = useState('');
   const [accessNote, setAccessNote] = useState('');
   const [noticeBody, setNoticeBody] = useState('');
   const [noticeSeverity, setNoticeSeverity] = useState('warning');
@@ -39,6 +41,7 @@ function AdminCustomersPanel() {
     try {
       const response = await api<AdminUsersResponse>(`/api/admin/users?${query()}`);
       setUsers(response.users);
+      setAgentPool((current) => response.agentPool ?? current);
       setTotal(response.pagination.total);
       if (selectedUserID && !response.users.some((summary) => summary.user.id === selectedUserID)) {
         setSelectedUserID('');
@@ -55,6 +58,7 @@ function AdminCustomersPanel() {
     const response = await api<AdminUserDetail>(`/api/admin/users/${userID}`);
     setSelectedUserID(userID);
     setDetail(response);
+    setAgentPool((current) => response.agentPool ?? current);
     setAccessNote(response.summary.user.accessNote ?? '');
   };
   useEffect(() => {
@@ -166,6 +170,27 @@ function AdminCustomersPanel() {
       onConfirm: () => applyDeleteProject(projectID)
     });
   };
+  const reassignProject = async (projectID: string, assignmentValue: string) => {
+    if (!selectedUserID) return;
+    const next = parsePairValue(assignmentValue);
+    if (!next.agentId || !next.serverId) return;
+    setActionError('');
+    setReassigningProjectID(projectID);
+    try {
+      const response = await api<{ detail: AdminUserDetail; warning?: string }>(`/api/admin/users/${selectedUserID}/projects/${projectID}/assignment`, {
+        method: 'PATCH',
+        body: JSON.stringify({ agent_id: next.agentId, server_id: next.serverId })
+      });
+      setDetail(response.detail);
+      setAgentPool((current) => response.detail.agentPool ?? current);
+      if (response.warning) setActionError(response.warning);
+      await loadUsers();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : t('admin.assignment.failed'));
+    } finally {
+      setReassigningProjectID('');
+    }
+  };
 
   return (
     <section className="adminCard customersCard">
@@ -232,6 +257,11 @@ function AdminCustomersPanel() {
                 <i>{summary.githubConnected ? t('common.github') : t('admin.noGithub')}</i>
                 <i>{summary.paidCreditBalance > 0 ? `${summary.paidCreditBalance} ${t('common.credits')}` : (summary.paidTotalCents > 0 ? t('common.paid') : t('common.unpaid'))}</i>
                 {summary.user.accessStatus === 'restricted' && <i className="dangerBadge">{t('common.restricted')}</i>}
+                {(summary.agentPairs ?? []).slice(0, 2).map((pair) => (
+                  <i className="assignmentBadge" key={`${pair.agentId}:${pair.serverId}`}>
+                    {formatPairBadge(pair)}
+                  </i>
+                ))}
               </span>
             </button>
           ))}
@@ -321,16 +351,40 @@ function AdminCustomersPanel() {
                   <h3>{t('admin.projects.title')}</h3>
                   <p>{t('admin.projects.body')}</p>
                 </div>
-                {detail.projects.map((item) => (
-                  <div className="adminProjectRow" key={item.project.id}>
-                    <span>
-                      <strong>{item.project.title}</strong>
-                      <em>{statusLabel(item.project.status, t)} · {item.messageCount} {t('common.messages')}</em>
-                    </span>
-                    {item.project.previewUrl && <a className="ghostButton" href={item.project.previewUrl} target="_blank">{t('common.open')}</a>}
-                    <button className="projectDelete" onClick={() => void deleteProject(item.project.id)} aria-label={t('admin.deleteProject.aria', { title: item.project.title })}><Trash2 size={15} /></button>
-                  </div>
-                ))}
+                {detail.projects.map((item) => {
+                  const options = assignmentOptionsForProject(item, agentPool);
+                  const assignment = item.assignment;
+                  const assignmentValue = pairValue(assignment?.agentId ?? '', assignment?.serverId ?? '');
+                  const canReassign = options.some((option) => option.status === 'active') && item.project.status !== 'archived' && item.project.status !== 'deleting';
+                  return (
+                    <div className="adminProjectRow" key={item.project.id}>
+                      <span>
+                        <strong>{item.project.title}</strong>
+                        <em>{statusLabel(item.project.status, t)} · {item.messageCount} {t('common.messages')}</em>
+                      </span>
+                      <label className="adminProjectAssignment">
+                        <span>{t('admin.assignment')}</span>
+                        <select
+                          className="adminSelect"
+                          value={assignmentValue}
+                          disabled={!canReassign || reassigningProjectID === item.project.id}
+                          onChange={(event) => void reassignProject(item.project.id, event.target.value)}
+                        >
+                          {assignmentValue === pairValue('', '') && <option value={assignmentValue}>{t('admin.assignment.none')}</option>}
+                          {options.map((option) => (
+                            <option key={pairValue(option.agentId, option.serverId)} value={pairValue(option.agentId, option.serverId)} disabled={option.status !== 'active'}>
+                              {formatPoolOption(option, t)}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <div className="adminProjectActions">
+                        {item.project.previewUrl && <a className="ghostButton" href={item.project.previewUrl} target="_blank">{t('common.open')}</a>}
+                        <button className="projectDelete" onClick={() => void deleteProject(item.project.id)} aria-label={t('admin.deleteProject.aria', { title: item.project.title })}><Trash2 size={15} /></button>
+                      </div>
+                    </div>
+                  );
+                })}
                 {detail.projects.length === 0 && <div className="emptyPool">{t('admin.noActiveProjects')}</div>}
               </div>
             </>
@@ -347,6 +401,67 @@ function formatMoney(cents: number, currency: string): string {
   return `${normalized} ${(cents / 100).toFixed(2)}`;
 }
 
+function pairValue(agentId: string, serverId: string): string {
+  return JSON.stringify([agentId, serverId]);
+}
+
+function parsePairValue(value: string): { agentId: string; serverId: string } {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (Array.isArray(parsed) && typeof parsed[0] === 'string' && typeof parsed[1] === 'string') {
+      return { agentId: parsed[0], serverId: parsed[1] };
+    }
+  } catch {
+    return { agentId: '', serverId: '' };
+  }
+  return { agentId: '', serverId: '' };
+}
+
+function formatPairBadge(pair: AgentAssignmentSummary): string {
+  const count = pair.projectCount && pair.projectCount > 1 ? ` x${pair.projectCount}` : '';
+  return `${pair.agentId}/${pair.serverId}${count}`;
+}
+
+function assignmentOptionsForProject(item: AdminProjectSummary, agentPool: AgentPoolOption[]): AgentPoolOption[] {
+  const current = item.assignment;
+  const out: AgentPoolOption[] = [];
+  const pushUnique = (option: AgentPoolOption) => {
+    if (!option.agentId || !option.serverId) return;
+    if (out.some((candidate) => candidate.agentId === option.agentId && candidate.serverId === option.serverId)) return;
+    out.push(option);
+  };
+  if (current?.agentId || current?.serverId) {
+    pushUnique({
+      agentId: current.agentId,
+      serverId: current.serverId,
+      status: current.status ?? 'retired'
+    });
+  }
+  agentPool.filter((option) => option.status === 'active').forEach(pushUnique);
+  return out;
+}
+
+function formatPoolOption(option: AgentPoolOption, t: (key: TranslationKey) => string): string {
+  const label = option.label ? `${option.label} · ` : '';
+  const status = poolStatusLabel(option.status, t);
+  return `${label}${option.agentId}/${option.serverId} · ${status}`;
+}
+
+function poolStatusLabel(status: string | undefined, t: (key: TranslationKey) => string): string {
+  switch (status) {
+    case 'active':
+      return t('admin.pool.status.active');
+    case 'draining':
+      return t('admin.pool.status.draining');
+    case 'retiring':
+      return t('admin.pool.status.retiring');
+    case 'retired':
+      return t('admin.pool.status.retired');
+    default:
+      return t('status.unknown');
+  }
+}
+
 function adminConfigLabel(key: string, t: (key: TranslationKey) => string): string {
   const labelKeys: Record<string, TranslationKey> = {
     stripe_publishable_key: 'admin.config.stripe_publishable_key',
@@ -355,7 +470,10 @@ function adminConfigLabel(key: string, t: (key: TranslationKey) => string): stri
     stripe_price_id_100: 'admin.config.stripe_price_id_100',
     stripe_price_id_1000: 'admin.config.stripe_price_id_1000',
     stripe_project_quota_price_id: 'admin.config.stripe_project_quota_price_id',
-    stripe_webhook_secret: 'admin.config.stripe_webhook_secret'
+    stripe_webhook_secret: 'admin.config.stripe_webhook_secret',
+    free_messages: 'admin.config.free_messages',
+    free_message_window_hours: 'admin.config.free_message_window_hours',
+    project_cap: 'admin.config.project_cap'
   };
   const labelKey = labelKeys[key];
   return labelKey ? t(labelKey) : key;
@@ -363,6 +481,7 @@ function adminConfigLabel(key: string, t: (key: TranslationKey) => string): stri
 
 export function Admin() {
   const { t } = useI18n();
+  useDocumentTitle(t('page.adminSettings.title'));
   const [config, setConfig] = useState<Record<string, AdminConfigEntry>>({});
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [signupMode, setSignupMode] = useState('forbidden');

@@ -278,10 +278,6 @@ func (s *Server) handleProjectAgentInterrupt(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	s.clearPlatformBackoff()
-	if err := s.store.TouchProjectPlaygroundUsage(r.Context(), project.ID, user.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
 	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
 }
 

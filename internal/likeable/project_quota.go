@@ -7,7 +7,11 @@ import (
 	"time"
 )
 
-const freeMessageWindow = 5 * time.Hour
+const (
+	defaultFreeMessageWindowHours = 5
+	maxFreeMessageWindowHours     = 24
+	freeMessageWindow             = time.Duration(defaultFreeMessageWindowHours) * time.Hour
+)
 
 func (s *Server) canSendMessage(ctx context.Context, user *User) bool {
 	allowed, _, err := s.messageAllowance(ctx, user)
@@ -16,11 +20,11 @@ func (s *Server) canSendMessage(ctx context.Context, user *User) bool {
 
 func (s *Server) messageQuota(ctx context.Context, user *User) map[string]any {
 	limit := s.freeMessageLimit(ctx)
-	windowStart := messageAllowanceWindowStart(time.Now())
-	used, oldestAt, err := s.store.UserMessageWindow(ctx, user.ID, windowStart)
+	windowHours := s.freeMessageWindowHours(ctx)
+	windowStart, resetAt := fixedUTCMessageWindow(time.Now(), time.Duration(windowHours)*time.Hour)
+	used, _, err := s.store.UserMessageWindow(ctx, user.ID, windowStart)
 	if err != nil {
 		used = 0
-		oldestAt = ""
 	}
 	lifetimeUsed, err := s.store.UserMessageCount(ctx, user.ID)
 	if err != nil {
@@ -34,20 +38,21 @@ func (s *Server) messageQuota(ctx context.Context, user *User) map[string]any {
 	if remaining < 0 {
 		remaining = 0
 	}
-	resetAt := nextFreeMessageResetAt(oldestAt, time.Now()).Format(time.RFC3339)
 	return map[string]any{
 		"used":          used,
 		"limit":         limit,
 		"remaining":     remaining,
 		"paidRemaining": paidRemaining,
 		"lifetimeUsed":  lifetimeUsed,
-		"resetsAt":      resetAt,
+		"resetsAt":      resetAt.Format(time.RFC3339),
+		"windowHours":   windowHours,
 	}
 }
 
 func (s *Server) messageAllowance(ctx context.Context, user *User) (bool, bool, error) {
 	limit := s.freeMessageLimit(ctx)
-	used, _, err := s.store.UserMessageWindow(ctx, user.ID, messageAllowanceWindowStart(time.Now()))
+	windowStart, _ := s.freeMessageWindow(time.Now(), ctx)
+	used, _, err := s.store.UserMessageWindow(ctx, user.ID, windowStart)
 	if err != nil {
 		return false, false, err
 	}
@@ -61,21 +66,33 @@ func (s *Server) messageAllowance(ctx context.Context, user *User) (bool, bool, 
 	return paidRemaining > 0, true, nil
 }
 
-func messageAllowanceWindowStart(now time.Time) time.Time {
-	return now.UTC().Add(-freeMessageWindow)
+func (s *Server) freeMessageWindow(now time.Time, ctx context.Context) (time.Time, time.Time) {
+	return fixedUTCMessageWindow(now, time.Duration(s.freeMessageWindowHours(ctx))*time.Hour)
 }
 
-func nextFreeMessageResetAt(oldestAt string, now time.Time) time.Time {
+func (s *Server) currentFreeMessageWindowStart(ctx context.Context) time.Time {
+	start, _ := s.freeMessageWindow(time.Now(), ctx)
+	return start
+}
+
+func fixedUTCMessageWindow(now time.Time, interval time.Duration) (time.Time, time.Time) {
+	if interval <= 0 {
+		interval = freeMessageWindow
+	}
+	if interval > 24*time.Hour {
+		interval = 24 * time.Hour
+	}
 	now = now.UTC()
-	oldest, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(oldestAt))
-	if err != nil || oldest.IsZero() {
-		return now
+	dayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	elapsed := now.Sub(dayStart)
+	bucket := int64(elapsed / interval)
+	start := dayStart.Add(time.Duration(bucket) * interval)
+	end := start.Add(interval)
+	nextDay := dayStart.Add(24 * time.Hour)
+	if end.After(nextDay) {
+		end = nextDay
 	}
-	resetAt := oldest.UTC().Add(freeMessageWindow)
-	if resetAt.Before(now) {
-		return now
-	}
-	return resetAt
+	return start, end
 }
 
 func (s *Server) freeMessageLimit(ctx context.Context) int {
@@ -87,6 +104,19 @@ func (s *Server) freeMessageLimit(ctx context.Context) int {
 	n, err := strconv.Atoi(raw)
 	if err != nil || n < 0 {
 		return 5
+	}
+	return n
+}
+
+func (s *Server) freeMessageWindowHours(ctx context.Context) int {
+	cfg, _ := s.store.ConfigMap(ctx)
+	raw := strings.TrimSpace(cfg["free_message_window_hours"])
+	if raw == "" {
+		return defaultFreeMessageWindowHours
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 || n > maxFreeMessageWindowHours {
+		return defaultFreeMessageWindowHours
 	}
 	return n
 }

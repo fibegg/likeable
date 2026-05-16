@@ -2,6 +2,9 @@ const en = {
   'app.title': 'Likeable',
   'app.description': 'Build and iterate on Fibe playground apps from a mobile-ready canvas.',
   'app.loading': 'Loading',
+  'page.about.title': 'About',
+  'page.adminSettings.title': 'Admin settings',
+  'page.projectServiceTitle': '{title} | {service}',
   'nav.builder': 'Builder',
   'nav.profile': 'Profile',
   'nav.admin': 'Admin',
@@ -99,6 +102,36 @@ const en = {
   'builder.profile.tooltip': 'Profile',
   'builder.admin.tooltip': 'Admin',
   'builder.chat.collapse': 'Collapse chat',
+  'help.tooltip': 'Help and policies',
+  'help.eyebrow': 'Help',
+  'help.title': 'Project and policy notes',
+  'help.close': 'Close help',
+  'help.markdown': `# Project basics
+
+Describe any application in the composer. Likeable will build the canvas, then you can keep iterating in chat.
+
+- Be specific about workflow, data, screens, and visual style.
+- Ask for changes in small steps after the first version appears.
+- Use this text for ToS, privacy, project notes, or onboarding copy.
+
+<details open>
+<summary>Example collapsible section</summary>
+
+Create sections inside the i18n value with native details markup:
+
+\`<details>\`
+\`<summary>Terms of service</summary>\`
+\`Regular **markdown** goes here.\`
+\`</details>\`
+
+</details>
+
+<details>
+<summary>Privacy placeholder</summary>
+
+Replace this with privacy copy. Links are supported, for example [Privacy Policy](/privacy).
+
+</details>`,
   'builder.poweredBy': 'Powered by',
   'builder.dropFiles': 'Drop files to attach',
   'builder.attachFiles': 'Attach files',
@@ -134,7 +167,23 @@ const en = {
   'builder.preview.stoppedBody': 'This playground is stopped. Start it from the project menu when you need the canvas again; manual actions reset the idle window.',
   'builder.preview.archivedTitle': 'Project archived',
   'builder.preview.archivedBody': 'This project is export-only. Create a new project to keep developing.',
+  'onboarding.eyebrow': 'First project',
+  'onboarding.title': 'Build by describing it',
+  'onboarding.body': 'Ask for any app, then keep iterating in chat as the canvas changes.',
+  'onboarding.card.productTitle': 'Product UI',
+  'onboarding.card.productBody': 'Dashboards, landing pages, forms, and internal tools.',
+  'onboarding.card.opsTitle': 'Workflow app',
+  'onboarding.card.opsBody': 'Track records, approvals, queues, and team handoffs.',
+  'onboarding.card.gameTitle': 'Interactive idea',
+  'onboarding.card.gameBody': 'Prototype games, calculators, maps, and visual tools.',
+  'onboarding.prompt.product': 'Build a polished SaaS dashboard for tracking customer onboarding, with a compact metrics header, task queue, and customer detail panel.',
+  'onboarding.prompt.ops': 'Create an internal workflow app for triaging support requests with filters, priority states, assignee controls, and a focused detail view.',
+  'onboarding.prompt.game': 'Make a small interactive memory game with a timer, score, restart control, and a clean responsive layout.',
   'service.preview': 'Preview service',
+  'service.selector': 'Preview service: {name}',
+  'service.menu': 'Preview services',
+  'service.current': 'Current',
+  'service.close': 'Close preview services',
   'service.show': 'Show {name}',
   'projects.title': 'Projects',
   'projects.close': 'Close projects',
@@ -198,8 +247,8 @@ const en = {
   'profile.reconnect': 'Reconnect',
   'profile.connected': 'Connected',
   'profile.messages': 'Messages',
-  'profile.freeQuota': '5-hour free quota',
-  'profile.freeInWindow': '{remaining}/{limit} free in 5h',
+  'profile.freeQuota': 'Free message quota',
+  'profile.freeInWindow': '{remaining}/{limit} free in {hours}h',
   'profile.quotaDetail': '{paid} paid credits · resets in {reset} · {lifetime} lifetime sent',
   'profile.projects': 'Projects',
   'profile.projectQuota': 'Project quota',
@@ -242,7 +291,7 @@ const en = {
   'admin.pagination': '{page}/{totalPages} · {total} users',
   'admin.selectUser': 'Select a user to inspect projects, payments, notices, and access controls.',
   'admin.customer': 'Customer',
-  'admin.metric.free5h': 'Free 5h',
+  'admin.metric.free5h': 'Free window',
   'admin.metric.lifetimeSent': 'Lifetime Sent',
   'admin.metric.paidCredits': 'Paid Credits',
   'admin.metric.projects': 'Projects',
@@ -264,6 +313,9 @@ const en = {
   'admin.send': 'Send',
   'admin.projects.title': 'Projects',
   'admin.projects.body': 'Deletion uses the same workspace cleanup path as user-initiated deletion.',
+  'admin.assignment': 'Agent pair',
+  'admin.assignment.none': 'No stored pair',
+  'admin.assignment.failed': 'Assignment update failed',
   'admin.noActiveProjects': 'No active projects.',
   'admin.deleteProject.aria': 'Delete {title}',
   'admin.loadUsersFailed': 'Could not load users',
@@ -327,13 +379,19 @@ const en = {
   'admin.config.stripe_price_id_100': '100 messages price ID',
   'admin.config.stripe_price_id_1000': '1000 messages price ID',
   'admin.config.stripe_project_quota_price_id': 'Project quota price ID',
-  'admin.config.stripe_webhook_secret': 'Webhook secret'
+  'admin.config.stripe_webhook_secret': 'Webhook secret',
+  'admin.config.free_messages': 'Free messages per window',
+  'admin.config.free_message_window_hours': 'Free message window hours',
+  'admin.config.project_cap': 'Base project cap'
 } as const;
 
 const uk: Record<keyof typeof en, string> = {
   'app.title': 'Likeable',
   'app.description': 'Створюйте й доопрацьовуйте Fibe-плейграунди з полотна, готового для мобільних пристроїв.',
   'app.loading': 'Завантаження',
+  'page.about.title': 'Про застосунок',
+  'page.adminSettings.title': 'Налаштування адміна',
+  'page.projectServiceTitle': '{title} | {service}',
   'nav.builder': 'Конструктор',
   'nav.profile': 'Профіль',
   'nav.admin': 'Адмін',
@@ -431,6 +489,36 @@ const uk: Record<keyof typeof en, string> = {
   'builder.profile.tooltip': 'Профіль',
   'builder.admin.tooltip': 'Адмін',
   'builder.chat.collapse': 'Згорнути чат',
+  'help.tooltip': 'Допомога та правила',
+  'help.eyebrow': 'Допомога',
+  'help.title': 'Нотатки про проєкт і правила',
+  'help.close': 'Закрити довідку',
+  'help.markdown': `# Основи проєкту
+
+Опишіть будь-який застосунок у полі повідомлення. Likeable побудує canvas, а потім ви зможете ітерувати в чаті.
+
+- Опишіть workflow, дані, екрани й візуальний стиль.
+- Після першої версії просіть зміни невеликими кроками.
+- Використовуйте цей текст для ToS, privacy, нотаток про проєкт або онбордингу.
+
+<details open>
+<summary>Приклад секції, що розгортається</summary>
+
+Створюйте секції всередині i18n-значення через native details markup:
+
+\`<details>\`
+\`<summary>Terms of service</summary>\`
+\`Тут може бути звичайний **markdown**.\`
+\`</details>\`
+
+</details>
+
+<details>
+<summary>Privacy placeholder</summary>
+
+Замініть це на privacy-текст. Посилання підтримуються, наприклад [Privacy Policy](/privacy).
+
+</details>`,
   'builder.poweredBy': 'На платформі',
   'builder.dropFiles': 'Перетягніть файли, щоб додати',
   'builder.attachFiles': 'Додати файли',
@@ -466,7 +554,23 @@ const uk: Record<keyof typeof en, string> = {
   'builder.preview.stoppedBody': 'Цей плейграунд зупинено. Запустіть його з меню проєкту, коли полотно знову знадобиться; ручні дії скидають вікно простою.',
   'builder.preview.archivedTitle': 'Проєкт архівовано',
   'builder.preview.archivedBody': 'Цей проєкт доступний лише для експорту. Створіть новий, щоб продовжити розробку.',
+  'onboarding.eyebrow': 'Перший проєкт',
+  'onboarding.title': 'Створюйте через опис',
+  'onboarding.body': 'Попросіть будь-який застосунок, а потім доопрацьовуйте його в чаті, поки полотно змінюється.',
+  'onboarding.card.productTitle': 'Продуктовий UI',
+  'onboarding.card.productBody': 'Дашборди, лендінги, форми та внутрішні інструменти.',
+  'onboarding.card.opsTitle': 'Workflow-застосунок',
+  'onboarding.card.opsBody': 'Записи, погодження, черги й передачі між командами.',
+  'onboarding.card.gameTitle': 'Інтерактивна ідея',
+  'onboarding.card.gameBody': 'Ігри, калькулятори, мапи та візуальні інструменти.',
+  'onboarding.prompt.product': 'Створи відполірований SaaS-дашборд для відстеження онбордингу клієнтів з компактним блоком метрик, чергою задач і панеллю деталей клієнта.',
+  'onboarding.prompt.ops': 'Створи внутрішній workflow-застосунок для тріажу звернень підтримки з фільтрами, пріоритетами, контролями відповідального і зручним детальним переглядом.',
+  'onboarding.prompt.game': 'Зроби невелику інтерактивну гру на запамʼятовування з таймером, рахунком, кнопкою restart і чистою адаптивною версткою.',
   'service.preview': 'Сервіс превʼю',
+  'service.selector': 'Сервіс превʼю: {name}',
+  'service.menu': 'Сервіси превʼю',
+  'service.current': 'Поточний',
+  'service.close': 'Закрити сервіси превʼю',
   'service.show': 'Показати {name}',
   'projects.title': 'Проєкти',
   'projects.close': 'Закрити проєкти',
@@ -530,8 +634,8 @@ const uk: Record<keyof typeof en, string> = {
   'profile.reconnect': 'Перепідключити',
   'profile.connected': 'Підключено',
   'profile.messages': 'Повідомлення',
-  'profile.freeQuota': 'Безплатний ліміт на 5 годин',
-  'profile.freeInWindow': '{remaining}/{limit} безплатно за 5 год',
+  'profile.freeQuota': 'Безплатний ліміт повідомлень',
+  'profile.freeInWindow': '{remaining}/{limit} безплатно за {hours} год',
   'profile.quotaDetail': '{paid} платних кредитів · оновлення через {reset} · {lifetime} надіслано за весь час',
   'profile.projects': 'Проєкти',
   'profile.projectQuota': 'Ліміт проєктів',
@@ -574,7 +678,7 @@ const uk: Record<keyof typeof en, string> = {
   'admin.pagination': '{page}/{totalPages} · {total} користувачів',
   'admin.selectUser': 'Виберіть користувача, щоб переглянути проєкти, платежі, сповіщення та керування доступом.',
   'admin.customer': 'Клієнт',
-  'admin.metric.free5h': 'Безплатно 5 год',
+  'admin.metric.free5h': 'Безплатно у вікні',
   'admin.metric.lifetimeSent': 'Надіслано загалом',
   'admin.metric.paidCredits': 'Платні кредити',
   'admin.metric.projects': 'Проєкти',
@@ -596,6 +700,9 @@ const uk: Record<keyof typeof en, string> = {
   'admin.send': 'Надіслати',
   'admin.projects.title': 'Проєкти',
   'admin.projects.body': 'Видалення використовує той самий шлях очищення робочого середовища, що й видалення користувачем.',
+  'admin.assignment': 'Пара агента',
+  'admin.assignment.none': 'Пару не збережено',
+  'admin.assignment.failed': 'Не вдалося оновити пару',
   'admin.noActiveProjects': 'Активних проєктів немає.',
   'admin.deleteProject.aria': 'Видалити {title}',
   'admin.loadUsersFailed': 'Не вдалося завантажити користувачів',
@@ -659,7 +766,10 @@ const uk: Record<keyof typeof en, string> = {
   'admin.config.stripe_price_id_100': 'Price ID для 100 повідомлень',
   'admin.config.stripe_price_id_1000': 'Price ID для 1000 повідомлень',
   'admin.config.stripe_project_quota_price_id': 'Price ID ліміту проєктів',
-  'admin.config.stripe_webhook_secret': 'Webhook secret'
+  'admin.config.stripe_webhook_secret': 'Webhook secret',
+  'admin.config.free_messages': 'Безплатних повідомлень за вікно',
+  'admin.config.free_message_window_hours': 'Години вікна безплатних повідомлень',
+  'admin.config.project_cap': 'Базовий ліміт проєктів'
 };
 
 export const TRANSLATIONS = { en, uk } as const;

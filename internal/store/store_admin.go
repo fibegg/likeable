@@ -15,7 +15,11 @@ func (s *Store) AdminUsers(ctx context.Context, filters AdminUserFilters) ([]Adm
 		filters.PerPage = 25
 	}
 	where, args := adminUserWhere(filters)
-	windowStart := time.Now().UTC().Add(-5 * time.Hour).Format(time.RFC3339Nano)
+	messageWindowStart := filters.MessageWindowStart
+	if messageWindowStart.IsZero() {
+		messageWindowStart = time.Now().UTC().Add(-5 * time.Hour)
+	}
+	windowStart := messageWindowStart.UTC().Format(time.RFC3339Nano)
 	cte := `
 		WITH stats AS (
 			SELECT users.id AS user_id,
@@ -94,7 +98,6 @@ func (s *Store) AdminUsers(ctx context.Context, filters AdminUserFilters) ([]Adm
 	if err != nil {
 		return nil, 0, err
 	}
-	defer rows.Close()
 	var out []AdminUserSummary
 	for rows.Next() {
 		var summary AdminUserSummary
@@ -122,10 +125,67 @@ func (s *Store) AdminUsers(ctx context.Context, filters AdminUserFilters) ([]Adm
 		}
 		out = append(out, summary)
 	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, 0, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, 0, err
+	}
 	if out == nil {
 		out = []AdminUserSummary{}
 	}
-	return out, total, rows.Err()
+	if err := s.attachAdminUserAgentPairs(ctx, out); err != nil {
+		return nil, 0, err
+	}
+	return out, total, nil
+}
+
+func (s *Store) attachAdminUserAgentPairs(ctx context.Context, users []AdminUserSummary) error {
+	if len(users) == 0 {
+		return nil
+	}
+	args := make([]any, 0, len(users))
+	placeholders := make([]string, 0, len(users))
+	indexByUserID := make(map[string]int, len(users))
+	for i := range users {
+		userID := strings.TrimSpace(users[i].User.ID)
+		if userID == "" {
+			continue
+		}
+		indexByUserID[userID] = i
+		args = append(args, userID)
+		placeholders = append(placeholders, "?")
+	}
+	if len(args) == 0 {
+		return nil
+	}
+	query := `
+		SELECT user_id, agent_id, marquee_id, COUNT(*)
+		FROM projects
+		WHERE user_id IN (` + strings.Join(placeholders, ",") + `)
+			AND status NOT IN ('deleting', 'archived')
+			AND TRIM(agent_id) != ''
+			AND TRIM(marquee_id) != ''
+		GROUP BY user_id, agent_id, marquee_id
+		ORDER BY COUNT(*) DESC, agent_id ASC, marquee_id ASC
+	`
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var userID string
+		var pair AgentAssignmentSummary
+		if err := rows.Scan(&userID, &pair.AgentID, &pair.ServerID, &pair.ProjectCount); err != nil {
+			return err
+		}
+		if index, ok := indexByUserID[userID]; ok {
+			users[index].AgentPairs = append(users[index].AgentPairs, pair)
+		}
+	}
+	return rows.Err()
 }
 
 func adminUserWhere(filters AdminUserFilters) (string, []any) {
@@ -210,8 +270,8 @@ func adminUserOrder(sort string) string {
 	}
 }
 
-func (s *Store) AdminUserDetail(ctx context.Context, userID string, freeLimit int) (*AdminUserDetail, error) {
-	users, _, err := s.AdminUsers(ctx, AdminUserFilters{Query: userID, Page: 1, PerPage: 1})
+func (s *Store) AdminUserDetail(ctx context.Context, userID string, freeLimit int, messageWindowStart time.Time) (*AdminUserDetail, error) {
+	users, _, err := s.AdminUsers(ctx, AdminUserFilters{Query: userID, Page: 1, PerPage: 1, MessageWindowStart: messageWindowStart})
 	if err != nil {
 		return nil, err
 	}
@@ -226,7 +286,7 @@ func (s *Store) AdminUserDetail(ctx context.Context, userID string, freeLimit in
 		if _, err := s.UserByID(ctx, userID); err != nil {
 			return nil, err
 		}
-		users, _, err = s.AdminUsers(ctx, AdminUserFilters{Page: 1, PerPage: 100})
+		users, _, err = s.AdminUsers(ctx, AdminUserFilters{Page: 1, PerPage: 100, MessageWindowStart: messageWindowStart})
 		if err != nil {
 			return nil, err
 		}
@@ -271,6 +331,10 @@ func (s *Store) AdminProjectsForUser(ctx context.Context, userID string) ([]Admi
 		if err := rows.Scan(&summary.Project.ID, &summary.Project.UserID, &summary.Project.Title, &summary.Project.ConversationID, &summary.Project.AgentID, &summary.Project.MarqueeID, &summary.Project.PlaygroundID, &summary.Project.PlaygroundName, &summary.Project.PlayspecID, &summary.Project.PropID, &summary.Project.RepoURL, &summary.Project.PreviewURL, &summary.Project.SelectedService, &summary.Project.Status, &summary.Project.ErrorMessage, &summary.Project.ProvisioningLockUntil, &summary.Project.CleanupLastError, &summary.Project.PlaygroundLastUsedAt, &summary.Project.CreatedAt, &summary.Project.UpdatedAt, &summary.MessageCount); err != nil {
 			_ = rows.Close()
 			return nil, err
+		}
+		summary.Assignment = AgentAssignmentSummary{
+			AgentID:  strings.TrimSpace(summary.Project.AgentID),
+			ServerID: strings.TrimSpace(summary.Project.MarqueeID),
 		}
 		summary.Project.RefreshComputedFields()
 		out = append(out, summary)

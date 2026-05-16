@@ -2,7 +2,7 @@ export type User = { id: string; email: string; name: string; avatarUrl: string;
 export type ProjectRepository = { id: string; role: string; sourceRepoUrl?: string; provider?: string; serviceNames?: string[]; createdAt?: string };
 export type ProjectService = { id: string; name: string; url: string; type?: string; visibility?: string; authRequired?: boolean; createdAt?: string };
 export type Project = { id: string; title: string; previewUrl?: string; selectedServiceName?: string; repositories?: ProjectRepository[]; services?: ProjectService[]; status: string; errorMessage?: string; playgroundLastUsedAt?: string; playgroundIdleStopAt?: string; createdAt: string; updatedAt: string };
-export type MessageQuota = { used: number; limit: number; remaining: number; paidRemaining?: number; lifetimeUsed?: number; resetsAt?: string };
+export type MessageQuota = { used: number; limit: number; remaining: number; paidRemaining?: number; lifetimeUsed?: number; resetsAt?: string; windowHours?: number };
 export type ProjectQuota = { used: number; limit: number; remaining: number; baseLimit: number; paidSlots: number; nextExpiresAt?: string };
 export type BillingProducts = { messagePacks: number[]; projectQuota: boolean };
 export type UserNotice = { id: string; userId?: string; sender: 'admin' | 'system' | 'user'; severity: string; body: string; readAt?: string; dismissedAt?: string; unsentAt?: string; createdAt: string };
@@ -27,7 +27,9 @@ export type FeedRow = UserFeedRow | NotificationFeedRow;
 export type PendingAttachment = { id: string; file: File };
 export type AdminConfigEntry = { value: string; secret: boolean; set: boolean };
 export type AgentPoolStatus = 'active' | 'draining' | 'retiring' | 'retired';
-export type AdminConfigResponse = { config: Record<string, AdminConfigEntry>; adminEmail: string; agentPoolStats?: AgentPoolStat[] };
+export type AgentAssignmentSummary = { agentId: string; serverId: string; status?: AgentPoolStatus | string; projectCount?: number };
+export type AgentPoolOption = { label?: string; agentId: string; serverId: string; status: AgentPoolStatus | string };
+export type AdminConfigResponse = { config: Record<string, AdminConfigEntry>; adminEmail: string; agentPoolStats?: AgentPoolStat[]; agentPool?: AgentPoolOption[] };
 export type AgentPoolStat = { agentId: string; serverId: string; projectCount: number; archivedCount: number; readyArchiveCount: number };
 export type PoolRow = { id: string; label: string; agentId: string; serverId: string; status: AgentPoolStatus };
 export type AdminUserSummary = {
@@ -47,10 +49,11 @@ export type AdminUserSummary = {
   lastMessageAt?: string;
   lastProjectAt?: string;
   latestNotice?: UserNotice;
+  agentPairs?: AgentAssignmentSummary[];
 };
-export type AdminProjectSummary = { project: Project; messageCount: number };
-export type AdminUserDetail = { summary: AdminUserSummary; projects: AdminProjectSummary[]; notices: UserNotice[] };
-export type AdminUsersResponse = { users: AdminUserSummary[]; pagination: { page: number; perPage: number; total: number } };
+export type AdminProjectSummary = { project: Project; messageCount: number; assignment?: AgentAssignmentSummary };
+export type AdminUserDetail = { summary: AdminUserSummary; projects: AdminProjectSummary[]; notices: UserNotice[]; agentPool?: AgentPoolOption[] };
+export type AdminUsersResponse = { users: AdminUserSummary[]; agentPool?: AgentPoolOption[]; pagination: { page: number; perPage: number; total: number } };
 export type AppDialogConfig = {
   title: string;
   body: string;

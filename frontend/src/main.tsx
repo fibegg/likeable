@@ -1,18 +1,18 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { CircleStop, ExternalLink, FolderOpen, Languages, LayoutPanelLeft, Loader2, LogOut, Minimize2, MessageSquare, Paperclip, Send, Settings, UserRound, X } from 'lucide-react';
+import { ChevronDown, CircleHelp, CircleStop, ExternalLink, FolderOpen, Languages, LayoutPanelLeft, Loader2, LogOut, Minimize2, MessageSquare, Paperclip, Send, Settings, UserRound, X } from 'lucide-react';
 import './styles.css';
 import { Admin } from './admin';
 import { api } from './api';
-import { AgentNotificationRow, AppDialog, CanvasLoader, ConfirmDeleteProject, ConfirmExportProject, ConfirmNewProject, DeleteAllAccountDialog, EmptyCanvas, ProjectList, UserMessageRow } from './builder_components';
+import { AgentNotificationRow, AppDialog, CanvasLoader, ConfirmDeleteProject, ConfirmExportProject, ConfirmNewProject, DeleteAllAccountDialog, EmptyCanvas, HelpPanel, OnboardingGallery, ProjectList, ServicePanel, UserMessageRow } from './builder_components';
 import { BASIC_CHAT_COLLAPSED_KEY, BASIC_CHAT_HEIGHT_KEY, BUILDER_MODE_KEY, COLLAPSED_CHAT_POSITION_KEY, MAX_ATTACHMENTS, SINGLE_VIEW_QUERY } from './config';
 import type { AppDialogConfig, BuilderMode, BusyPolicy, Feed, FeedRow, Message, MessageQuota, Me, PendingAttachment, PreviewStatus, Project, ProjectArchiveResponse, ProjectExportResponse, ProjectListResponse, ProjectService, UserNotice } from './domain';
 import { feedAwaitingAgent, feedHasAssistantAfterLatestUser, feedLiveIdle, feedRows } from './feed';
 import { formatResetCountdown } from './format';
-import { I18nProvider, resetCountdownLabels, useI18n } from './i18n';
+import { I18nProvider, resetCountdownLabels, type TranslationKey, useDocumentTitle, useI18n } from './i18n';
 import { installPwa } from './pwa';
 import { ProfilePanel } from './profile_panel';
-import { clampBasicChatHeight, defaultBasicChatHeight, singleViewScreen } from './viewport';
+import { clampBasicChatHeight, currentViewportHeight, currentViewportWidth, defaultBasicChatHeight, installViewportCssVars, singleViewScreen } from './viewport';
 
 installPwa();
 
@@ -23,6 +23,10 @@ const COLLAPSED_CHAT_EDGE_MARGIN = 28;
 function App() {
   const [me, setMe] = useState<Me | null>(null);
   const [route, setRoute] = useState(location.pathname);
+
+  useEffect(() => {
+    return installViewportCssVars();
+  }, []);
 
   useEffect(() => {
     api<Me>('/api/me').then(setMe).catch(() => setMe({ user: null }));
@@ -37,6 +41,7 @@ function App() {
   };
 
   const { t } = useI18n();
+  useDocumentTitle(me ? null : t('app.title'));
 
   if (!me) return <div className="loading">{t('app.loading')}</div>;
 
@@ -120,7 +125,6 @@ function LanguageToggle({ className = '' }: { className?: string }) {
       className={className || 'languageToggle'}
       onClick={() => setLocale(nextLocale)}
       aria-label={t('language.switch')}
-      title={tip}
       data-tip={tip}
     >
       <Languages size={16} />
@@ -157,9 +161,12 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const [busy, setBusy] = useState(false);
   const [messageSubmitting, setMessageSubmitting] = useState(false);
   const [pendingAgentRuns, setPendingAgentRuns] = useState<Record<string, number>>({});
+  const [pendingMessagesByProject, setPendingMessagesByProject] = useState<Record<string, Message[]>>({});
   const [projectCap, setProjectCap] = useState<number | null>(null);
   const [showProjects, setShowProjects] = useState(false);
   const [showProfile, setShowProfile] = useState(profileRoute && signedIn);
+  const [showHelp, setShowHelp] = useState(false);
+  const [showServices, setShowServices] = useState(false);
   const [confirmNewProject, setConfirmNewProject] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Project | null>(null);
   const [exportTarget, setExportTarget] = useState<Project | null>(null);
@@ -191,43 +198,47 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const viewMode: BuilderMode = singleView ? 'overlay' : mode;
   const active = useMemo(() => projects.find((p) => p.id === activeID), [projects, activeID]);
   const activeProject = feed?.project?.id === activeID ? feed.project : active;
+  const activePendingMessages = activeID ? pendingMessagesByProject[activeID] ?? [] : [];
+  const displayFeed = useMemo(() => feedWithPendingMessages(feed, activeProject, activeID, activePendingMessages), [feed, activeProject, activeID, activePendingMessages]);
   const selectedService = useMemo(() => selectedProjectService(activeProject), [activeProject]);
   const activePreviewURL = selectedService?.url ?? activeProject?.previewUrl ?? '';
-  const rawRows = useMemo(() => feedRows(feed), [feed]);
+  const rawRows = useMemo(() => feedRows(displayFeed), [displayFeed]);
   const rows = useMemo(() => normalizeActiveNotificationRows(rawRows), [rawRows]);
   const pendingAgentStartedAt = activeProject?.id ? pendingAgentRuns[activeProject.id] : undefined;
   const pendingAgentAge = typeof pendingAgentStartedAt === 'number' ? Date.now() - pendingAgentStartedAt : null;
   const localAgentRunActive = Boolean(
     pendingAgentAge != null
     && pendingAgentAge < LOCAL_AGENT_RUN_MAX_MS
-    && !feedHasAssistantAfterLatestUser(feed)
-    && (pendingAgentAge < LOCAL_AGENT_IDLE_GRACE_MS || !feedLiveIdle(feed))
+    && !feedHasAssistantAfterLatestUser(displayFeed)
+    && (pendingAgentAge < LOCAL_AGENT_IDLE_GRACE_MS || !feedLiveIdle(displayFeed))
   );
-  const agentWorking = Boolean(signedIn && activeProject?.status === 'ready' && activePreviewURL && (messageSubmitting || localAgentRunActive || feed?.live?.isProcessing || feedAwaitingAgent(feed)));
+  const agentWorking = Boolean(signedIn && activeProject?.status === 'ready' && activePreviewURL && (messageSubmitting || localAgentRunActive || displayFeed?.live?.isProcessing || feedAwaitingAgent(displayFeed)));
   const agentWorkingLabel = messageSubmitting ? t('builder.agent.transmitting') : t('builder.agent.synthesizing');
   const lastRow = rows.at(-1);
   const lastRowSignature = lastRow ? `${lastRow.id}:${lastRow.body}` : '';
   const modeLabel = viewMode === 'overlay' ? t('builder.mode.basic') : t('builder.mode.split');
   const quotaProjectCount = projects.filter((project) => project.status !== 'archived' && project.status !== 'deleting').length;
   const projectCapLabel = projectCap == null ? `${quotaProjectCount}` : `${quotaProjectCount}/${projectCap}`;
+  const selectedServiceLabel = selectedService?.name ?? '--';
+  const hasMultipleServices = (activeProject?.services?.length ?? 0) > 1;
   const messageQuotaLabel = messageQuota ? `${messageQuota.remaining}/${messageQuota.limit}` : '';
   const messageQuotaTooltip = messageQuota ? t('builder.messageQuota.tooltip', { paid: messageQuota.paidRemaining ?? 0, reset: formatResetCountdown(messageQuota.resetsAt, quotaNow, resetCountdownLabels(t)) }) : '';
   const githubConnected = Boolean(me.githubConnected);
   const githubNeedsReconnect = Boolean(me.githubNeedsReconnect);
   const projectArchived = activeProject?.status === 'archived';
   const isProjectStarting = activeProject?.status === 'creating' || activeProject?.status === 'launching';
+  const showOnboardingGallery = signedIn && isProjectStarting && projects.length <= 1 && (displayFeed?.localMessages?.length ?? 0) === 0 && (displayFeed?.messages?.length ?? 0) === 0;
   const previewRuntimeActive = activeProject?.status === 'ready';
   const previewMaintenance = Boolean(activePreviewURL && previewRuntimeActive && previewStatus?.maintenance);
   const previewReady = Boolean(activePreviewURL && previewRuntimeActive && previewStatus?.ready);
   const previewDisplayable = Boolean(activePreviewURL && previewRuntimeActive && (previewReady || previewMaintenance));
   const canvasStatusLabel = agentWorking ? t('builder.status.agentWorking') : previewMaintenance ? t('builder.status.maintenance') : activeProject?.status === 'ready' ? (previewReady ? t('builder.status.canvasLive') : t('builder.status.canvasStarting')) : isProjectStarting ? t('builder.status.canvasStarting') : projectArchived ? t('builder.status.canvasArchived') : activeProject?.status === 'stopped' ? t('builder.status.canvasStopped') : activeProject?.status === 'error' ? t('builder.status.canvasError') : t('builder.status.canvasIdle');
   const idleStopCountdown = activeProject?.status === 'ready' && activeProject.playgroundIdleStopAt ? formatResetCountdown(activeProject.playgroundIdleStopAt, quotaNow, resetCountdownLabels(t)) : '';
-  const idleStopLabel = idleStopCountdown ? t('builder.idleStop.label', { time: idleStopCountdown }) : '';
   const idleStopTooltip = idleStopCountdown ? t('builder.idleStop.tooltip', { time: idleStopCountdown }) : '';
   const hasDraft = Boolean(prompt.trim()) || attachments.length > 0;
   const canSend = signedIn && !projectArchived && hasDraft && !busy && !messageSubmitting && Boolean(activePreviewURL) && (activeProject?.status === 'ready' || previewReady);
   const hasActiveNotification = rows.some((row) => row.kind === 'notification' && row.active);
-  const utilityScreenOpen = showProjects || showProfile;
+  const utilityScreenOpen = showProjects || showProfile || showHelp || showServices;
   const inputPlaceholder = !signedIn
     ? t('builder.placeholder.signIn')
     : isProjectStarting
@@ -239,6 +250,17 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       : singleView
         ? t('builder.placeholder.single')
         : t('builder.placeholder.default');
+  const pageTitle = showProfile
+    ? t('profile.title')
+    : showHelp
+      ? t('page.about.title')
+      : showProjects
+        ? t('projects.title')
+        : activeProject?.title
+          ? projectPageTitle(activeProject.title, selectedService?.name, t)
+          : t('app.title');
+
+  useDocumentTitle(pageTitle);
 
   const loadProjects = () => api<ProjectListResponse>('/api/projects').then((r) => {
     const nextProjects = Array.isArray(r.projects) ? r.projects : [];
@@ -269,6 +291,11 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       setActiveID('');
       setFeed(null);
       setPendingAgentRuns({});
+      setPendingMessagesByProject({});
+      setShowProjects(false);
+      setShowProfile(false);
+      setShowHelp(false);
+      setShowServices(false);
       return;
     }
     void loadProjects().catch(() => {
@@ -307,8 +334,15 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       setBasicChatHeight((height) => clampBasicChatHeight(height));
       setCollapsedChatPosition((position) => clampCollapsedChatPosition(position));
     };
+    const visualViewport = window.visualViewport;
     addEventListener('resize', resize);
-    return () => removeEventListener('resize', resize);
+    visualViewport?.addEventListener('resize', resize);
+    visualViewport?.addEventListener('scroll', resize);
+    return () => {
+      removeEventListener('resize', resize);
+      visualViewport?.removeEventListener('resize', resize);
+      visualViewport?.removeEventListener('scroll', resize);
+    };
   }, []);
   useEffect(() => {
     setShowProfile(profileRoute && signedIn);
@@ -346,6 +380,21 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     setProjects((current) => current.map((project) => project.id === feed.project.id ? feed.project : project));
   }, [feed?.project]);
   useEffect(() => {
+    if (!feed?.project?.id) return;
+    const serverIDs = new Set((feed.localMessages ?? []).map((message) => message.id));
+    if (serverIDs.size === 0) return;
+    setPendingMessagesByProject((current) => {
+      const pending = current[feed.project.id] ?? [];
+      const nextPending = pending.filter((message) => !serverIDs.has(message.id));
+      if (nextPending.length === pending.length) return current;
+      if (nextPending.length === 0) {
+        const { [feed.project.id]: _removed, ...rest } = current;
+        return rest;
+      }
+      return { ...current, [feed.project.id]: nextPending };
+    });
+  }, [feed?.project?.id, feed?.localMessages]);
+  useEffect(() => {
     if (!feed?.project) return;
     const pendingStartedAt = pendingAgentRuns[feed.project.id];
     const pendingAgeMs = typeof pendingStartedAt === 'number' ? Date.now() - pendingStartedAt : null;
@@ -354,6 +403,9 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       forgetPendingAgentRun(feed.project.id);
     }
   }, [feed, pendingAgentRuns]);
+  useEffect(() => {
+    setShowServices(false);
+  }, [activeID, selectedService?.name]);
   useEffect(() => {
     const textarea = textareaRef.current;
     if (!textarea) return;
@@ -414,6 +466,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
 
   const createOrSend = async () => {
     if (!signedIn) return;
+    if (!activeProject) return;
     const text = prompt.trim();
     const files = attachments;
     if (!text && files.length === 0) return;
@@ -430,46 +483,38 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
         size: attachment.file.size
       }))
     };
-    if (activeProject) {
-      setFeed((current) => {
-        if (current?.project.id === activeProject.id) {
-          return { ...current, localMessages: [...(current.localMessages ?? []), optimisticMessage] };
-        }
-        return { project: activeProject, localMessages: [optimisticMessage], messages: [], activity: [], live: null };
-      });
-    }
+    setPendingMessagesByProject((current) => addPendingMessage(current, activeProject.id, optimisticMessage));
+    setPrompt('');
+    setAttachments([]);
     setBusy(true);
     setMessageSubmitting(true);
-    let requestAccepted = false;
     try {
-      if (activeProject) {
-        if (files.length > 0) {
-          const form = new FormData();
-          form.append('text', text);
-          form.append('busy_policy', busyPolicy);
-          files.forEach((attachment) => form.append('attachments', attachment.file, attachment.file.name));
-          await api(`/api/projects/${activeProject.id}/messages`, { method: 'POST', body: form });
-        } else {
-          await api(`/api/projects/${activeProject.id}/messages`, { method: 'POST', body: JSON.stringify({ text, busy_policy: busyPolicy }) });
-        }
-        requestAccepted = true;
-        rememberPendingAgentRun(activeProject.id);
-        setPrompt('');
-        setAttachments([]);
-        try {
-          setFeed(await api<Feed>(`/api/projects/${activeProject.id}/feed`));
-        } catch (err) {
-          console.error(err);
-        }
-        void refreshQuota();
+      let response: { message?: Message };
+      if (files.length > 0) {
+        const form = new FormData();
+        form.append('text', text);
+        form.append('busy_policy', busyPolicy);
+        files.forEach((attachment) => form.append('attachments', attachment.file, attachment.file.name));
+        response = await api<{ message?: Message }>(`/api/projects/${activeProject.id}/messages`, { method: 'POST', body: form });
+      } else {
+        response = await api<{ message?: Message }>(`/api/projects/${activeProject.id}/messages`, { method: 'POST', body: JSON.stringify({ text, busy_policy: busyPolicy }) });
       }
+      const acceptedMessage = response.message;
+      if (acceptedMessage) {
+        setPendingMessagesByProject((current) => replacePendingMessage(current, activeProject.id, optimisticID, acceptedMessage));
+      }
+      rememberPendingAgentRun(activeProject.id);
+      try {
+        setFeed(await api<Feed>(`/api/projects/${activeProject.id}/feed`));
+        setPendingMessagesByProject((current) => removePendingMessage(current, activeProject.id, response.message?.id ?? optimisticID));
+      } catch (err) {
+        console.error(err);
+      }
+      void refreshQuota();
     } catch (err) {
-      if (!requestAccepted) {
-        setFeed((current) => {
-          if (!current || current.project.id !== activeProject?.id) return current;
-          return { ...current, localMessages: (current.localMessages ?? []).filter((message) => message.id !== optimisticID) };
-        });
-      }
+      setPendingMessagesByProject((current) => removePendingMessage(current, activeProject.id, optimisticID));
+      setPrompt(text);
+      setAttachments(files);
       setDialog({ title: t('dialog.requestFailed.title'), body: err instanceof Error ? err.message : t('dialog.requestFailed.title'), confirmLabel: t('common.close') });
     } finally {
       setMessageSubmitting(false);
@@ -499,6 +544,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       setConfirmNewProject(false);
       setShowProjects(false);
       setShowProfile(false);
+      setShowServices(false);
       await loadProjects();
       void refreshQuota();
       setActiveID(res.project.id);
@@ -526,6 +572,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     }
   };
   const selectService = async (service: ProjectService) => {
+    setShowServices(false);
     if (!signedIn || !activeProject || service.name === activeProject.selectedServiceName) return;
     setBusy(true);
     try {
@@ -547,6 +594,10 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     try {
       await api(`/api/projects/${targetID}`, { method: 'DELETE' });
       forgetPendingAgentRun(targetID);
+      setPendingMessagesByProject((current) => {
+        const { [targetID]: _removed, ...rest } = current;
+        return rest;
+      });
       const remaining = projects.filter((project) => project.id !== targetID);
       setProjects(remaining);
       setProjectCap((cap) => cap);
@@ -755,9 +806,6 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       <LayoutPanelLeft size={16} />
     </button>
   );
-  const topOpenLink = activeProject?.status === 'ready' && activePreviewURL
-    ? <a className="chromeIconButton topOpenLink tooltip tooltipBottom" href={activePreviewURL} target="_blank" aria-label={t('builder.preview.open')} data-tip={t('builder.preview.open')}><ExternalLink size={16} /></a>
-    : null;
   const openProjectsPanel = () => {
     if (!signedIn) return;
     setShowProjects((open) => {
@@ -766,12 +814,16 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       return next;
     });
     setShowProfile(false);
+    setShowHelp(false);
+    setShowServices(false);
     if (location.pathname.startsWith('/profile')) nav('/');
   };
   const openProfilePanel = () => {
     if (!signedIn) return;
     setShowProfile(true);
     setShowProjects(false);
+    setShowHelp(false);
+    setShowServices(false);
     setBasicChatCollapsed(false);
     nav('/profile');
   };
@@ -779,36 +831,70 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     setShowProfile(false);
     if (location.pathname.startsWith('/profile')) nav('/');
   };
-  const projectTitleButton = (slotClass: string) => (
-    <button className={`projectTitleButton ${slotClass} tooltip tooltipBottom`} onClick={openProjectsPanel} disabled={!signedIn} aria-label={t('projects.title')} data-tip={signedIn ? t('builder.projects.tooltip') : t('auth.signInToCreateProjects')}>
-      <span className="projectTitleMain">{activeProject?.title ?? (signedIn ? t('builder.project.new') : t('auth.signInToBuild'))}</span>
-      <span className="projectTitleCount"><FolderOpen size={15} /><span>{signedIn ? projectCapLabel : '-'}</span></span>
+  const openHelpPanel = () => {
+    setShowHelp((open) => !open);
+    setShowProjects(false);
+    setShowProfile(false);
+    setShowServices(false);
+    setBasicChatCollapsed(false);
+    if (location.pathname.startsWith('/profile')) nav('/');
+  };
+  const openServicesPanel = () => {
+    if (!signedIn || !activeProject?.services || activeProject.services.length < 2) return;
+    setShowServices((open) => !open);
+    setShowProjects(false);
+    setShowProfile(false);
+    setShowHelp(false);
+    setBasicChatCollapsed(false);
+    if (location.pathname.startsWith('/profile')) nav('/');
+  };
+  const useOnboardingPrompt = (value: string) => {
+    setPrompt(value);
+    setShowProjects(false);
+    setShowProfile(false);
+    setShowHelp(false);
+    setShowServices(false);
+    setBasicChatCollapsed(false);
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  };
+  const serviceSelectorButton = () => hasMultipleServices ? (
+    <button
+      className={`${showServices ? 'serviceSelectorButton selected' : 'serviceSelectorButton'} serviceSelectorInTitle`}
+      onClick={openServicesPanel}
+      disabled={!signedIn || busy}
+      aria-label={t('service.selector', { name: selectedService?.name ?? selectedServiceLabel })}
+      aria-expanded={showServices}
+    >
+      <span>{selectedServiceLabel}</span>
+      <ChevronDown size={13} />
     </button>
+  ) : null;
+  const projectTitleButton = (slotClass: string, showIdleStop = false, showServiceSelector = false) => (
+    <div className={`projectTitleControl ${slotClass}`}>
+      <button className="projectTitleButton tooltip tooltipBottom" onClick={openProjectsPanel} disabled={!signedIn} aria-label={t('projects.title')} data-tip={signedIn ? t('builder.projects.tooltip') : t('auth.signInToCreateProjects')}>
+        <span className="projectTitleMain">{activeProject?.title ?? (signedIn ? t('builder.project.new') : t('auth.signInToBuild'))}</span>
+      </button>
+      {showServiceSelector && serviceSelectorButton()}
+      <span className="projectTitleMeta">
+        <button className="projectTitleCount" type="button" onClick={openProjectsPanel} disabled={!signedIn} aria-label={t('projects.title')}>
+          <FolderOpen size={15} /><span>{signedIn ? projectCapLabel : '-'}</span>
+        </button>
+        {showIdleStop && idleStopCountdown && (
+          <span className="projectIdleStop tooltip" tabIndex={0} data-tip={idleStopTooltip} aria-label={idleStopTooltip}>{idleStopCountdown}</span>
+        )}
+        {showIdleStop && activeProject?.status === 'ready' && activePreviewURL && (
+          <a className="projectExternalLink tooltip" href={activePreviewURL} target="_blank" rel="noreferrer" aria-label={t('builder.preview.open')} data-tip={t('builder.preview.open')}><ExternalLink size={15} /></a>
+        )}
+      </span>
+    </div>
   );
   const builderChrome = (
     <div className="basicChatChrome">
       <button className="brand chatBrand tooltip tooltipBottom" onClick={() => nav('/')} aria-label={t('builder.brand.tooltip')} data-tip={t('builder.brand.tooltip')}>
         <span className={`mark small statusMark ${agentWorking ? 'working' : ''}`}><span className="markGlyph">L</span><span className="brandStatusDot" /></span>
       </button>
-      {topOpenLink}
-      {projectTitleButton('chromeProjectTitle')}
+      {projectTitleButton('chromeProjectTitle', false, true)}
       <nav className="chatNav">
-        {activeProject?.services && activeProject.services.length > 1 && (
-          <div className="chromePill serviceSelector" aria-label={t('service.preview')}>
-            {activeProject.services.map((service) => (
-              <button
-                key={service.name}
-                className={selectedService?.name === service.name ? 'chromeIconButton selected serviceButton tooltip tooltipBottom' : 'chromeIconButton serviceButton tooltip tooltipBottom'}
-                onClick={() => void selectService(service)}
-                disabled={!signedIn || busy}
-                aria-label={t('service.show', { name: service.name })}
-                data-tip={t('service.show', { name: service.name })}
-              >
-                {service.name.slice(0, 2).toUpperCase()}
-              </button>
-            ))}
-          </div>
-        )}
         <div className="chromePill identityPill">
           {agentWorking && (
             <>
@@ -823,16 +909,6 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
               </button>
             </>
           )}
-          {messageQuota && (
-            <span className="messageQuotaBadge tooltip tooltipBottom" data-tip={messageQuotaTooltip} aria-label={t('builder.messages.left')}>
-              {messageQuotaLabel}
-            </span>
-          )}
-          {idleStopLabel && (
-            <span className="messageQuotaBadge idleStopBadge tooltip tooltipBottom" data-tip={idleStopTooltip} aria-label={idleStopTooltip}>
-              {idleStopLabel}
-            </span>
-          )}
           <LanguageToggle className="chromeIconButton tooltip tooltipBottom languageChromeButton" />
           <button className={showProfile ? 'chromeIconButton selected tooltip tooltipBottom' : 'chromeIconButton tooltip tooltipBottom'} onClick={showProfile ? closeProfilePanel : openProfilePanel} disabled={!signedIn} aria-label={t('nav.profile')} data-tip={signedIn ? t('builder.profile.tooltip') : t('auth.signInToOpenProfile')}><UserRound size={16} /></button>
           {me.isAdmin && <button className="chromeIconButton tooltip tooltipBottom" onClick={() => nav('/admin')} aria-label={t('nav.admin')} data-tip={t('builder.admin.tooltip')}><Settings size={16} /></button>}
@@ -844,6 +920,15 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
               {me.auth?.devAuth && <button className="chromeAuthLink chromeAuthButton" onClick={() => fetch('/api/dev/login?email=admin@example.com', { method: 'POST' }).then(() => location.reload())}>{t('auth.dev')}</button>}
             </>
           )}
+          <button
+            className={showHelp ? 'chromeIconButton selected tooltip tooltipBottom' : 'chromeIconButton tooltip tooltipBottom'}
+            onClick={openHelpPanel}
+            aria-label={t('help.tooltip')}
+            aria-expanded={showHelp}
+            data-tip={t('help.tooltip')}
+          >
+            <CircleHelp size={16} />
+          </button>
           {modeToggle}
           {viewMode === 'overlay' && <button className="chromeIconButton tooltip tooltipBottom" onClick={() => setBasicChatCollapsed(true)} aria-label={t('builder.chat.collapse')} data-tip={t('builder.chat.collapse')}><Minimize2 size={16} /></button>}
         </div>
@@ -856,10 +941,12 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       <a className="poweredBy" href="https://fibe.gg" target="_blank" rel="noopener noreferrer">
         {t('builder.poweredBy')} <span>fibe.gg</span>
       </a>
-      {projectTitleButton('chatProjectTitle')}
+      {projectTitleButton('chatProjectTitle', true, true)}
       {builderChrome}
       {showProjects && <ProjectList projects={projects} activeID={activeID} projectCap={projectCap} busy={busy} exportingID={exportingID} controllingID={controllingProjectID} onSelect={(id) => { setActiveID(id); setShowProjects(false); }} onNew={() => setConfirmNewProject(true)} onRename={renameProject} onDelete={setDeleteTarget} onExport={requestProjectExport} onControlPlayground={controlProjectPlayground} onClose={() => setShowProjects(false)} />}
       {showProfile && <ProfilePanel me={me} onClose={closeProfilePanel} />}
+      {showHelp && <HelpPanel markdown={t('help.markdown')} onClose={() => setShowHelp(false)} />}
+      {showServices && activeProject?.services && <ServicePanel services={activeProject.services} selectedName={selectedService?.name} busy={busy} onSelect={(service) => void selectService(service)} onClose={() => setShowServices(false)} />}
       {!utilityScreenOpen && (
         <>
           <div className="messages" ref={messagesRef}>
@@ -889,7 +976,14 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
             <button className="attachButton" type="button" onClick={() => fileInputRef.current?.click()} disabled={!signedIn || projectArchived || attachments.length >= MAX_ATTACHMENTS} aria-label={t('builder.attachFiles')}>
               <Paperclip size={20} />
             </button>
-            <textarea ref={textareaRef} value={prompt} onChange={(e) => setPrompt(e.target.value)} onKeyDown={handleComposerKeyDown} placeholder={inputPlaceholder} rows={1} disabled={!signedIn || projectArchived} />
+            <div className="composerTextSlot">
+              <textarea ref={textareaRef} value={prompt} onChange={(e) => setPrompt(e.target.value)} onKeyDown={handleComposerKeyDown} placeholder={inputPlaceholder} rows={1} disabled={!signedIn || projectArchived} />
+              {messageQuota && (
+                <span className="composerQuotaBadge tooltip" tabIndex={0} data-tip={messageQuotaTooltip} aria-label={`${t('builder.messages.left')}: ${messageQuotaLabel}`}>
+                  {messageQuotaLabel}
+                </span>
+              )}
+            </div>
             <button className={`sendButton ${messageSubmitting ? 'working' : ''}`} disabled={!canSend} onClick={createOrSend}>
               {messageSubmitting ? <Loader2 className="spinIcon" size={22} /> : <Send size={22} />}
             </button>
@@ -938,7 +1032,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
           {(!previewDisplayable || !iframeLoaded) && <CanvasLoader title={t('builder.preview.connectingTitle')} body={connectingCanvasBody} />}
         </>
       ) : isProjectStarting ? (
-        <CanvasLoader title={previewTitle} body={previewBody} />
+        showOnboardingGallery ? <OnboardingGallery onUsePrompt={useOnboardingPrompt} /> : <CanvasLoader title={previewTitle} body={previewBody} />
       ) : activeProject?.status === 'ready' && activePreviewURL ? (
         <>
           <iframe
@@ -991,6 +1085,12 @@ function selectedProjectService(project?: Project): ProjectService | undefined {
     ?? project.services[0];
 }
 
+function projectPageTitle(title: string, serviceName: string | undefined, t: (key: TranslationKey, params?: Record<string, string | number>) => string): string {
+  const normalizedServiceName = (serviceName ?? '').trim();
+  if (!normalizedServiceName) return title;
+  return t('page.projectServiceTitle', { title, service: normalizedServiceName });
+}
+
 type CollapsedChatPosition = { x: number; y: number };
 
 function initialCollapsedChatPosition(): CollapsedChatPosition {
@@ -1010,16 +1110,16 @@ function initialCollapsedChatPosition(): CollapsedChatPosition {
 
 function defaultCollapsedChatPosition(): CollapsedChatPosition {
   return clampCollapsedChatPosition({
-    x: Math.round(window.innerWidth / 2),
-    y: Math.round(window.innerHeight - 48)
+    x: Math.round(currentViewportWidth() / 2),
+    y: Math.round(currentViewportHeight() - 48)
   });
 }
 
 function clampCollapsedChatPosition(position: CollapsedChatPosition): CollapsedChatPosition {
   const minX = COLLAPSED_CHAT_EDGE_MARGIN;
   const minY = COLLAPSED_CHAT_EDGE_MARGIN;
-  const maxX = Math.max(minX, window.innerWidth - COLLAPSED_CHAT_EDGE_MARGIN);
-  const maxY = Math.max(minY, window.innerHeight - COLLAPSED_CHAT_EDGE_MARGIN);
+  const maxX = Math.max(minX, currentViewportWidth() - COLLAPSED_CHAT_EDGE_MARGIN);
+  const maxY = Math.max(minY, currentViewportHeight() - COLLAPSED_CHAT_EDGE_MARGIN);
   return {
     x: Math.min(maxX, Math.max(minX, Math.round(position.x))),
     y: Math.min(maxY, Math.max(minY, Math.round(position.y)))
@@ -1058,6 +1158,47 @@ function mergeFeedSnapshot(current: Feed | null, next: Feed): Feed {
       startedAt: currentLive.startedAt ?? next.live?.startedAt
     }
   };
+}
+
+function feedWithPendingMessages(feed: Feed | null, project: Project | undefined, activeID: string, pending: Message[]): Feed | null {
+  if (!activeID) return feed;
+  const base = feed?.project.id === activeID
+    ? feed
+    : project
+      ? { project, localMessages: [], messages: [], activity: [], live: null }
+      : null;
+  if (!base || pending.length === 0) return base;
+  const localMessages = [...(base.localMessages ?? [])];
+  const seen = new Set(localMessages.map((message) => message.id));
+  for (const message of pending) {
+    if (!seen.has(message.id)) {
+      localMessages.push(message);
+      seen.add(message.id);
+    }
+  }
+  return { ...base, localMessages };
+}
+
+function addPendingMessage(current: Record<string, Message[]>, projectID: string, message: Message): Record<string, Message[]> {
+  return { ...current, [projectID]: [...(current[projectID] ?? []), message] };
+}
+
+function replacePendingMessage(current: Record<string, Message[]>, projectID: string, pendingID: string, message: Message): Record<string, Message[]> {
+  const pending = current[projectID] ?? [];
+  if (pending.length === 0) return current;
+  return { ...current, [projectID]: pending.map((candidate) => candidate.id === pendingID ? message : candidate) };
+}
+
+function removePendingMessage(current: Record<string, Message[]>, projectID: string, messageID: string): Record<string, Message[]> {
+  const pending = current[projectID] ?? [];
+  if (pending.length === 0) return current;
+  const nextPending = pending.filter((message) => message.id !== messageID);
+  if (nextPending.length === pending.length) return current;
+  if (nextPending.length === 0) {
+    const { [projectID]: _removed, ...rest } = current;
+    return rest;
+  }
+  return { ...current, [projectID]: nextPending };
 }
 
 function normalizeActiveNotificationRows(rows: FeedRow[]): FeedRow[] {

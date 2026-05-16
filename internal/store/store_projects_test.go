@@ -107,6 +107,58 @@ func TestSaveProjectProvisioningSnapshotDoesNotResurrectDeletingProject(t *testi
 	}
 }
 
+func TestSaveProjectProvisioningSnapshotPreservesExistingUsageTimestamp(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	user, err := store.UpsertUser(t.Context(), "snapshot@example.com", "Snapshot", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldUsage := time.Now().UTC().Add(-9 * time.Hour).Format(time.RFC3339Nano)
+	project := &Project{
+		ID:                   "project-snapshot-usage",
+		UserID:               user.ID,
+		Title:                "Snapshot Usage",
+		ConversationID:       "conv-snapshot-usage",
+		Status:               "ready",
+		PlaygroundID:         "playground-old",
+		PlaygroundLastUsedAt: oldUsage,
+	}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+
+	project.PlaygroundName = "snapshot-usage"
+	project.PlayspecID = "playspec-1"
+	project.PropID = "prop-1"
+	project.RepoURL = "http://gitea.test/owner/repo.git"
+	project.PreviewURL = "http://snapshot.test"
+	project.SelectedService = "app"
+	project.PlaygroundLastUsedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	project.Repositories = []ProjectRepository{
+		{ProjectID: project.ID, Role: "app", PropID: "prop-1", RepoURL: project.RepoURL, ServiceNames: []string{"app"}},
+	}
+	project.Services = []ProjectService{
+		{ProjectID: project.ID, Name: "app", URL: project.PreviewURL, Type: "dynamic", Visibility: "external"},
+	}
+	if err := store.SaveProjectProvisioningSnapshot(t.Context(), project, "ready"); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := store.ProjectForUser(t.Context(), user.ID, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.PlaygroundLastUsedAt != oldUsage {
+		t.Fatalf("playground_last_used_at changed from %q to %q", oldUsage, stored.PlaygroundLastUsedAt)
+	}
+	if stored.PreviewURL != project.PreviewURL {
+		t.Fatalf("snapshot metadata was not saved: preview_url=%q", stored.PreviewURL)
+	}
+}
+
 func TestIdleProjectsForPlaygroundStopUsesDedicatedUsageTimestamp(t *testing.T) {
 	store, err := Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {

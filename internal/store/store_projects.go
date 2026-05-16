@@ -162,6 +162,22 @@ func (s *Store) UpdateProjectStatus(ctx context.Context, projectID, userID, stat
 	return nil
 }
 
+func (s *Store) UpdateProjectAssignment(ctx context.Context, projectID, userID, agentID, marqueeID string) error {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE projects
+		SET agent_id = ?, marquee_id = ?, updated_at = ?
+		WHERE id = ? AND user_id = ? AND status NOT IN ('deleting', 'archived')
+	`, strings.TrimSpace(agentID), strings.TrimSpace(marqueeID), nowString(), projectID, userID)
+	if err != nil {
+		return err
+	}
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 func (s *Store) UpdateProjectTitle(ctx context.Context, projectID, userID, title string) error {
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE projects
@@ -196,9 +212,9 @@ func (s *Store) UpdateProjectSelectedService(ctx context.Context, projectID, use
 	now := nowString()
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE projects
-		SET selected_service_name = ?, preview_url = ?, playground_last_used_at = ?, updated_at = ?
+		SET selected_service_name = ?, preview_url = ?, updated_at = ?
 		WHERE id = ? AND user_id = ?
-	`, serviceName, serviceURL, now, now, projectID, userID)
+	`, serviceName, serviceURL, now, projectID, userID)
 	if err != nil {
 		return err
 	}
@@ -260,7 +276,7 @@ func (s *Store) SaveProjectProvisioningSnapshot(ctx context.Context, project *Pr
 	result, err := tx.ExecContext(ctx, `
 		UPDATE projects
 		SET agent_id = ?, marquee_id = ?, playground_id = ?, playground_name = ?, playspec_id = ?, prop_id = ?, repo_url = ?, preview_url = ?, selected_service_name = ?, status = ?, error_message = '', cleanup_last_error = '',
-			playground_last_used_at = CASE WHEN ? != '' THEN ? ELSE playground_last_used_at END,
+			playground_last_used_at = CASE WHEN playground_last_used_at = '' AND ? != '' THEN ? ELSE playground_last_used_at END,
 			updated_at = ?
 		WHERE id = ? AND user_id = ? AND status != 'deleting'
 	`, project.AgentID, project.MarqueeID, project.PlaygroundID, project.PlaygroundName, project.PlayspecID, project.PropID, project.RepoURL, project.PreviewURL, project.SelectedService, status, lastUsedAt, lastUsedAt, now, project.ID, project.UserID)

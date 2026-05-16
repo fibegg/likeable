@@ -2324,7 +2324,13 @@ func TestProjectMessageRefreshesServiceContextBeforeSending(t *testing.T) {
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("message returned %d: %s", rec.Code, rec.Body.String())
 	}
-	prompt := readFile(t, stdinPath)
+	var payload struct {
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal([]byte(readFile(t, stdinPath)), &payload); err != nil {
+		t.Fatal(err)
+	}
+	prompt := payload.Text
 	for _, want := range []string{
 		"selected service: frontend http://frontend.example.test",
 		"- frontend: http://frontend.example.test",
@@ -2629,7 +2635,7 @@ func TestProjectPlaygroundLifecycleActions(t *testing.T) {
 	}
 }
 
-func TestProjectExplicitActivityTouchesUsageButPassivePreviewDoesNot(t *testing.T) {
+func TestProjectPassiveActionsDoNotTouchPlaygroundUsage(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -2673,8 +2679,8 @@ func TestProjectExplicitActivityTouchesUsageButPassivePreviewDoesNot(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated.PlaygroundLastUsedAt == oldUsage {
-		t.Fatalf("service switch did not touch playground_last_used_at")
+	if updated.PlaygroundLastUsedAt != oldUsage {
+		t.Fatalf("service switch changed playground_last_used_at from %q to %q", oldUsage, updated.PlaygroundLastUsedAt)
 	}
 
 	interruptProject := &Project{ID: "project-interrupt-activity", UserID: user.ID, Title: "Interrupt", ConversationID: "conv-interrupt-activity", AgentID: "agent-1", PlaygroundID: "playground-interrupt-activity", Status: "ready", PlaygroundLastUsedAt: oldUsage}
@@ -2692,8 +2698,8 @@ func TestProjectExplicitActivityTouchesUsageButPassivePreviewDoesNot(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated.PlaygroundLastUsedAt == oldUsage {
-		t.Fatalf("interrupt did not touch playground_last_used_at")
+	if updated.PlaygroundLastUsedAt != oldUsage {
+		t.Fatalf("interrupt changed playground_last_used_at from %q to %q", oldUsage, updated.PlaygroundLastUsedAt)
 	}
 
 	passiveProject := &Project{ID: "project-passive-preview", UserID: user.ID, Title: "Passive", ConversationID: "conv-passive-preview", AgentID: "agent-1", PlaygroundID: "playground-passive-preview", Status: "ready", PlaygroundLastUsedAt: oldUsage}
@@ -3164,6 +3170,260 @@ func TestAdminRetireAgentPoolArchivesProjectsAndMarksPairRetired(t *testing.T) {
 	}
 }
 
+func TestAdminUserResponsesExposeProjectAssignments(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test", AdminEmail: "admin@example.com"}, http: http.DefaultClient}
+	admin, err := store.UpsertUser(t.Context(), "admin@example.com", "Admin", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	user, err := store.UpsertUser(t.Context(), "pilot@example.com", "Pilot", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateSession(t.Context(), admin.ID, "admin-assignment-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_agent_server_pool": `[{"label":"Main","agent_id":"agent-1","server_id":"server-1","status":"active"}]`,
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{ID: "project-assignment-summary", UserID: user.ID, Title: "Assigned", ConversationID: "conv-assignment-summary", AgentID: "agent-1", MarqueeID: "server-1", Status: "ready"}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+
+	listReq := httptest.NewRequest(http.MethodGet, "/api/admin/users", nil)
+	listReq.AddCookie(&http.Cookie{Name: "likeable_session", Value: "admin-assignment-token"})
+	listRec := httptest.NewRecorder()
+	server.routes().ServeHTTP(listRec, listReq)
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("admin users returned %d: %s", listRec.Code, listRec.Body.String())
+	}
+	var listBody struct {
+		Users     []AdminUserSummary `json:"users"`
+		AgentPool []AgentPoolOption  `json:"agentPool"`
+	}
+	if err := json.Unmarshal(listRec.Body.Bytes(), &listBody); err != nil {
+		t.Fatal(err)
+	}
+	if len(listBody.AgentPool) != 1 || listBody.AgentPool[0].AgentID != "agent-1" || listBody.AgentPool[0].Status != fibe.AssignmentStatusActive {
+		t.Fatalf("agentPool=%+v, want configured active option", listBody.AgentPool)
+	}
+	var customer AdminUserSummary
+	for _, summary := range listBody.Users {
+		if summary.User.ID == user.ID {
+			customer = summary
+			break
+		}
+	}
+	if len(customer.AgentPairs) != 1 || customer.AgentPairs[0].AgentID != "agent-1" || customer.AgentPairs[0].ServerID != "server-1" || customer.AgentPairs[0].Status != fibe.AssignmentStatusActive || customer.AgentPairs[0].ProjectCount != 1 {
+		t.Fatalf("agentPairs=%+v, want active project assignment summary", customer.AgentPairs)
+	}
+
+	detailReq := httptest.NewRequest(http.MethodGet, "/api/admin/users/"+user.ID, nil)
+	detailReq.AddCookie(&http.Cookie{Name: "likeable_session", Value: "admin-assignment-token"})
+	detailRec := httptest.NewRecorder()
+	server.routes().ServeHTTP(detailRec, detailReq)
+	if detailRec.Code != http.StatusOK {
+		t.Fatalf("admin user detail returned %d: %s", detailRec.Code, detailRec.Body.String())
+	}
+	var detail AdminUserDetail
+	if err := json.Unmarshal(detailRec.Body.Bytes(), &detail); err != nil {
+		t.Fatal(err)
+	}
+	if len(detail.Projects) != 1 || detail.Projects[0].Assignment.AgentID != "agent-1" || detail.Projects[0].Assignment.ServerID != "server-1" || detail.Projects[0].Assignment.Status != fibe.AssignmentStatusActive {
+		t.Fatalf("project assignments=%+v, want active assignment exposed to admin", detail.Projects)
+	}
+	if strings.Contains(detailRec.Body.String(), `"agentId":"agent-1"`) && strings.Contains(detailRec.Body.String(), `"project":{"`) && strings.Contains(detailRec.Body.String(), `"AgentID"`) {
+		t.Fatalf("admin detail leaked Go internal field casing: %s", detailRec.Body.String())
+	}
+}
+
+func TestAdminProjectAssignmentPatchValidatesTargetAndPreservesProjectState(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test", AdminEmail: "admin@example.com"}, http: http.DefaultClient}
+	admin, err := store.UpsertUser(t.Context(), "admin@example.com", "Admin", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	user, err := store.UpsertUser(t.Context(), "pilot@example.com", "Pilot", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateSession(t.Context(), admin.ID, "admin-assignment-patch-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_agent_server_pool": `[
+			{"label":"Old","agent_id":"old-agent","server_id":"old-server","status":"active"},
+			{"label":"New","agent_id":"new-agent","server_id":"new-server","status":"active"},
+			{"label":"Drain","agent_id":"drain-agent","server_id":"drain-server","status":"draining"},
+			{"label":"Retired","agent_id":"retired-agent","server_id":"retired-server","status":"retired"}
+		]`,
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{
+		ID:              "project-assignment-patch",
+		UserID:          user.ID,
+		Title:           "Patch",
+		ConversationID:  "conv-assignment-patch",
+		AgentID:         "old-agent",
+		MarqueeID:       "old-server",
+		PlaygroundID:    "playground-1",
+		PlaygroundName:  "playground-name",
+		PlayspecID:      "playspec-1",
+		PropID:          "prop-1",
+		RepoURL:         "http://gitea.test/owner/repo.git",
+		PreviewURL:      "http://preview.example.test",
+		SelectedService: "app",
+		Status:          "ready",
+	}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+
+	patchAssignment := func(agentID, serverID string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPatch, "/api/admin/users/"+user.ID+"/projects/"+project.ID+"/assignment", strings.NewReader(`{"agent_id":"`+agentID+`","server_id":"`+serverID+`"}`))
+		req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "admin-assignment-patch-token"})
+		rec := httptest.NewRecorder()
+		server.routes().ServeHTTP(rec, req)
+		return rec
+	}
+	if rec := patchAssignment("unknown-agent", "unknown-server"); rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown target returned %d, want 404: %s", rec.Code, rec.Body.String())
+	}
+	if rec := patchAssignment("drain-agent", "drain-server"); rec.Code != http.StatusBadRequest {
+		t.Fatalf("draining target returned %d, want 400: %s", rec.Code, rec.Body.String())
+	}
+	if rec := patchAssignment("retired-agent", "retired-server"); rec.Code != http.StatusBadRequest {
+		t.Fatalf("retired target returned %d, want 400: %s", rec.Code, rec.Body.String())
+	}
+	rec := patchAssignment("new-agent", "new-server")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("active target returned %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	updated, err := store.ProjectForUser(t.Context(), user.ID, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.AgentID != "new-agent" || updated.MarqueeID != "new-server" {
+		t.Fatalf("assignment=%s/%s, want new active pair", updated.AgentID, updated.MarqueeID)
+	}
+	if updated.PlaygroundID != project.PlaygroundID || updated.PlaygroundName != project.PlaygroundName || updated.PlayspecID != project.PlayspecID || updated.PropID != project.PropID || updated.RepoURL != project.RepoURL || updated.PreviewURL != project.PreviewURL || updated.SelectedService != project.SelectedService || updated.Status != project.Status {
+		t.Fatalf("project state changed during assignment: before=%+v after=%+v", project, updated)
+	}
+	var body struct {
+		Detail  AdminUserDetail `json:"detail"`
+		Warning string          `json:"warning"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Detail.Projects) != 1 || body.Detail.Projects[0].Assignment.AgentID != "new-agent" || body.Detail.Projects[0].Assignment.Status != fibe.AssignmentStatusActive {
+		t.Fatalf("response detail=%+v, want updated active assignment", body.Detail.Projects)
+	}
+}
+
+func TestAdminProjectAssignmentPatchMakesNextMessageUseNewAgentAndSameContext(t *testing.T) {
+	cliPath, logPath, stdinPath := fakeFibeCLI(t)
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test", AdminEmail: "admin@example.com"}, http: http.DefaultClient}
+	admin, err := store.UpsertUser(t.Context(), "admin@example.com", "Admin", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	user, err := store.UpsertUser(t.Context(), "pilot@example.com", "Pilot", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateSession(t.Context(), admin.ID, "admin-assignment-message-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateSession(t.Context(), user.ID, "pilot-assignment-message-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url":          "server.test:3000",
+		"fibe_api_key":           "test-key",
+		"fibe_cli_path":          cliPath,
+		"fibe_agent_server_pool": `[{"label":"Old","agent_id":"old-agent","server_id":"old-server","status":"active"},{"label":"New","agent_id":"new-agent","server_id":"new-server","status":"active"}]`,
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{
+		ID:             "project-assignment-message",
+		UserID:         user.ID,
+		Title:          "Message",
+		ConversationID: "conv-assignment-message",
+		AgentID:        "old-agent",
+		MarqueeID:      "old-server",
+		PlaygroundID:   "123",
+		PlaygroundName: "lk-message",
+		PlayspecID:     "456",
+		PropID:         "789",
+		RepoURL:        "http://gitea.test/owner/repo.git",
+		PreviewURL:     "http://preview.example.test",
+		Status:         "ready",
+	}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+
+	patchReq := httptest.NewRequest(http.MethodPatch, "/api/admin/users/"+user.ID+"/projects/"+project.ID+"/assignment", strings.NewReader(`{"agent_id":"new-agent","server_id":"new-server"}`))
+	patchReq.AddCookie(&http.Cookie{Name: "likeable_session", Value: "admin-assignment-message-token"})
+	patchRec := httptest.NewRecorder()
+	server.routes().ServeHTTP(patchRec, patchReq)
+	if patchRec.Code != http.StatusOK {
+		t.Fatalf("assignment patch returned %d: %s", patchRec.Code, patchRec.Body.String())
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/projects/"+project.ID+"/messages", strings.NewReader(`{"text":"keep building"}`))
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "pilot-assignment-message-token"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("message returned %d: %s", rec.Code, rec.Body.String())
+	}
+	log := readFile(t, logPath)
+	if !strings.Contains(log, "agents start-chat new-agent --marquee-id new-server") {
+		t.Fatalf("commands=%s, want reassigned agent chat warmed", log)
+	}
+	if !strings.Contains(log, "agents send-message new-agent") {
+		t.Fatalf("commands=%s, want next user message sent to reassigned agent", log)
+	}
+	var payload struct {
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal([]byte(readFile(t, stdinPath)), &payload); err != nil {
+		t.Fatal(err)
+	}
+	prompt := payload.Text
+	for _, want := range []string{
+		"target Fibe playground_id: 123",
+		"target private source repo: http://gitea.test/owner/repo.git",
+		"User request:\nkeep building",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
 func TestArchivedProjectsDoNotCountTowardProjectQuota(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {
@@ -3433,7 +3693,7 @@ func TestAdminNoticeSendsEmailWhenSMTPConfigured(t *testing.T) {
 	}
 }
 
-func TestRollingFreeMessagesAndPaidCredits(t *testing.T) {
+func TestFixedUTCFreeMessagesAndPaidCredits(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -3461,7 +3721,10 @@ func TestRollingFreeMessagesAndPaidCredits(t *testing.T) {
 	}
 	quota := server.messageQuota(t.Context(), user)
 	if quota["used"] != 1 || quota["remaining"] != 0 || quota["lifetimeUsed"] != 2 {
-		t.Fatalf("quota=%+v, want 5-hour used 1, remaining 0, lifetime 2", quota)
+		t.Fatalf("quota=%+v, want current UTC-window used 1, remaining 0, lifetime 2", quota)
+	}
+	if quota["windowHours"] != defaultFreeMessageWindowHours {
+		t.Fatalf("quota windowHours=%v, want %d", quota["windowHours"], defaultFreeMessageWindowHours)
 	}
 	allowed, paid, err := server.messageAllowance(t.Context(), user)
 	if err != nil {
@@ -3499,6 +3762,93 @@ func TestRollingFreeMessagesAndPaidCredits(t *testing.T) {
 	}
 	if balance != 9 {
 		t.Fatalf("balance=%d, want 9 after consume", balance)
+	}
+}
+
+func TestFixedUTCMessageWindowAnchorsToMidnight(t *testing.T) {
+	tests := []struct {
+		name     string
+		now      string
+		hours    int
+		wantFrom string
+		wantTo   string
+	}{
+		{
+			name:     "regular bucket",
+			now:      "2026-05-16T11:37:10Z",
+			hours:    5,
+			wantFrom: "2026-05-16T10:00:00Z",
+			wantTo:   "2026-05-16T15:00:00Z",
+		},
+		{
+			name:     "short final bucket returns midnight reset",
+			now:      "2026-05-16T23:30:00Z",
+			hours:    5,
+			wantFrom: "2026-05-16T20:00:00Z",
+			wantTo:   "2026-05-17T00:00:00Z",
+		},
+		{
+			name:     "exact boundary starts new bucket",
+			now:      "2026-05-16T05:00:00Z",
+			hours:    5,
+			wantFrom: "2026-05-16T05:00:00Z",
+			wantTo:   "2026-05-16T10:00:00Z",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			now, err := time.Parse(time.RFC3339, tc.now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			from, to := fixedUTCMessageWindow(now, time.Duration(tc.hours)*time.Hour)
+			if from.Format(time.RFC3339) != tc.wantFrom || to.Format(time.RFC3339) != tc.wantTo {
+				t.Fatalf("window=%s..%s, want %s..%s", from.Format(time.RFC3339), to.Format(time.RFC3339), tc.wantFrom, tc.wantTo)
+			}
+		})
+	}
+}
+
+func TestFreeMessageWindowHoursConfig(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	if got := server.freeMessageWindowHours(t.Context()); got != defaultFreeMessageWindowHours {
+		t.Fatalf("default window hours=%d, want %d", got, defaultFreeMessageWindowHours)
+	}
+	if err := store.UpsertConfig(t.Context(), map[string]string{"free_message_window_hours": "2"}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	if got := server.freeMessageWindowHours(t.Context()); got != 2 {
+		t.Fatalf("configured window hours=%d, want 2", got)
+	}
+}
+
+func TestMessageQuotaResetAtUsesNextFixedWindowWhenUnused(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	user, err := store.UpsertUser(t.Context(), "unused-quota@example.com", "Unused", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	quota := server.messageQuota(t.Context(), user)
+	if quota["used"] != 0 || quota["remaining"] != quota["limit"] {
+		t.Fatalf("quota=%+v, want unused full quota", quota)
+	}
+	resetAt, err := time.Parse(time.RFC3339, quota["resetsAt"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !resetAt.After(time.Now().UTC()) {
+		t.Fatalf("resetsAt=%s, want next fixed window boundary in the future", resetAt.Format(time.RFC3339))
 	}
 }
 

@@ -30,6 +30,6 @@ export const ADMIN_CONFIG_SECTIONS = [
   {
     titleKey: 'admin.config.application.title',
     bodyKey: 'admin.config.application.body',
-    keys: ['fibe_template_version_id', 'free_messages', 'project_cap', 'smtp_host', 'smtp_port', 'smtp_username', 'smtp_password', 'smtp_from_email', 'smtp_from_name', 'smtp_tls_mode']
+    keys: ['fibe_template_version_id', 'free_messages', 'free_message_window_hours', 'project_cap', 'smtp_host', 'smtp_port', 'smtp_username', 'smtp_password', 'smtp_from_email', 'smtp_from_name', 'smtp_tls_mode']
   }
 ];
