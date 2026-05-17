@@ -42,6 +42,23 @@ function StatusMark({ working = false }: { working?: boolean }) {
   );
 }
 
+function googleAuthStartPath() {
+  if (typeof navigator === 'undefined') return '/api/auth/google/start';
+  const userAgent = navigator.userAgent.toLowerCase();
+  const inAppBrowser = [
+    'telegram',
+    'fbav',
+    'fban',
+    'instagram',
+    'line/',
+    'micromessenger',
+    'tiktok',
+    'twitter',
+    'snapchat'
+  ].some((marker) => userAgent.includes(marker));
+  return inAppBrowser ? '/api/auth/google/start?browser_hint=in_app' : '/api/auth/google/start';
+}
+
 function App() {
   const [me, setMe] = useState<Me | null>(null);
   const [route, setRoute] = useState(location.pathname);
@@ -79,6 +96,7 @@ function Shell({ me, nav, children }: { me: Me; nav: (to: string) => void; child
   const [notices, setNotices] = useState<UserNotice[]>(me.notices ?? []);
   const online = useOnlineStatus();
   const googleReady = me.auth?.googleConfigured !== false;
+  const googleAuthHref = googleAuthStartPath();
   useEffect(() => setNotices(me.notices ?? []), [me.notices]);
   const notice = notices[0];
   const dismissNotice = async (noticeID: string) => {
@@ -109,7 +127,7 @@ function Shell({ me, nav, children }: { me: Me; nav: (to: string) => void; child
             </>
           ) : (
             <>
-              <a className={!googleReady ? 'disabled' : ''} href="/api/auth/google/start">{t('auth.signIn')}</a>
+              <a className={!googleReady ? 'disabled' : ''} href={googleAuthHref}>{t('auth.signIn')}</a>
               {me.auth?.devAuth && <button onClick={() => fetch('/api/dev/login?email=admin@example.com', { method: 'POST' }).then(() => location.reload())}>{t('auth.dev')}</button>}
             </>
           )}
@@ -177,6 +195,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const signedIn = Boolean(me.user);
   const userID = me.user?.id ?? '';
   const googleReady = me.auth?.googleConfigured !== false;
+  const googleAuthHref = googleAuthStartPath();
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeID, setActiveID] = useState<string>('');
   const [feed, setFeed] = useState<Feed | null>(null);
@@ -1010,7 +1029,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
         <div className="chromePill actionChromePill">
           {!me.user && (
             <>
-              <a className={`chromeAuthLink ${!googleReady ? 'disabled' : ''}`} href="/api/auth/google/start">{t('auth.signIn')}</a>
+              <a className={`chromeAuthLink ${!googleReady ? 'disabled' : ''}`} href={googleAuthHref}>{t('auth.signIn')}</a>
               {me.auth?.devAuth && <button className="chromeAuthLink chromeAuthButton" onClick={() => fetch('/api/dev/login?email=admin@example.com', { method: 'POST' }).then(() => location.reload())}>{t('auth.dev')}</button>}
             </>
           )}

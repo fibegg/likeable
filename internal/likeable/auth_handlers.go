@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"html/template"
 	"log"
 	"net/http"
 	"strings"
@@ -259,9 +260,85 @@ func (s *Server) handleGoogleStart(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, err.Error())
 		return
 	}
+	if googleStartNeedsBrowserChoice(r) {
+		s.writeGoogleBrowserChoice(w, r)
+		return
+	}
 	state := randomToken()
 	http.SetCookie(w, &http.Cookie{Name: "likeable_oauth_state", Value: state, Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: isHTTPS(s.config.BaseURL), MaxAge: 600})
-	http.Redirect(w, r, cfg.AuthCodeURL(state, oauth2.AccessTypeOnline), http.StatusFound)
+	http.Redirect(w, r, cfg.AuthCodeURL(state, oauth2.AccessTypeOnline, oauth2.SetAuthURLParam("prompt", "select_account")), http.StatusFound)
+}
+
+func googleStartNeedsBrowserChoice(r *http.Request) bool {
+	if r.URL.Query().Get("force") == "1" {
+		return false
+	}
+	hint := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("browser_hint")))
+	return hint == "in_app" || inAppBrowserUserAgent(r.UserAgent())
+}
+
+func inAppBrowserUserAgent(userAgent string) bool {
+	userAgent = strings.ToLower(userAgent)
+	for _, marker := range []string{
+		"telegram",
+		"fbav",
+		"fban",
+		"instagram",
+		"line/",
+		"micromessenger",
+		"tiktok",
+		"twitter",
+		"snapchat",
+	} {
+		if strings.Contains(userAgent, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+var googleBrowserChoiceTemplate = template.Must(template.New("google-browser-choice").Parse(`<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark">
+  <title>Open Likeable in Browser</title>
+  <style>
+    :root { color-scheme: dark; --bg: #061014; --panel: rgba(7, 13, 16, .94); --line: rgba(223, 154, 47, .42); --text: #d8e4e7; --muted: #8c9a9f; --amber: #d58d2d; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; min-height: 100dvh; display: grid; place-items: center; padding: 22px; background: radial-gradient(circle at 50% 100%, rgba(46, 152, 168, .22), transparent 40%), var(--bg); color: var(--text); font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    main { width: min(440px, 100%); display: grid; gap: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); padding: 22px; box-shadow: 0 24px 80px rgba(0, 0, 0, .45); }
+    h1 { margin: 0; font-size: 24px; line-height: 1.1; font-weight: 760; }
+    p { margin: 0; color: rgba(216, 228, 231, .76); line-height: 1.45; font-size: 14px; font-weight: 560; }
+    a.button { min-height: 46px; display: inline-flex; align-items: center; justify-content: center; border-radius: 10px; border: 1px solid rgba(223, 154, 47, .72); background: rgba(213, 141, 45, .16); color: var(--text); font-weight: 820; text-decoration: none; }
+    .copy { width: 100%; border: 1px solid rgba(174, 244, 255, .18); border-radius: 9px; background: rgba(3, 8, 10, .72); color: var(--muted); padding: 10px 12px; font-size: 12px; overflow-wrap: anywhere; }
+    small { color: var(--muted); line-height: 1.35; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Open Likeable in Safari or Chrome</h1>
+    <p>Google sign-in can fail inside Telegram, Instagram, Facebook, and other in-app browsers when Google asks for a passkey or security key.</p>
+    <a class="button" href="{{.ContinuePath}}" rel="nofollow">Continue with Google</a>
+    <p>For the most reliable signup, open this page in Safari or Chrome, then tap the button again.</p>
+    <div class="copy">{{.ContinueURL}}</div>
+    <small>If your browser menu has "Open in Safari" or "Open in browser", use that from this page.</small>
+  </main>
+</body>
+</html>`))
+
+func (s *Server) writeGoogleBrowserChoice(w http.ResponseWriter, r *http.Request) {
+	continuePath := "/api/auth/google/start?force=1"
+	data := map[string]string{
+		"ContinuePath": continuePath,
+		"ContinueURL":  s.config.BaseURL + continuePath,
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	if err := googleBrowserChoiceTemplate.Execute(w, data); err != nil {
+		log.Printf("render google browser choice: %v", err)
+	}
 }
 
 func (s *Server) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {

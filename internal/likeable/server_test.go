@@ -63,6 +63,15 @@ func responseClearsCookie(response *http.Response, name string) bool {
 	return false
 }
 
+func responseHasCookie(response *http.Response, name string) bool {
+	for _, cookie := range response.Cookies() {
+		if cookie.Name == name && cookie.Value != "" {
+			return true
+		}
+	}
+	return false
+}
+
 func eventually(t *testing.T, timeout time.Duration, check func() bool, failure func() string) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
@@ -229,6 +238,76 @@ func TestBootstrapConfigWritesGoogleConfigWithoutExposingSecret(t *testing.T) {
 	}
 	if !me.Auth.GoogleConfigured || me.Auth.DevAuth || me.Auth.SignupMode != "all" {
 		t.Fatalf("me auth=%+v, want configured google, no dev auth, signup all", me.Auth)
+	}
+}
+
+func TestGoogleStartShowsBrowserChoiceForInAppBrowser(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"google_client_id":     "client-id",
+		"google_client_secret": "client-secret",
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "https://likeable.test"}, http: http.DefaultClient}
+	req := httptest.NewRequest(http.MethodGet, "/api/auth/google/start", nil)
+	req.Header.Set("User-Agent", "Mozilla/5.0 TelegramBot (likeable)")
+	rec := httptest.NewRecorder()
+
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("google start returned %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "/api/auth/google/start?force=1") || !strings.Contains(rec.Body.String(), "Open Likeable in Safari or Chrome") {
+		t.Fatalf("browser choice page missing continue link or guidance: %s", rec.Body.String())
+	}
+	for _, cookie := range rec.Result().Cookies() {
+		if cookie.Name == "likeable_oauth_state" {
+			t.Fatal("browser choice page should not set oauth state before the real browser starts auth")
+		}
+	}
+}
+
+func TestGoogleStartForceRedirectsWithAccountChoicePrompt(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"google_client_id":     "client-id",
+		"google_client_secret": "client-secret",
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "https://likeable.test"}, http: http.DefaultClient}
+	req := httptest.NewRequest(http.MethodGet, "/api/auth/google/start?force=1", nil)
+	req.Header.Set("User-Agent", "Mozilla/5.0 TelegramBot (likeable)")
+	rec := httptest.NewRecorder()
+
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusFound {
+		t.Fatalf("google start returned %d, want 302; body=%s", rec.Code, rec.Body.String())
+	}
+	location := rec.Header().Get("Location")
+	parsed, err := url.Parse(location)
+	if err != nil {
+		t.Fatalf("parse redirect location %q: %v", location, err)
+	}
+	if parsed.Host != "accounts.google.com" {
+		t.Fatalf("redirect host=%q, want accounts.google.com", parsed.Host)
+	}
+	if parsed.Query().Get("prompt") != "select_account" {
+		t.Fatalf("prompt=%q, want select_account in %s", parsed.Query().Get("prompt"), location)
+	}
+	if !responseHasCookie(rec.Result(), "likeable_oauth_state") {
+		t.Fatal("forced google start should set oauth state cookie")
 	}
 }
 
