@@ -22,6 +22,7 @@
   --app-viewport-width: 100vw;
   --app-viewport-offset-top: 0px;
   --app-keyboard-inset: 0px;
+  --app-keyboard-overlay-inset: 0px;
 }
 
 * { box-sizing: border-box; }
@@ -3669,8 +3670,9 @@ html.draggingCollapsedChat * {
   }
   .previewPane.chatExpanded {
     --mobile-chat-top-guard: calc(86px + env(safe-area-inset-top));
-    --mobile-chat-keyboard-inset: var(--app-keyboard-inset, 0px);
-    --mobile-chat-available-height: max(180px, calc(var(--app-viewport-height, 100dvh) - var(--mobile-chat-top-guard) - var(--mobile-chat-keyboard-inset)));
+    --mobile-chat-keyboard-space: var(--app-keyboard-inset, 0px);
+    --mobile-chat-overlay-bottom: var(--app-keyboard-overlay-inset, var(--app-keyboard-inset, 0px));
+    --mobile-chat-available-height: max(180px, calc(var(--app-viewport-height, 100dvh) - var(--mobile-chat-top-guard) - var(--mobile-chat-keyboard-space)));
     --mobile-iframe-safe-top: 8px;
     --mobile-iframe-safe-bottom: max(8px, env(safe-area-inset-bottom));
     display: grid;
@@ -3776,7 +3778,7 @@ html.draggingCollapsedChat * {
     z-index: 60;
     left: 0;
     right: 0;
-    bottom: var(--mobile-chat-keyboard-inset);
+    bottom: var(--mobile-chat-overlay-bottom);
     width: 100%;
     height: min(var(--basic-chat-height, var(--mobile-chat-available-height)), var(--mobile-chat-available-height));
     min-height: 0;
@@ -3799,6 +3801,7 @@ html.draggingCollapsedChat * {
       "composer";
     border-radius: 12px 12px 0 0;
     border-width: 1px 0 0 0;
+    overflow: hidden;
     backdrop-filter: none;
     background: rgba(6, 12, 15, .92);
   }

@@ -40,11 +40,13 @@ export function installViewportCssVars() {
     const width = currentViewportWidth();
     const offsetTop = visualViewportOffsetTop();
     const keyboardInset = currentKeyboardInset();
+    const keyboardOverlayInset = currentKeyboardOverlayInset(keyboardInset);
     root.style.setProperty('--app-viewport-height', `${height}px`);
     root.style.setProperty('--app-visual-viewport-height', `${visualHeight}px`);
     root.style.setProperty('--app-viewport-width', `${width}px`);
     root.style.setProperty('--app-viewport-offset-top', `${offsetTop}px`);
     root.style.setProperty('--app-keyboard-inset', `${keyboardInset}px`);
+    root.style.setProperty('--app-keyboard-overlay-inset', `${keyboardOverlayInset}px`);
     root.dataset.keyboardOpen = keyboardInset > KEYBOARD_INSET_THRESHOLD ? 'true' : 'false';
   };
 
@@ -85,6 +87,13 @@ function currentKeyboardInset() {
   const visualViewport = window.visualViewport;
   if (!visualViewport) return 0;
   return Math.max(0, currentLayoutViewportHeight() - visualViewport.height - visualViewportOffsetTop());
+}
+
+function currentKeyboardOverlayInset(keyboardInset: number) {
+  if (typeof window === 'undefined') return 0;
+  const visualViewport = window.visualViewport;
+  if (!visualViewport || keyboardInset <= KEYBOARD_INSET_THRESHOLD) return 0;
+  return Math.max(0, window.innerHeight - visualViewport.height - visualViewportOffsetTop());
 }
 
 function currentLayoutViewportHeight() {
