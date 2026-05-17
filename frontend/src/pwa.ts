@@ -23,11 +23,27 @@ export function installPwa() {
 
   if (!('serviceWorker' in navigator) || !import.meta.env.PROD) return;
 
+  let reloadingForUpdate = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (reloadingForUpdate) return;
+    reloadingForUpdate = true;
+    window.location.reload();
+  });
+
   window.addEventListener('load', () => {
     const serviceWorkerURL = new URL('/service-worker.js', window.location.origin);
     serviceWorkerURL.searchParams.set('v', currentBuildID());
     navigator.serviceWorker.register(serviceWorkerURL, { scope: '/' })
       .then((registration) => {
+        registration.addEventListener('updatefound', () => {
+          const worker = registration.installing;
+          if (!worker) return;
+          worker.addEventListener('statechange', () => {
+            if (worker.state === 'installed' && navigator.serviceWorker.controller) {
+              worker.postMessage({ type: 'SKIP_WAITING' });
+            }
+          });
+        });
         void registration.update();
       })
       .catch((error) => {
