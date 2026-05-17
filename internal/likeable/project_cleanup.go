@@ -16,6 +16,7 @@ import (
 
 func (s *Server) deleteProjectResourcesAsync(userID, userEmail string, project *Project) {
 	if s.jobs != nil {
+		log.Printf("cleanup transition=queued project_id=%s user_id=%s source=async", project.ID, userID)
 		if err := s.enqueueProjectJob(context.Background(), taskDeleteProjectResources, projectJobPayload{UserID: userID, UserEmail: userEmail, ProjectID: project.ID}, asynq.Queue(projectCleanupQueue), asynq.MaxRetry(10), asynq.Timeout(projectCleanupTaskTimeout), asynq.Unique(projectCleanupUniqueTTL)); err != nil {
 			log.Printf("enqueue project delete %s: %v", project.ID, err)
 		}
@@ -29,14 +30,17 @@ func (s *Server) deleteProjectResourcesAsync(userID, userEmail string, project *
 		if snapshot.Status == "archived" {
 			if err := s.deleteProjectLocally(ctx, &snapshot, userID); err != nil {
 				log.Printf("delete archived local project %s: %v", snapshot.ID, err)
+				log.Printf("cleanup transition=failed project_id=%s user_id=%s error=%q", snapshot.ID, userID, err.Error())
 			}
 			return
 		}
+		log.Printf("cleanup transition=retrying project_id=%s user_id=%s", snapshot.ID, userID)
 		fibeClient, err := s.completeProjectResourceSnapshot(ctx, userEmail, &snapshot)
 		if err != nil {
 			if fibeClient == nil || !projectHasFibeResources(&snapshot) {
 				log.Printf("delete project %s resources: %v", snapshot.ID, err)
 				_ = s.store.UpdateProjectCleanupError(context.Background(), snapshot.ID, userID, err.Error())
+				log.Printf("cleanup transition=failed project_id=%s user_id=%s error=%q", snapshot.ID, userID, err.Error())
 				return
 			}
 			log.Printf("delete project %s resources: continuing with stored resources after snapshot error: %v", snapshot.ID, err)
@@ -45,6 +49,7 @@ func (s *Server) deleteProjectResourcesAsync(userID, userEmail string, project *
 			if err := fibeClient.DeleteProjectResources(ctx, &snapshot); err != nil {
 				log.Printf("delete project %s resources: %v", snapshot.ID, err)
 				_ = s.store.UpdateProjectCleanupError(context.Background(), snapshot.ID, userID, err.Error())
+				log.Printf("cleanup transition=failed project_id=%s user_id=%s error=%q", snapshot.ID, userID, err.Error())
 				return
 			}
 		} else {
@@ -52,7 +57,13 @@ func (s *Server) deleteProjectResourcesAsync(userID, userEmail string, project *
 		}
 		if err := s.deleteProjectLocally(ctx, &snapshot, userID); err != nil {
 			log.Printf("delete local project %s: %v", snapshot.ID, err)
+			log.Printf("cleanup transition=failed project_id=%s user_id=%s error=%q", snapshot.ID, userID, err.Error())
+			return
 		}
+		if err := s.finalizePendingAccountDeletionIfReady(ctx, accountDeletionPayload{UserID: userID, UserEmail: userEmail}); err != nil {
+			log.Printf("finalize pending account deletion for user %s: %v", userID, err)
+		}
+		log.Printf("cleanup transition=succeeded project_id=%s user_id=%s", snapshot.ID, userID)
 	}()
 }
 
@@ -85,6 +96,31 @@ func (s *Server) deleteAccountAsync(userID, userEmail string) error {
 		}
 	}()
 	return nil
+}
+
+func (s *Server) finalizePendingAccountDeletionIfReady(ctx context.Context, payload accountDeletionPayload) error {
+	user, err := s.store.UserByID(ctx, payload.UserID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+	if !pendingAccountDeletion(user) {
+		return nil
+	}
+	projects, err := s.store.AllProjectsForUser(ctx, payload.UserID)
+	if err != nil {
+		return err
+	}
+	if len(projects) > 0 {
+		return nil
+	}
+	if normalizeEmail(payload.UserEmail) == "" {
+		payload.UserEmail = user.Email
+	}
+	log.Printf("account deletion transition=ready user_id=%s", payload.UserID)
+	return s.finalizeAccountDeletion(ctx, payload)
 }
 
 func (s *Server) completeProjectResourceSnapshot(ctx context.Context, userEmail string, project *Project) (*fibe.Client, error) {

@@ -347,3 +347,7 @@ func removeExactEmailFromListConfig(raw, email string) string {
 	}
 	return strings.Join(out, "\n")
 }
+
+func deletedUserEmail(userID string) string {
+	return "deleted-" + strings.ToLower(strings.TrimSpace(userID)) + "@likeable.local"
+}

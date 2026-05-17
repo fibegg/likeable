@@ -2,6 +2,7 @@ package likeable
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"log"
@@ -102,6 +103,68 @@ func TestDeleteProjectResourcesTaskIgnoresDuplicateActiveCleanup(t *testing.T) {
 
 	if err := server.handleDeleteProjectResourcesTask(t.Context(), asynq.NewTask(taskDeleteProjectResources, payload)); err != nil {
 		t.Fatalf("duplicate cleanup returned error: %v", err)
+	}
+}
+
+func TestDeleteProjectResourcesTaskFinalizesPendingAccountAfterLastProject(t *testing.T) {
+	appStore, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = appStore.Close() })
+	user, err := appStore.UpsertUser(t.Context(), "cleanup@example.com", "Cleanup", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := appStore.UpdateUserAccess(t.Context(), user.ID, "restricted", accountDeletionAccessNote); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{
+		ID:             "project-cleanup",
+		UserID:         user.ID,
+		Title:          "Cleanup",
+		ConversationID: "conv-cleanup",
+		Status:         "archived",
+	}
+	if err := appStore.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: appStore}
+	payload, err := json.Marshal(projectJobPayload{UserID: user.ID, UserEmail: user.Email, ProjectID: project.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := server.handleDeleteProjectResourcesTask(t.Context(), asynq.NewTask(taskDeleteProjectResources, payload)); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := appStore.UserByID(t.Context(), user.ID); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("UserByID error=%v, want sql.ErrNoRows", err)
+	}
+}
+
+func TestProjectDeletionSweepFinalizesPendingAccountWithNoProjects(t *testing.T) {
+	appStore, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = appStore.Close() })
+	user, err := appStore.UpsertUser(t.Context(), "cleanup@example.com", "Cleanup", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := appStore.UpdateUserAccess(t.Context(), user.ID, "restricted", accountDeletionAccessNote); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: appStore}
+
+	if err := server.handleProjectDeletionSweepTask(t.Context(), asynq.NewTask(taskProjectDeletionSweep, nil)); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := appStore.UserByID(t.Context(), user.ID); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("UserByID error=%v, want sql.ErrNoRows", err)
 	}
 }
 

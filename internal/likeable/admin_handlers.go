@@ -101,6 +101,88 @@ func (s *Server) handleAdminAgentPoolRetire(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusOK, result)
 }
 
+func (s *Server) handleAdminRecovery(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	projects, err := s.store.DeletingProjects(r.Context(), 100)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	users, err := s.store.PendingAccountDeletionUsers(r.Context(), accountDeletionAccessNote, 100)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	projectRows := make([]adminRecoveryProject, 0, len(projects))
+	for i := range projects {
+		projectRows = append(projectRows, adminRecoveryProjectFromProject(&projects[i]))
+	}
+	accountRows := make([]adminRecoveryAccount, 0, len(users))
+	for i := range users {
+		user := &users[i]
+		projects, err := s.store.AllProjectsForUser(r.Context(), user.ID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		accountRows = append(accountRows, adminRecoveryAccount{
+			UserID:       user.ID,
+			Email:        user.Email,
+			ProjectCount: len(projects),
+			Ready:        len(projects) == 0,
+			CreatedAt:    user.CreatedAt,
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"checkedAt":                   time.Now().UTC().Format(time.RFC3339Nano),
+		"deletingProjects":            projectRows,
+		"pendingAccountDeletions":     accountRows,
+		"deletingProjectCount":        len(projectRows),
+		"pendingAccountDeletionCount": len(accountRows),
+		"sweepIntervalSeconds":        int(projectDeletionSweepInterval.Seconds()),
+	})
+}
+
+type adminRecoveryProject struct {
+	ID               string `json:"id"`
+	UserID           string `json:"userId"`
+	Title            string `json:"title"`
+	Status           string `json:"status"`
+	CleanupLastError string `json:"cleanupLastError,omitempty"`
+	PlaygroundID     string `json:"playgroundId,omitempty"`
+	PlayspecID       string `json:"playspecId,omitempty"`
+	PropID           string `json:"propId,omitempty"`
+	UpdatedAt        string `json:"updatedAt"`
+}
+
+type adminRecoveryAccount struct {
+	UserID       string `json:"userId"`
+	Email        string `json:"email"`
+	ProjectCount int    `json:"projectCount"`
+	Ready        bool   `json:"ready"`
+	CreatedAt    string `json:"createdAt"`
+}
+
+func adminRecoveryProjectFromProject(project *Project) adminRecoveryProject {
+	if project == nil {
+		return adminRecoveryProject{}
+	}
+	return adminRecoveryProject{
+		ID:               project.ID,
+		UserID:           project.UserID,
+		Title:            project.Title,
+		Status:           project.Status,
+		CleanupLastError: project.CleanupLastError,
+		PlaygroundID:     project.PlaygroundID,
+		PlayspecID:       project.PlayspecID,
+		PropID:           project.PropID,
+		UpdatedAt:        project.UpdatedAt,
+	}
+}
+
 type agentPoolRetirementResult struct {
 	AgentID       string   `json:"agentId"`
 	ServerID      string   `json:"serverId"`

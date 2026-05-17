@@ -94,7 +94,7 @@ func (s *Store) TryAcquireProjectCleanup(ctx context.Context, projectID, userID 
 	lockUntil := time.Now().UTC().Add(ttl).Format(time.RFC3339Nano)
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE projects
-		SET cleanup_lock_until = ?, updated_at = ?
+		SET cleanup_lock_until = ?, cleanup_last_error = '', updated_at = ?
 		WHERE id = ? AND user_id = ? AND status IN ('deleting', 'archived') AND (cleanup_lock_until = '' OR cleanup_lock_until <= ?)
 	`, lockUntil, now, projectID, userID, now)
 	if err != nil {

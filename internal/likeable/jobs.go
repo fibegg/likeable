@@ -25,6 +25,8 @@ const projectCleanupUniqueTTL = 30 * time.Minute
 const projectCleanupTaskTimeout = 2 * time.Minute
 const projectCleanupLeaseTTL = projectCleanupTaskTimeout + 30*time.Second
 const projectCleanupSweepTimeout = 30 * time.Second
+const projectDeletionSweepInterval = 5 * time.Minute
+const projectDeletionSweepUniqueTTL = 4 * time.Minute
 const maxConcurrentProjectCleanup = 1
 const defaultJobWorkerConcurrency = 32
 const idleProjectStopAfter = domain.PlaygroundIdleStopAfter
@@ -229,7 +231,7 @@ func (s *Server) enqueueProjectDeletionSweep(ctx context.Context, delay time.Dur
 	if s.jobs == nil {
 		return
 	}
-	opts := []asynq.Option{asynq.Queue(projectCleanupQueue), asynq.MaxRetry(2), asynq.Timeout(projectCleanupSweepTimeout), asynq.Unique(10 * time.Minute)}
+	opts := []asynq.Option{asynq.Queue(projectCleanupQueue), asynq.MaxRetry(2), asynq.Timeout(projectCleanupSweepTimeout), asynq.Unique(projectDeletionSweepUniqueTTL)}
 	if delay > 0 {
 		opts = append(opts, asynq.ProcessIn(delay))
 	}
@@ -261,13 +263,17 @@ func (s *Server) startRecurringJobs(ctx context.Context) {
 	s.enqueueProjectDeletionSweep(ctx, 0)
 	s.enqueueStopIdleProjectsSweep(ctx, 0)
 	go func() {
-		ticker := time.NewTicker(time.Hour)
-		defer ticker.Stop()
+		hourlyTicker := time.NewTicker(time.Hour)
+		deletionTicker := time.NewTicker(projectDeletionSweepInterval)
+		defer hourlyTicker.Stop()
+		defer deletionTicker.Stop()
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case <-ticker.C:
+			case <-deletionTicker.C:
+				s.enqueueProjectDeletionSweep(context.Background(), 0)
+			case <-hourlyTicker.C:
 				s.enqueueProjectQuotaSweep(context.Background(), 0)
 				s.enqueueProjectDeletionSweep(context.Background(), 0)
 				s.enqueueStopIdleProjectsSweep(context.Background(), 0)
@@ -385,6 +391,7 @@ func (s *Server) handleDeleteProjectResourcesTask(ctx context.Context, task *asy
 	if !acquired {
 		return nil
 	}
+	log.Printf("cleanup transition=retrying project_id=%s user_id=%s", project.ID, payload.UserID)
 	defer func() {
 		if err := s.store.ClearProjectCleanupLease(context.Background(), project.ID, payload.UserID); err != nil {
 			log.Printf("clear project cleanup lease %s: %v", project.ID, err)
@@ -399,15 +406,21 @@ func (s *Server) handleDeleteProjectResourcesTask(ctx context.Context, task *asy
 	if project.Status == "archived" {
 		if err := s.deleteProjectLocally(ctx, project, payload.UserID); err != nil {
 			_ = s.store.UpdateProjectCleanupError(context.Background(), project.ID, payload.UserID, err.Error())
+			log.Printf("cleanup transition=failed project_id=%s user_id=%s error=%q", project.ID, payload.UserID, err.Error())
+			return err
+		}
+		if err := s.finalizePendingAccountDeletionIfReady(ctx, accountDeletionPayload{UserID: payload.UserID, UserEmail: payload.UserEmail}); err != nil {
 			return err
 		}
 		log.Printf("delete archived project %s locally: completed", project.ID)
+		log.Printf("cleanup transition=succeeded project_id=%s user_id=%s", project.ID, payload.UserID)
 		return nil
 	}
 	fibeClient, err := s.completeProjectResourceSnapshot(ctx, payload.UserEmail, project)
 	if err != nil {
 		if fibeClient == nil || !projectHasFibeResources(project) {
 			_ = s.store.UpdateProjectCleanupError(context.Background(), project.ID, payload.UserID, err.Error())
+			log.Printf("cleanup transition=failed project_id=%s user_id=%s error=%q", project.ID, payload.UserID, err.Error())
 			return err
 		}
 		log.Printf("delete project %s resources: continuing with stored resources after snapshot error: %v", project.ID, err)
@@ -415,6 +428,7 @@ func (s *Server) handleDeleteProjectResourcesTask(ctx context.Context, task *asy
 	if projectHasFibeResources(project) {
 		if err := fibeClient.DeleteProjectResources(ctx, project); err != nil {
 			_ = s.store.UpdateProjectCleanupError(context.Background(), project.ID, payload.UserID, err.Error())
+			log.Printf("cleanup transition=failed project_id=%s user_id=%s error=%q", project.ID, payload.UserID, err.Error())
 			return err
 		}
 	} else {
@@ -422,9 +436,14 @@ func (s *Server) handleDeleteProjectResourcesTask(ctx context.Context, task *asy
 	}
 	if err := s.deleteProjectLocally(ctx, project, payload.UserID); err != nil {
 		_ = s.store.UpdateProjectCleanupError(context.Background(), project.ID, payload.UserID, err.Error())
+		log.Printf("cleanup transition=failed project_id=%s user_id=%s error=%q", project.ID, payload.UserID, err.Error())
+		return err
+	}
+	if err := s.finalizePendingAccountDeletionIfReady(ctx, accountDeletionPayload{UserID: payload.UserID, UserEmail: payload.UserEmail}); err != nil {
 		return err
 	}
 	log.Printf("delete project %s resources: completed", project.ID)
+	log.Printf("cleanup transition=succeeded project_id=%s user_id=%s", project.ID, payload.UserID)
 	return nil
 }
 
@@ -450,18 +469,26 @@ func (s *Server) finalizeAccountDeletion(ctx context.Context, payload accountDel
 	}
 	if len(projects) > 0 {
 		if s.jobs != nil {
+			cleanupEmail := normalizeEmail(payload.UserEmail)
+			if cleanupEmail == "" {
+				cleanupEmail = user.Email
+			}
+			log.Printf("account deletion transition=waiting user_id=%s project_count=%d", user.ID, len(projects))
 			for i := range projects {
 				project := &projects[i]
-				if err := s.enqueueProjectJob(ctx, taskDeleteProjectResources, projectJobPayload{UserID: user.ID, UserEmail: user.Email, ProjectID: project.ID}, asynq.Queue(projectCleanupQueue), asynq.MaxRetry(10), asynq.Timeout(projectCleanupTaskTimeout), asynq.Unique(projectCleanupUniqueTTL)); err != nil {
+				log.Printf("cleanup transition=queued project_id=%s user_id=%s source=account_deletion", project.ID, user.ID)
+				if err := s.enqueueProjectJob(ctx, taskDeleteProjectResources, projectJobPayload{UserID: user.ID, UserEmail: cleanupEmail, ProjectID: project.ID}, asynq.Queue(projectCleanupQueue), asynq.MaxRetry(10), asynq.Timeout(projectCleanupTaskTimeout), asynq.Unique(projectCleanupUniqueTTL)); err != nil {
 					return err
 				}
 			}
+			return nil
 		}
 		return errors.New("account deletion pending project cleanup")
 	}
 	if err := s.store.RemoveEmailFromSignupAllowlist(ctx, payload.UserEmail); err != nil {
 		return err
 	}
+	log.Printf("account deletion transition=finalizing user_id=%s", payload.UserID)
 	if err := s.store.DeleteUser(ctx, payload.UserID); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
@@ -483,7 +510,22 @@ func (s *Server) handleProjectDeletionSweepTask(ctx context.Context, _ *asynq.Ta
 			}
 			return err
 		}
+		log.Printf("cleanup transition=queued project_id=%s user_id=%s source=deletion_sweep", project.ID, user.ID)
 		if err := s.enqueueProjectJob(ctx, taskDeleteProjectResources, projectJobPayload{UserID: user.ID, UserEmail: user.Email, ProjectID: project.ID}, asynq.Queue(projectCleanupQueue), asynq.MaxRetry(10), asynq.Timeout(projectCleanupTaskTimeout), asynq.Unique(projectCleanupUniqueTTL)); err != nil {
+			return err
+		}
+	}
+	return s.finalizeReadyAccountDeletions(ctx, 100)
+}
+
+func (s *Server) finalizeReadyAccountDeletions(ctx context.Context, limit int) error {
+	users, err := s.store.PendingAccountDeletionUsers(ctx, accountDeletionAccessNote, limit)
+	if err != nil {
+		return err
+	}
+	for i := range users {
+		user := &users[i]
+		if err := s.finalizePendingAccountDeletionIfReady(ctx, accountDeletionPayload{UserID: user.ID, UserEmail: user.Email}); err != nil {
 			return err
 		}
 	}

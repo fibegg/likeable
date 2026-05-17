@@ -32,6 +32,16 @@ export type AgentPoolOption = { label?: string; agentId: string; serverId: strin
 export type AdminConfigResponse = { config: Record<string, AdminConfigEntry>; adminEmail: string; agentPoolStats?: AgentPoolStat[]; agentPool?: AgentPoolOption[] };
 export type AgentPoolStat = { agentId: string; serverId: string; projectCount: number; archivedCount: number; readyArchiveCount: number };
 export type PoolRow = { id: string; label: string; agentId: string; serverId: string; status: AgentPoolStatus };
+export type AdminRecoveryProject = { id: string; userId: string; title: string; status: string; cleanupLastError?: string; playgroundId?: string; playspecId?: string; propId?: string; updatedAt: string };
+export type AdminRecoveryAccount = { userId: string; email: string; projectCount: number; ready: boolean; createdAt: string };
+export type AdminRecoveryResponse = {
+  checkedAt: string;
+  deletingProjects: AdminRecoveryProject[];
+  pendingAccountDeletions: AdminRecoveryAccount[];
+  deletingProjectCount: number;
+  pendingAccountDeletionCount: number;
+  sweepIntervalSeconds: number;
+};
 export type AdminUserSummary = {
   user: User;
   projectCount: number;

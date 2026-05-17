@@ -75,6 +75,9 @@ func TestTryAcquireProjectCleanupLeasesDeletingProject(t *testing.T) {
 	if err := store.CreateProject(t.Context(), project); err != nil {
 		t.Fatal(err)
 	}
+	if err := store.UpdateProjectCleanupError(t.Context(), project.ID, user.ID, "previous cleanup failure"); err != nil {
+		t.Fatal(err)
+	}
 
 	acquired, err := store.TryAcquireProjectCleanup(t.Context(), project.ID, user.ID, time.Minute)
 	if err != nil {
@@ -82,6 +85,13 @@ func TestTryAcquireProjectCleanupLeasesDeletingProject(t *testing.T) {
 	}
 	if !acquired {
 		t.Fatal("first cleanup lease was not acquired")
+	}
+	stored, err := store.ProjectForUser(t.Context(), user.ID, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.CleanupLastError != "" {
+		t.Fatalf("cleanup_last_error=%q, want cleared on acquired retry", stored.CleanupLastError)
 	}
 	acquired, err = store.TryAcquireProjectCleanup(t.Context(), project.ID, user.ID, time.Minute)
 	if err != nil {

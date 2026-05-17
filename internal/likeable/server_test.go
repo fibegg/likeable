@@ -6,8 +6,10 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -2763,6 +2765,7 @@ func TestProfileDeleteAllKeepsLocalDataWhenFibeCleanupFails(t *testing.T) {
 		"fibe_base_url": "server.test:3000",
 		"fibe_api_key":  "test-key",
 		"fibe_cli_path": "/does/not/exist",
+		"signup_mode":   "all",
 	}, secretConfigKeys); err != nil {
 		t.Fatal(err)
 	}
@@ -2808,6 +2811,29 @@ func TestProfileDeleteAllKeepsLocalDataWhenFibeCleanupFails(t *testing.T) {
 	}
 	if storedUser.AccessStatus != "restricted" {
 		t.Fatalf("access_status=%q, want restricted", storedUser.AccessStatus)
+	}
+	if storedUser.Email == "pilot@example.com" || !strings.HasPrefix(storedUser.Email, "deleted-") {
+		t.Fatalf("deleted user email=%q, want retired tombstone address", storedUser.Email)
+	}
+	if _, err := store.UserByEmail(t.Context(), "pilot@example.com"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("deleted email lookup error=%v, want sql.ErrNoRows", err)
+	}
+	allowed, err := server.canSignInEmail(t.Context(), "pilot@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !allowed {
+		t.Fatal("deleted email should be allowed to sign up again while cleanup is stuck")
+	}
+	newUser, err := store.UpsertUser(t.Context(), "pilot@example.com", "Pilot Reloaded", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if newUser.ID == user.ID {
+		t.Fatal("deleted email reused old user id")
+	}
+	if newUser.AccessStatus != "active" {
+		t.Fatalf("new user access_status=%q, want active", newUser.AccessStatus)
 	}
 	if project, err := store.ProjectForUser(t.Context(), user.ID, project.ID); err != nil {
 		t.Fatalf("project should remain when remote cleanup fails: %v", err)
@@ -3340,7 +3366,7 @@ func TestSignupPolicyDefaultsClosedButAllowsAdminExistingAndAllowlist(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.UpdateUserAccess(t.Context(), admin.ID, "restricted", "account deletion requested"); err != nil {
+	if _, err := store.UpdateUserAccess(t.Context(), admin.ID, "restricted", "manual restriction"); err != nil {
 		t.Fatal(err)
 	}
 	allowed, err = server.canSignInEmail(t.Context(), "admin@example.com")
@@ -3348,7 +3374,7 @@ func TestSignupPolicyDefaultsClosedButAllowsAdminExistingAndAllowlist(t *testing
 		t.Fatal(err)
 	}
 	if allowed {
-		t.Fatal("restricted admin account should stay blocked until deletion completes")
+		t.Fatal("restricted admin account should stay blocked")
 	}
 
 	if _, err := store.UpsertUser(t.Context(), "existing@example.com", "Existing", ""); err != nil {
@@ -3383,6 +3409,50 @@ func TestSignupPolicyDefaultsClosedButAllowsAdminExistingAndAllowlist(t *testing
 	}
 	if allowed {
 		t.Fatal("unlisted user should be rejected in allowlist mode")
+	}
+}
+
+func TestLoginRetiresPendingDeletionUserBeforeSignIn(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.UpsertConfig(t.Context(), map[string]string{"signup_mode": "all"}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test", DevAuth: true}, http: http.DefaultClient}
+	oldUser, err := store.UpsertUser(t.Context(), "pilot@example.com", "Pilot", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.UpdateUserAccess(t.Context(), oldUser.ID, "restricted", accountDeletionAccessNote); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/dev/login?email=pilot@example.com", nil)
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("dev login returned %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	retired, err := store.UserByID(t.Context(), oldUser.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if retired.Email == "pilot@example.com" || retired.AccessStatus != "restricted" {
+		t.Fatalf("retired user=%+v, want restricted tombstone", retired)
+	}
+	newUser, err := store.UserByEmail(t.Context(), "pilot@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if newUser.ID == oldUser.ID {
+		t.Fatal("login reused pending-deletion user id")
+	}
+	if newUser.AccessStatus != "active" {
+		t.Fatalf("new user access_status=%q, want active", newUser.AccessStatus)
 	}
 }
 
@@ -3570,6 +3640,94 @@ func TestAdminUserResponsesExposeProjectAssignments(t *testing.T) {
 	}
 	if strings.Contains(detailRec.Body.String(), `"agentId":"agent-1"`) && strings.Contains(detailRec.Body.String(), `"project":{"`) && strings.Contains(detailRec.Body.String(), `"AgentID"`) {
 		t.Fatalf("admin detail leaked Go internal field casing: %s", detailRec.Body.String())
+	}
+}
+
+func TestAdminRecoveryReportsDeletionBacklog(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test", AdminEmail: "admin@example.com"}, http: http.DefaultClient}
+	admin, err := store.UpsertUser(t.Context(), "admin@example.com", "Admin", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateSession(t.Context(), admin.ID, "admin-recovery-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	waitingUser, err := store.UpsertUser(t.Context(), "waiting@example.com", "Waiting", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.UpdateUserAccess(t.Context(), waitingUser.ID, "restricted", accountDeletionAccessNote); err != nil {
+		t.Fatal(err)
+	}
+	readyUser, err := store.UpsertUser(t.Context(), "ready@example.com", "Ready", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.UpdateUserAccess(t.Context(), readyUser.ID, "restricted", accountDeletionAccessNote); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{
+		ID:             "project-recovery",
+		UserID:         waitingUser.ID,
+		Title:          "Recovery",
+		ConversationID: "conv-recovery",
+		PlaygroundID:   "playground-recovery",
+		PlayspecID:     "playspec-recovery",
+		PropID:         "prop-recovery",
+		Status:         "deleting",
+	}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdateProjectCleanupError(t.Context(), project.ID, waitingUser.ID, "previous timeout"); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/recovery", nil)
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "admin-recovery-token"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("admin recovery returned %d: %s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		CheckedAt                   string                 `json:"checkedAt"`
+		DeletingProjects            []adminRecoveryProject `json:"deletingProjects"`
+		PendingAccountDeletions     []adminRecoveryAccount `json:"pendingAccountDeletions"`
+		DeletingProjectCount        int                    `json:"deletingProjectCount"`
+		PendingAccountDeletionCount int                    `json:"pendingAccountDeletionCount"`
+		SweepIntervalSeconds        int                    `json:"sweepIntervalSeconds"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.CheckedAt == "" || body.SweepIntervalSeconds != int(projectDeletionSweepInterval.Seconds()) {
+		t.Fatalf("recovery metadata=%+v, want checkedAt and sweep interval", body)
+	}
+	if body.DeletingProjectCount != 1 || len(body.DeletingProjects) != 1 {
+		t.Fatalf("deleting projects=%+v count=%d, want one", body.DeletingProjects, body.DeletingProjectCount)
+	}
+	if body.DeletingProjects[0].ID != project.ID || body.DeletingProjects[0].CleanupLastError != "previous timeout" {
+		t.Fatalf("deleting project=%+v, want cleanup failure details", body.DeletingProjects[0])
+	}
+	if body.PendingAccountDeletionCount != 2 || len(body.PendingAccountDeletions) != 2 {
+		t.Fatalf("pending accounts=%+v count=%d, want two", body.PendingAccountDeletions, body.PendingAccountDeletionCount)
+	}
+	accountsByEmail := map[string]adminRecoveryAccount{}
+	for _, account := range body.PendingAccountDeletions {
+		accountsByEmail[account.Email] = account
+	}
+	if account := accountsByEmail["waiting@example.com"]; account.Ready || account.ProjectCount != 1 {
+		t.Fatalf("waiting account=%+v, want not ready with one project", account)
+	}
+	if account := accountsByEmail["ready@example.com"]; !account.Ready || account.ProjectCount != 0 {
+		t.Fatalf("ready account=%+v, want ready with zero projects", account)
 	}
 }
 

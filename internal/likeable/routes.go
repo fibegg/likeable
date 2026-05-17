@@ -114,6 +114,8 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		s.handleDevLogin(w, r)
 	case r.URL.Path == "/api/admin/config":
 		s.withAdmin(s.handleAdminConfig)(w, r)
+	case r.URL.Path == "/api/admin/recovery":
+		s.withAdmin(s.handleAdminRecovery)(w, r)
 	case r.URL.Path == "/api/admin/agent-pool/retire":
 		s.withAdmin(s.handleAdminAgentPoolRetire)(w, r)
 	case r.URL.Path == "/api/admin/users" || strings.HasPrefix(r.URL.Path, "/api/admin/users/"):

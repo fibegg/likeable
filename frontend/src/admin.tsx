@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Loader2, Plus, Send, Trash2 } from 'lucide-react';
+import { Loader2, Plus, RefreshCw, Send, Trash2 } from 'lucide-react';
 import { cleanPoolRows, makePoolRow, parsePoolRows } from './admin_pool';
 import { api } from './api';
 import { AppDialog, Metric } from './builder_components';
 import { ADMIN_CONFIG_SECTIONS } from './config';
-import type { AdminConfigEntry, AdminConfigResponse, AdminProjectSummary, AdminUserDetail, AdminUserSummary, AdminUsersResponse, AgentAssignmentSummary, AgentPoolOption, AgentPoolStat, AppDialogConfig, PoolRow } from './domain';
+import type { AdminConfigEntry, AdminConfigResponse, AdminProjectSummary, AdminRecoveryResponse, AdminUserDetail, AdminUserSummary, AdminUsersResponse, AgentAssignmentSummary, AgentPoolOption, AgentPoolStat, AppDialogConfig, PoolRow } from './domain';
 import { formatMessageTime, formatShortDate } from './format';
 import { statusLabel, TranslationKey, useDocumentTitle, useI18n } from './i18n';
 
@@ -480,7 +480,7 @@ function adminConfigLabel(key: string, t: (key: TranslationKey) => string): stri
 }
 
 export function Admin() {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   useDocumentTitle(t('page.adminSettings.title'));
   const [config, setConfig] = useState<Record<string, AdminConfigEntry>>({});
   const [draft, setDraft] = useState<Record<string, string>>({});
@@ -492,6 +492,9 @@ export function Admin() {
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
+  const [recovery, setRecovery] = useState<AdminRecoveryResponse | null>(null);
+  const [recoveryLoading, setRecoveryLoading] = useState(false);
+  const [recoveryError, setRecoveryError] = useState('');
 
   const loadConfig = async () => {
     const response = await api<AdminConfigResponse>('/api/admin/config');
@@ -503,7 +506,22 @@ export function Admin() {
     setPoolStats(response.agentPoolStats ?? []);
   };
 
-  useEffect(() => { void loadConfig(); }, []);
+  const loadRecovery = async () => {
+    setRecoveryLoading(true);
+    setRecoveryError('');
+    try {
+      setRecovery(await api<AdminRecoveryResponse>('/api/admin/recovery'));
+    } catch (err) {
+      setRecoveryError(err instanceof Error ? err.message : t('admin.recovery.loadFailed'));
+    } finally {
+      setRecoveryLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadConfig();
+    void loadRecovery();
+  }, []);
 
   const setPoolRow = (id: string, patch: Partial<PoolRow>) => {
     setPoolRows((rows) => rows.map((row) => row.id === id ? { ...row, ...patch } : row));
@@ -588,6 +606,49 @@ export function Admin() {
 
       <div className="adminStack">
         <AdminCustomersPanel />
+
+        <section className="adminCard recoveryCard">
+          <div className="adminCardHeader withAction">
+            <div>
+              <h3>{t('admin.recovery.title')}</h3>
+              <p>{t('admin.recovery.body')}</p>
+            </div>
+            <button className="ghostButton" type="button" disabled={recoveryLoading} onClick={() => void loadRecovery()}>
+              {recoveryLoading ? <Loader2 className="spinIcon" size={15} /> : <RefreshCw size={15} />}
+              {t('admin.recovery.refresh')}
+            </button>
+          </div>
+          {recoveryError && <div className="adminError inlineAdminError">{recoveryError}</div>}
+          <div className="customerMetricGrid recoveryMetricGrid">
+            <Metric label={t('admin.recovery.pendingAccounts')} value={String(recovery?.pendingAccountDeletionCount ?? 0)} />
+            <Metric label={t('admin.recovery.deletingProjects')} value={String(recovery?.deletingProjectCount ?? 0)} />
+            <Metric label={t('admin.recovery.sweep')} value={t('admin.recovery.sweepEvery', { seconds: recovery?.sweepIntervalSeconds ?? 0 })} />
+            <Metric label={t('admin.recovery.checkedAt')} value={recovery?.checkedAt ? formatMessageTime(recovery.checkedAt, locale) : '—'} />
+          </div>
+          {recovery && recovery.pendingAccountDeletions.length === 0 && recovery.deletingProjects.length === 0 && <div className="emptyPool">{t('admin.recovery.noIssues')}</div>}
+          {recovery && (recovery.pendingAccountDeletions.length > 0 || recovery.deletingProjects.length > 0) && (
+            <div className="recoveryList">
+              {recovery.pendingAccountDeletions.map((account) => (
+                <div className={`recoveryRow ${account.ready ? 'ready' : 'waiting'}`} key={`account-${account.userId}`}>
+                  <span>
+                    <strong>{account.email}</strong>
+                    <em>{account.ready ? t('admin.recovery.accountReady') : t('admin.recovery.accountWaiting', { projects: account.projectCount })}</em>
+                  </span>
+                  <code>{account.userId}</code>
+                </div>
+              ))}
+              {recovery.deletingProjects.map((project) => (
+                <div className={`recoveryRow ${project.cleanupLastError ? 'failed' : 'waiting'}`} key={`project-${project.id}`}>
+                  <span>
+                    <strong>{project.title}</strong>
+                    <em>{project.cleanupLastError || t('admin.recovery.projectWaiting')}</em>
+                  </span>
+                  <code>{project.id}</code>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
 
         <section className="adminCard">
           <div className="adminCardHeader">

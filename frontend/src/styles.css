@@ -3211,6 +3211,9 @@ html.draggingCollapsedChat * {
   grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
   gap: 8px;
 }
+.recoveryMetricGrid {
+  margin-bottom: 12px;
+}
 .customerMetric {
   min-width: 0;
   border: 1px solid rgba(132, 147, 154, .16);
@@ -3511,6 +3514,48 @@ html.draggingCollapsedChat * {
   padding: 14px;
   color: var(--muted);
   font-size: 13px;
+}
+.recoveryList {
+  display: grid;
+  gap: 8px;
+}
+.recoveryRow {
+  min-width: 0;
+  border: 1px solid rgba(132, 147, 154, .18);
+  border-radius: 8px;
+  background: rgba(7, 14, 17, .52);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 180px);
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+}
+.recoveryRow.ready {
+  border-color: rgba(101, 201, 143, .32);
+}
+.recoveryRow.failed {
+  border-color: rgba(255, 105, 93, .34);
+}
+.recoveryRow span {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+.recoveryRow strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.recoveryRow em,
+.recoveryRow code {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .smallIconButton {
   width: 38px;

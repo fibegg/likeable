@@ -166,6 +166,36 @@ func (s *Server) canSignInEmail(ctx context.Context, email string) (bool, error)
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return false, err
 	}
+	return s.newAccountAllowed(ctx, email)
+}
+
+func (s *Server) prepareEmailForSignIn(ctx context.Context, email string) (bool, error) {
+	email = normalizeEmail(email)
+	if email == "" {
+		return false, nil
+	}
+	if user, err := s.store.UserByEmail(ctx, email); err == nil {
+		if user.AccessStatus != "restricted" {
+			return true, nil
+		}
+		if pendingAccountDeletion(user) {
+			if _, err := s.store.RetireUserEmailForDeletion(ctx, user.ID); err != nil {
+				return false, err
+			}
+			return s.newAccountAllowed(ctx, email)
+		}
+		return false, nil
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return false, err
+	}
+	return s.newAccountAllowed(ctx, email)
+}
+
+func (s *Server) newAccountAllowed(ctx context.Context, email string) (bool, error) {
+	email = normalizeEmail(email)
+	if email == "" {
+		return false, nil
+	}
 	if s.config.AdminEmail != "" && email == s.config.AdminEmail {
 		return true, nil
 	}
@@ -181,6 +211,12 @@ func (s *Server) canSignInEmail(ctx context.Context, email string) (bool, error)
 	default:
 		return false, nil
 	}
+}
+
+func pendingAccountDeletion(user *User) bool {
+	return user != nil &&
+		user.AccessStatus == "restricted" &&
+		strings.EqualFold(strings.TrimSpace(user.AccessNote), accountDeletionAccessNote)
 }
 
 func (s *Server) signupMode(cfg map[string]string) string {
@@ -262,7 +298,7 @@ func (s *Server) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "google email is not verified")
 		return
 	}
-	if allowed, err := s.canSignInEmail(r.Context(), profile.Email); err != nil {
+	if allowed, err := s.prepareEmailForSignIn(r.Context(), profile.Email); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	} else if !allowed {
@@ -288,7 +324,7 @@ func (s *Server) handleDevLogin(w http.ResponseWriter, r *http.Request) {
 	if email == "" {
 		email = "admin@example.com"
 	}
-	if allowed, err := s.canSignInEmail(r.Context(), email); err != nil {
+	if allowed, err := s.prepareEmailForSignIn(r.Context(), email); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	} else if !allowed {

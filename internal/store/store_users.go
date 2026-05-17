@@ -160,9 +160,58 @@ func (s *Store) UpdateUserAccess(ctx context.Context, userID, status, note strin
 	return s.UserByID(ctx, userID)
 }
 
+func (s *Store) RetireUserEmailForDeletion(ctx context.Context, userID string) (*User, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil, errors.New("user id is required")
+	}
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE users
+		SET email = ?, access_status = 'restricted', access_note = 'account deletion requested', updated_at = ?
+		WHERE id = ?
+	`, deletedUserEmail(userID), nowString(), userID)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return nil, sql.ErrNoRows
+	}
+	return s.UserByID(ctx, userID)
+}
+
 func (s *Store) UserByID(ctx context.Context, userID string) (*User, error) {
 	row := s.db.QueryRowContext(ctx, `SELECT id, email, name, avatar_url, access_status, access_note, created_at FROM users WHERE id = ?`, userID)
 	return scanUser(row)
+}
+
+func (s *Store) PendingAccountDeletionUsers(ctx context.Context, accessNote string, limit int) ([]User, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 100
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, email, name, avatar_url, access_status, access_note, created_at
+		FROM users
+		WHERE access_status = 'restricted' AND access_note = ?
+		ORDER BY updated_at ASC
+		LIMIT ?
+	`, strings.TrimSpace(accessNote), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []User
+	for rows.Next() {
+		user, err := scanUser(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *user)
+	}
+	if out == nil {
+		out = []User{}
+	}
+	return out, rows.Err()
 }
 
 func (s *Store) DeleteUser(ctx context.Context, userID string) error {

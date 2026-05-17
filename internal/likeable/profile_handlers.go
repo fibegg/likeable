@@ -9,6 +9,8 @@ import (
 	"strings"
 )
 
+const accountDeletionAccessNote = "account deletion requested"
+
 func (s *Server) handleProfileDeleteAll(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -31,11 +33,12 @@ func (s *Server) handleProfileDeleteAll(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if _, err := s.store.UpdateUserAccess(r.Context(), user.ID, "restricted", "account deletion requested"); err != nil {
+	userEmail := normalizeEmail(user.Email)
+	if err := s.store.RemoveEmailFromSignupAllowlist(r.Context(), userEmail); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if err := s.store.RemoveEmailFromSignupAllowlist(r.Context(), user.Email); err != nil {
+	if _, err := s.store.RetireUserEmailForDeletion(r.Context(), user.ID); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -48,9 +51,9 @@ func (s *Server) handleProfileDeleteAll(w http.ResponseWriter, r *http.Request) 
 			}
 			project.Status = "deleting"
 		}
-		s.deleteProjectResourcesAsync(user.ID, user.Email, project)
+		s.deleteProjectResourcesAsync(user.ID, userEmail, project)
 	}
-	if err := s.deleteAccountAsync(user.ID, user.Email); err != nil {
+	if err := s.deleteAccountAsync(user.ID, userEmail); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
