@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -13,15 +14,21 @@ import (
 const notificationTurnTimeSlop = 5 * time.Second
 
 type projectNotificationRow struct {
-	ID     string
-	Body   string
-	Time   string
-	Active bool
+	ID          string
+	Body        string
+	Time        string
+	Active      bool
+	StartedAt   string
+	CompletedAt string
 }
 
 type projectWorkObservation struct {
-	Key    string
-	Active bool
+	Key            string
+	Active         bool
+	StartedAt      time.Time
+	HasStartedAt   bool
+	CompletedAt    time.Time
+	HasCompletedAt bool
 }
 
 type likeableNotificationSegment struct {
@@ -59,7 +66,8 @@ func (s *Server) syncProjectNotificationTimingsAt(ctx context.Context, project *
 		if _, ok := timings[row.ID]; ok {
 			continue
 		}
-		if err := s.store.UpsertProjectNotificationStarted(ctx, project.ID, row.ID, row.Body, observedAt); err != nil {
+		startedAt := projectNotificationRowStartedAt(row, observedAt)
+		if err := s.store.UpsertProjectNotificationStarted(ctx, project.ID, row.ID, row.Body, startedAt); err != nil {
 			return nil, shouldContinue, err
 		}
 	}
@@ -83,7 +91,7 @@ func (s *Server) syncProjectNotificationTimingsAt(ctx context.Context, project *
 					completedAt = parsed
 				}
 			}
-		} else if parsed, ok := parseProjectNotificationTime(row.Time); ok && parsed.After(completedAt) {
+		} else if parsed, ok := projectNotificationRowCompletedAt(row); ok {
 			completedAt = parsed
 		}
 		if !nextInSequence {
@@ -126,7 +134,11 @@ func (s *Server) syncProjectWorkSessionsAt(ctx context.Context, project *Project
 			continue
 		}
 		seen[observation.Key] = true
-		if err := s.store.StartProjectWorkSession(ctx, project.UserID, project.ID, observation.Key, observedAt); err != nil {
+		startedAt := observedAt
+		if observation.HasStartedAt {
+			startedAt = observation.StartedAt
+		}
+		if err := s.store.StartProjectWorkSession(ctx, project.UserID, project.ID, observation.Key, startedAt); err != nil {
 			return false, err
 		}
 	}
@@ -135,7 +147,11 @@ func (s *Server) syncProjectWorkSessionsAt(ctx context.Context, project *Project
 		if observation.Key == "" || observation.Active {
 			continue
 		}
-		completed, err := s.store.CompleteAndBillProjectWorkSession(ctx, project.UserID, project.ID, observation.Key, observedAt, s.freeHourWindowHours(ctx), s.freeHourLimitMs(ctx))
+		completedAt := observedAt
+		if observation.HasCompletedAt {
+			completedAt = observation.CompletedAt
+		}
+		completed, err := s.store.CompleteAndBillProjectWorkSession(ctx, project.UserID, project.ID, observation.Key, completedAt, s.freeHourWindowHours(ctx), s.freeHourLimitMs(ctx))
 		if err != nil {
 			return billed, err
 		}
@@ -154,30 +170,54 @@ func (s *Server) syncProjectWorkSessionsAt(ctx context.Context, project *Project
 }
 
 func projectWorkObservations(local []Message, rows []projectNotificationRow, live *fibegateway.ConversationLiveState) []projectWorkObservation {
-	activeByKey := map[string]bool{}
+	observationsByKey := map[string]projectWorkObservation{}
 	order := []string{}
 	for _, row := range rows {
 		key, ok := notificationSequenceKey(row.ID)
 		if !ok || key == "" {
 			continue
 		}
-		if _, exists := activeByKey[key]; !exists {
+		observation, exists := observationsByKey[key]
+		if !exists {
 			order = append(order, key)
+			observation = projectWorkObservation{Key: key}
 		}
-		activeByKey[key] = activeByKey[key] || row.Active
+		observation.Active = observation.Active || row.Active
+		if startedAt, ok := projectNotificationWorkStartedAt(row); ok {
+			if !observation.HasStartedAt || startedAt.Before(observation.StartedAt) {
+				observation.StartedAt = startedAt
+				observation.HasStartedAt = true
+			}
+		}
+		if completedAt, ok := projectNotificationRowCompletedAt(row); ok {
+			if !observation.HasCompletedAt || completedAt.After(observation.CompletedAt) {
+				observation.CompletedAt = completedAt
+				observation.HasCompletedAt = true
+			}
+		}
+		observationsByKey[key] = observation
 	}
 	if live != nil && live.IsProcessing {
 		key := liveWorkSessionKey(local, live)
 		if key != "" {
-			if _, exists := activeByKey[key]; !exists {
+			observation, exists := observationsByKey[key]
+			if !exists {
 				order = append(order, key)
+				observation = projectWorkObservation{Key: key}
 			}
-			activeByKey[key] = true
+			if startedAt, ok := parseProjectNotificationTime(live.StartedAt); ok {
+				if !observation.HasStartedAt || startedAt.Before(observation.StartedAt) {
+					observation.StartedAt = startedAt
+					observation.HasStartedAt = true
+				}
+			}
+			observation.Active = true
+			observationsByKey[key] = observation
 		}
 	}
 	out := make([]projectWorkObservation, 0, len(order))
 	for _, key := range order {
-		out = append(out, projectWorkObservation{Key: key, Active: activeByKey[key]})
+		out = append(out, observationsByKey[key])
 	}
 	return out
 }
@@ -225,13 +265,21 @@ func projectNotificationRows(local []Message, messages []any, activity []any, li
 		}
 		isLast := segmentIndex == lastLiveIndex
 		rows = append(rows, projectNotificationRow{
-			ID:     rowID,
-			Body:   segment.Body,
-			Time:   liveTime,
-			Active: isLast && !liveIdle && (live.IsProcessing || segment.Streaming),
+			ID:        rowID,
+			Body:      segment.Body,
+			Time:      liveTime,
+			Active:    isLast && !liveIdle && (live.IsProcessing || segment.Streaming),
+			StartedAt: firstNotificationSegmentStartedAt(segmentIndex, liveTime),
 		})
 	}
 	return rows
+}
+
+func firstNotificationSegmentStartedAt(segmentIndex int, startedAt string) string {
+	if segmentIndex != 0 {
+		return ""
+	}
+	return startedAt
 }
 
 func projectNotificationSummaryElapsedMs(rows []projectNotificationRow, timings map[string]ProjectNotificationTiming, notificationID string, completedAt time.Time) int64 {
@@ -337,13 +385,24 @@ func assistantNotificationRows(userTimes []time.Time, messages []any) []projectN
 			segmentIndex := counters[turnKey]
 			counters[turnKey] = segmentIndex + 1
 			rows = append(rows, projectNotificationRow{
-				ID:   fmt.Sprintf("%s-notification-%d", turnKey, segmentIndex),
-				Body: segment.Body,
-				Time: source.timeRaw,
+				ID:          fmt.Sprintf("%s-notification-%d", turnKey, segmentIndex),
+				Body:        segment.Body,
+				Time:        source.timeRaw,
+				StartedAt:   assistantNotificationStartedAt(turnKey, segmentIndex, source.timeRaw),
+				CompletedAt: source.timeRaw,
 			})
 		}
 	}
 	return rows
+}
+
+func assistantNotificationStartedAt(turnKey string, segmentIndex int, fallback string) string {
+	if segmentIndex == 0 {
+		if startedAt, ok := notificationTurnTime(turnKey); ok {
+			return startedAt.UTC().Format(time.RFC3339Nano)
+		}
+	}
+	return fallback
 }
 
 func activityNotificationRows(activity []any) []projectNotificationRow {
@@ -355,9 +414,11 @@ func activityNotificationRows(activity []any) []projectNotificationRow {
 		body := anyString(entry["message"])
 		for segmentIndex, segment := range parseLikeableNotificationSegments(body) {
 			rows = append(rows, projectNotificationRow{
-				ID:   fmt.Sprintf("activity-%s-notification-%d", sourceID, segmentIndex),
-				Body: segment.Body,
-				Time: timeRaw,
+				ID:          fmt.Sprintf("activity-%s-notification-%d", sourceID, segmentIndex),
+				Body:        segment.Body,
+				Time:        timeRaw,
+				StartedAt:   timeRaw,
+				CompletedAt: timeRaw,
 			})
 		}
 	}
@@ -399,6 +460,18 @@ func notificationTurnKeyForTime(userTimes []time.Time, sourceTime time.Time, has
 
 func notificationTurnKey(value time.Time) string {
 	return fmt.Sprintf("turn-%d", value.UTC().UnixMilli())
+}
+
+func notificationTurnTime(turnKey string) (time.Time, bool) {
+	raw, ok := strings.CutPrefix(turnKey, "turn-")
+	if !ok || strings.TrimSpace(raw) == "" {
+		return time.Time{}, false
+	}
+	unixMilli, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return time.UnixMilli(unixMilli).UTC(), true
 }
 
 func liveNotificationRowTime(startedAt string, latestUserTime time.Time, hasLatestUserTime bool) string {
@@ -524,6 +597,71 @@ func parseProjectNotificationTime(raw string) (time.Time, bool) {
 		return time.Time{}, false
 	}
 	return parsed.UTC(), true
+}
+
+func projectNotificationRowStartedAt(row projectNotificationRow, fallback time.Time) time.Time {
+	if parsed, ok := parseProjectNotificationTime(row.StartedAt); ok {
+		return parsed
+	}
+	if segmentIndex, ok := notificationSegmentIndex(row.ID); ok && segmentIndex == 0 {
+		if sequenceKey, ok := notificationSequenceKey(row.ID); ok {
+			if startedAt, ok := notificationTurnTime(sequenceKey); ok {
+				return startedAt
+			}
+		}
+	}
+	if !row.Active && strings.TrimSpace(row.CompletedAt) == "" {
+		if parsed, ok := parseProjectNotificationTime(row.Time); ok {
+			return parsed
+		}
+	}
+	if !row.Active {
+		if sequenceKey, ok := notificationSequenceKey(row.ID); ok {
+			if startedAt, ok := notificationTurnTime(sequenceKey); ok {
+				return startedAt
+			}
+		}
+	}
+	if completedAt, ok := projectNotificationRowCompletedAt(row); ok {
+		return completedAt
+	}
+	return fallback.UTC()
+}
+
+func projectNotificationWorkStartedAt(row projectNotificationRow) (time.Time, bool) {
+	if parsed, ok := parseProjectNotificationTime(row.StartedAt); ok {
+		return parsed, true
+	}
+	if strings.TrimSpace(row.CompletedAt) == "" {
+		if parsed, ok := parseProjectNotificationTime(row.Time); ok {
+			return parsed, true
+		}
+	}
+	if sequenceKey, ok := notificationSequenceKey(row.ID); ok {
+		if startedAt, ok := notificationTurnTime(sequenceKey); ok {
+			return startedAt, true
+		}
+	}
+	if completedAt, ok := projectNotificationRowCompletedAt(row); ok {
+		return completedAt, true
+	}
+	return time.Time{}, false
+}
+
+func projectNotificationRowCompletedAt(row projectNotificationRow) (time.Time, bool) {
+	return parseProjectNotificationTime(row.CompletedAt)
+}
+
+func notificationSegmentIndex(notificationID string) (int, bool) {
+	_, raw, ok := strings.Cut(notificationID, "-notification-")
+	if !ok || raw == "" {
+		return 0, false
+	}
+	index, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, false
+	}
+	return index, true
 }
 
 func normalizeNotificationBody(body string) string {

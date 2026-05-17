@@ -2204,8 +2204,8 @@ func TestProjectNotificationTimingsPersistAcrossRefresh(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := timings[firstID].ElapsedMs; got != 34_000 {
-		t.Fatalf("first elapsed=%d, want 34000", got)
+	if got := timings[firstID].ElapsedMs; got != 46_000 {
+		t.Fatalf("first elapsed=%d, want 46000", got)
 	}
 	if got := timings[secondID].ElapsedMs; got != 0 {
 		t.Fatalf("second elapsed=%d, want 0 until another notification arrives", got)
@@ -2236,15 +2236,15 @@ func TestProjectNotificationTimingsPersistAcrossRefresh(t *testing.T) {
 		}
 	}
 	finalID := notificationTurnKey(userAt) + "-notification-4"
-	if got, want := timings[finalID].ElapsedMs, int64(587_000); got != want {
+	if got, want := timings[finalID].ElapsedMs, int64(599_000); got != want {
 		t.Fatalf("final elapsed=%d, want total turn elapsed %d", got, want)
 	}
 	balance, err := appStore.PaidHourCreditBalance(t.Context(), user.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := balance, int64(time.Hour/time.Millisecond)-587_000; got != want {
-		t.Fatalf("paid hour balance=%d, want one turn billed once as %dms", got, 587_000)
+	if got, want := balance, int64(time.Hour/time.Millisecond)-599_000; got != want {
+		t.Fatalf("paid hour balance=%d, want one turn billed once as %dms", got, 599_000)
 	}
 	if err := appStore.Close(); err != nil {
 		t.Fatal(err)
@@ -2259,11 +2259,142 @@ func TestProjectNotificationTimingsPersistAcrossRefresh(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := persisted[firstID].ElapsedMs; got != 34_000 {
-		t.Fatalf("persisted first elapsed=%d, want 34000", got)
+	if got := persisted[firstID].ElapsedMs; got != 46_000 {
+		t.Fatalf("persisted first elapsed=%d, want 46000", got)
 	}
-	if got, want := persisted[finalID].ElapsedMs, int64(587_000); got != want {
+	if got, want := persisted[finalID].ElapsedMs, int64(599_000); got != want {
 		t.Fatalf("persisted final elapsed=%d, want total turn elapsed %d", got, want)
+	}
+}
+
+func TestProjectNotificationTimingsUseLiveStartWhenFirstObservedIdle(t *testing.T) {
+	appStore, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer appStore.Close()
+	server := &Server{store: appStore, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	user, _ := appStore.UpsertUser(t.Context(), "a@example.com", "A", "")
+	project := &Project{
+		ID:             "project-notification-timings-first-idle",
+		UserID:         user.ID,
+		Title:          "First idle notification timings",
+		ConversationID: "conv-notification-timings-first-idle",
+		AgentID:        "agent-1",
+		PreviewURL:     "http://preview.example.test",
+		Status:         "ready",
+	}
+	if err := appStore.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+	if err := appStore.UpsertConfig(t.Context(), map[string]string{"free_hours": "0"}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := appStore.GrantHourCredits(t.Context(), user.ID, "cs_first_idle_hours", 1); err != nil {
+		t.Fatal(err)
+	}
+	userAt := time.Date(2026, 5, 12, 13, 0, 0, 0, time.UTC)
+	if _, err := appStore.AddMessageAt(t.Context(), project.ID, "user", "make changes", userAt.Format(time.RFC3339Nano)); err != nil {
+		t.Fatal(err)
+	}
+	local, err := appStore.MessagesForProject(t.Context(), project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	observedAt := userAt.Add(10 * time.Minute)
+	finalLive := &fibe.ConversationLiveState{
+		ConversationID: project.ConversationID,
+		IsProcessing:   false,
+		StreamText: likeableNotificationStart + "Inspecting the app" + likeableNotificationEnd +
+			likeableNotificationStart + "Updating files" + likeableNotificationEnd +
+			likeableNotificationStart + "Refreshing the canvas" + likeableNotificationEnd +
+			likeableNotificationStart + "Checking the preview" + likeableNotificationEnd +
+			likeableNotificationStart + "Canvas updated" + likeableNotificationEnd,
+		QueuedTurns: 0,
+		StartedAt:   userAt.Add(time.Second).Format(time.RFC3339Nano),
+	}
+	timings, shouldContinue, err := server.syncProjectNotificationTimingsAt(t.Context(), project, local, nil, nil, finalLive, observedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if shouldContinue {
+		t.Fatal("sync should stop monitoring after first observed idle state")
+	}
+	finalID := notificationTurnKey(userAt) + "-notification-4"
+	if got, want := timings[finalID].ElapsedMs, int64(599_000); got != want {
+		t.Fatalf("final elapsed=%d, want total source elapsed %d", got, want)
+	}
+	if got, want := timings[finalID].CompletedAt, observedAt.Format(time.RFC3339Nano); got != want {
+		t.Fatalf("final completed_at=%s, want observed completion %s", got, want)
+	}
+	balance, err := appStore.PaidHourCreditBalance(t.Context(), user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := balance, int64(time.Hour/time.Millisecond)-599_000; got != want {
+		t.Fatalf("paid hour balance=%d, want first idle turn billed as %dms", got, 599_000)
+	}
+}
+
+func TestProjectNotificationTimingsBillDurableAssistantFromSourceTimes(t *testing.T) {
+	appStore, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer appStore.Close()
+	server := &Server{store: appStore, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	user, _ := appStore.UpsertUser(t.Context(), "a@example.com", "A", "")
+	project := &Project{
+		ID:             "project-notification-timings-durable",
+		UserID:         user.ID,
+		Title:          "Durable notification timings",
+		ConversationID: "conv-notification-timings-durable",
+		AgentID:        "agent-1",
+		PreviewURL:     "http://preview.example.test",
+		Status:         "ready",
+	}
+	if err := appStore.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+	if err := appStore.UpsertConfig(t.Context(), map[string]string{"free_hours": "0"}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := appStore.GrantHourCredits(t.Context(), user.ID, "cs_durable_hours", 1); err != nil {
+		t.Fatal(err)
+	}
+	userAt := time.Date(2026, 5, 12, 14, 0, 0, 0, time.UTC)
+	if _, err := appStore.AddMessageAt(t.Context(), project.ID, "user", "make changes", userAt.Format(time.RFC3339Nano)); err != nil {
+		t.Fatal(err)
+	}
+	local, err := appStore.MessagesForProject(t.Context(), project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	completedAt := userAt.Add(75 * time.Second)
+	messages := []any{map[string]any{
+		"role":       "assistant",
+		"body":       likeableNotificationStart + "Updating files" + likeableNotificationEnd + likeableNotificationStart + "Canvas updated" + likeableNotificationEnd,
+		"created_at": completedAt.Format(time.RFC3339Nano),
+	}}
+
+	timings, _, err := server.syncProjectNotificationTimingsAt(t.Context(), project, local, messages, nil, nil, userAt.Add(10*time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	finalID := notificationTurnKey(userAt) + "-notification-1"
+	if got, want := timings[finalID].ElapsedMs, int64(75_000); got != want {
+		t.Fatalf("final elapsed=%d, want assistant source elapsed %d", got, want)
+	}
+	if got, want := timings[finalID].CompletedAt, completedAt.Format(time.RFC3339Nano); got != want {
+		t.Fatalf("final completed_at=%s, want assistant completion %s", got, want)
+	}
+	balance, err := appStore.PaidHourCreditBalance(t.Context(), user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := balance, int64(time.Hour/time.Millisecond)-75_000; got != want {
+		t.Fatalf("paid hour balance=%d, want durable assistant turn billed as %dms", got, 75_000)
 	}
 }
 
@@ -2332,7 +2463,7 @@ func TestProjectNotificationTimingsCompleteFinishedLastRowWhileQueued(t *testing
 	if timings[finalID].CompletedAt == "" {
 		t.Fatalf("%s completed_at is empty, want finished Canvas updated row completed despite queued turn", finalID)
 	}
-	if got, want := timings[finalID].ElapsedMs, int64(109_000); got != want {
+	if got, want := timings[finalID].ElapsedMs, int64(119_000); got != want {
 		t.Fatalf("final elapsed=%d, want total turn elapsed %d", got, want)
 	}
 }
@@ -2395,8 +2526,8 @@ func TestObservedLiveWorkWithoutCanvasNotificationIsBilled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := balance, int64(time.Hour/time.Millisecond)-60_000; got != want {
-		t.Fatalf("paid hour balance=%d, want one observed live session billed as 60000ms", got)
+	if got, want := balance, int64(time.Hour/time.Millisecond)-69_000; got != want {
+		t.Fatalf("paid hour balance=%d, want one observed live session billed as 69000ms", got)
 	}
 }
 

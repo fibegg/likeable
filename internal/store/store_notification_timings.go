@@ -27,14 +27,43 @@ func (s *Store) ProjectNotificationTimingMap(ctx context.Context, projectID stri
 }
 
 func (s *Store) UpsertProjectNotificationStarted(ctx context.Context, projectID, notificationID, body string, startedAt time.Time) error {
+	if startedAt.IsZero() {
+		startedAt = time.Now().UTC()
+	}
+	startedAt = startedAt.UTC()
 	now := nowString()
-	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO project_notification_timings(project_id, notification_id, body, started_at, updated_at)
+	startedRaw := startedAt.Format(time.RFC3339Nano)
+	result, err := s.db.ExecContext(ctx, `
+		INSERT OR IGNORE INTO project_notification_timings(project_id, notification_id, body, started_at, updated_at)
 		VALUES(?, ?, ?, ?, ?)
-		ON CONFLICT(project_id, notification_id) DO UPDATE SET
-			body = excluded.body,
-			updated_at = excluded.updated_at
-	`, projectID, notificationID, body, startedAt.UTC().Format(time.RFC3339Nano), now)
+	`, projectID, notificationID, body, startedRaw, now)
+	if err != nil {
+		return err
+	}
+	if rowsAffected, _ := result.RowsAffected(); rowsAffected > 0 {
+		return nil
+	}
+
+	var existingStartedRaw, completedRaw string
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT started_at, completed_at
+		FROM project_notification_timings
+		WHERE project_id = ? AND notification_id = ?
+	`, projectID, notificationID).Scan(&existingStartedRaw, &completedRaw); err != nil {
+		return err
+	}
+	nextStartedRaw := existingStartedRaw
+	if completedRaw == "" {
+		existingStartedAt, ok := parseNotificationTimingTime(existingStartedRaw)
+		if !ok || startedAt.Before(existingStartedAt) {
+			nextStartedRaw = startedRaw
+		}
+	}
+	_, err = s.db.ExecContext(ctx, `
+		UPDATE project_notification_timings
+		SET body = ?, started_at = ?, updated_at = ?
+		WHERE project_id = ? AND notification_id = ?
+	`, body, nextStartedRaw, now, projectID, notificationID)
 	return err
 }
 
@@ -62,8 +91,8 @@ func (s *Store) completeProjectNotificationTiming(ctx context.Context, projectID
 	if completedRaw != "" {
 		return nil
 	}
-	startedAt, err := time.Parse(time.RFC3339Nano, startedRaw)
-	if err != nil {
+	startedAt, ok := parseNotificationTimingTime(startedRaw)
+	if !ok {
 		startedAt = completedAt
 	}
 	if completedAt.Before(startedAt) {
@@ -73,10 +102,21 @@ func (s *Store) completeProjectNotificationTiming(ctx context.Context, projectID
 	if elapsedOverrideMs != nil {
 		elapsedMs = *elapsedOverrideMs
 	}
-	_, err = s.db.ExecContext(ctx, `
+	_, err := s.db.ExecContext(ctx, `
 		UPDATE project_notification_timings
 		SET completed_at = ?, elapsed_ms = ?, updated_at = ?
 		WHERE project_id = ? AND notification_id = ? AND completed_at = ''
 	`, completedAt.UTC().Format(time.RFC3339Nano), elapsedMs, nowString(), projectID, notificationID)
 	return err
+}
+
+func parseNotificationTimingTime(raw string) (time.Time, bool) {
+	parsed, err := time.Parse(time.RFC3339Nano, raw)
+	if err != nil {
+		parsed, err = time.Parse(time.RFC3339, raw)
+	}
+	if err != nil {
+		return time.Time{}, false
+	}
+	return parsed.UTC(), true
 }

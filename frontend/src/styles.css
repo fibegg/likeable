@@ -1088,6 +1088,9 @@ html[data-builder-mode="split"] .account {
 .splitToggle {
   color: rgba(216, 228, 231, .58);
 }
+.desktopPreviewExternalLink {
+  display: inline-flex;
+}
 .projectTitleControl {
   min-width: 0;
   flex: 1 1 auto;
@@ -3848,6 +3851,9 @@ html.draggingCollapsedChat * {
   .chatNav .chromeIconButton {
     width: 36px;
     height: 36px;
+  }
+  .desktopPreviewExternalLink {
+    display: none;
   }
   .chatNav button.serviceSelectorButton {
     width: auto;

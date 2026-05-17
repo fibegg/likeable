@@ -131,11 +131,40 @@ func (s *Store) StartProjectWorkSession(ctx context.Context, userID, projectID, 
 	if startedAt.IsZero() {
 		startedAt = time.Now().UTC()
 	}
+	startedAt = startedAt.UTC()
 	now := nowString()
-	_, err := s.db.ExecContext(ctx, `
+	startedRaw := startedAt.Format(time.RFC3339Nano)
+	result, err := s.db.ExecContext(ctx, `
 		INSERT OR IGNORE INTO project_work_sessions(project_id, user_id, session_key, started_at, created_at, updated_at)
 		VALUES(?, ?, ?, ?, ?, ?)
-	`, projectID, userID, sessionKey, startedAt.UTC().Format(time.RFC3339Nano), now, now)
+	`, projectID, userID, sessionKey, startedRaw, now, now)
+	if err != nil {
+		return err
+	}
+	if rowsAffected, _ := result.RowsAffected(); rowsAffected > 0 {
+		return nil
+	}
+
+	var existingStartedRaw, billedAt string
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT started_at, billed_at
+		FROM project_work_sessions
+		WHERE project_id = ? AND user_id = ? AND session_key = ?
+	`, projectID, userID, sessionKey).Scan(&existingStartedRaw, &billedAt); err != nil {
+		return err
+	}
+	if strings.TrimSpace(billedAt) != "" {
+		return nil
+	}
+	existingStartedAt, ok := parseStoredTime(existingStartedRaw)
+	if ok && !startedAt.Before(existingStartedAt) {
+		return nil
+	}
+	_, err = s.db.ExecContext(ctx, `
+		UPDATE project_work_sessions
+		SET started_at = ?, updated_at = ?
+		WHERE project_id = ? AND user_id = ? AND session_key = ? AND billed_at = ''
+	`, startedRaw, now, projectID, userID, sessionKey)
 	return err
 }
 

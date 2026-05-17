@@ -1024,6 +1024,11 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
             <CircleHelp size={16} />
           </button>
           {modeToggle}
+          {activeProject?.status === 'ready' && activePreviewURL && (
+            <a className="chromeIconButton desktopPreviewExternalLink tooltip tooltipBottom" href={activePreviewURL} target="_blank" rel="noreferrer" aria-label={t('builder.preview.open')} data-tip={t('builder.preview.open')}>
+              <ExternalLink size={16} />
+            </a>
+          )}
           {viewMode === 'overlay' && <button className="chromeIconButton tooltip tooltipBottom" onClick={() => setBasicChatCollapsed(true)} aria-label={t('builder.chat.collapse')} data-tip={t('builder.chat.collapse')}><Minimize2 size={16} /></button>}
         </div>
       </nav>
