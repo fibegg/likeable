@@ -5,6 +5,9 @@ const BASIC_CHAT_DEFAULT_MIN_HEIGHT = 320;
 const BASIC_CHAT_DEFAULT_MAX_HEIGHT = 640;
 const BASIC_CHAT_DESKTOP_EDGE_GUARD = 28;
 const BASIC_CHAT_MOBILE_TOP_GUARD = 118;
+const KEYBOARD_INSET_THRESHOLD = 80;
+
+let stableViewportHeight = 0;
 
 export function singleViewScreen() {
   return typeof window !== 'undefined' && window.matchMedia(SINGLE_VIEW_QUERY).matches;
@@ -15,7 +18,7 @@ export function currentViewportHeight() {
   const visualViewport = window.visualViewport;
   if (!visualViewport) return window.innerHeight;
   const keyboardInset = currentKeyboardInset();
-  return keyboardInset > 80 ? window.innerHeight : visualViewport.height;
+  return keyboardInset > KEYBOARD_INSET_THRESHOLD ? currentLayoutViewportHeight() : visualViewport.height;
 }
 
 export function currentViewportWidth() {
@@ -42,6 +45,7 @@ export function installViewportCssVars() {
     root.style.setProperty('--app-viewport-width', `${width}px`);
     root.style.setProperty('--app-viewport-offset-top', `${offsetTop}px`);
     root.style.setProperty('--app-keyboard-inset', `${keyboardInset}px`);
+    root.dataset.keyboardOpen = keyboardInset > KEYBOARD_INSET_THRESHOLD ? 'true' : 'false';
   };
 
   const scheduleUpdate = () => {
@@ -80,7 +84,29 @@ function currentKeyboardInset() {
   if (typeof window === 'undefined') return 0;
   const visualViewport = window.visualViewport;
   if (!visualViewport) return 0;
-  return Math.max(0, window.innerHeight - visualViewport.height - visualViewportOffsetTop());
+  return Math.max(0, currentLayoutViewportHeight() - visualViewport.height - visualViewportOffsetTop());
+}
+
+function currentLayoutViewportHeight() {
+  if (typeof window === 'undefined') return 0;
+  const height = window.innerHeight;
+  const visualHeight = window.visualViewport?.height ?? height;
+  const focused = textInputFocused();
+  if (!stableViewportHeight) {
+    stableViewportHeight = Math.max(height, visualHeight);
+  } else if (!focused) {
+    stableViewportHeight = Math.max(height, visualHeight);
+  } else if (height > stableViewportHeight) {
+    stableViewportHeight = height;
+  }
+  return stableViewportHeight;
+}
+
+function textInputFocused() {
+  if (typeof document === 'undefined') return false;
+  const active = document.activeElement;
+  if (!(active instanceof HTMLElement)) return false;
+  return Boolean(active.closest('textarea, input, select, [contenteditable="true"]'));
 }
 
 export function defaultBasicChatHeight() {

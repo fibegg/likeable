@@ -3772,6 +3772,8 @@ html.draggingCollapsedChat * {
     max-height: calc(var(--app-viewport-height, 100dvh) - 24px);
   }
   .overlayChat:not(.collapsed):not(.minimized) {
+    position: fixed;
+    z-index: 60;
     left: 0;
     right: 0;
     bottom: var(--mobile-chat-keyboard-inset);
@@ -3782,6 +3784,9 @@ html.draggingCollapsedChat * {
     max-height: var(--mobile-chat-available-height);
   }
   .overlayChat:not(.collapsed):not(.minimized):focus-within {
+    height: var(--mobile-chat-available-height);
+  }
+  html[data-keyboard-open="true"] .overlayChat:not(.collapsed):not(.minimized) {
     height: var(--mobile-chat-available-height);
   }
   .overlayChat:not(.collapsed):not(.minimized) .chatPane {
