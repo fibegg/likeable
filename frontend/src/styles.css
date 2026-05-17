@@ -34,6 +34,9 @@ html {
   text-size-adjust: 100%;
   overscroll-behavior: none;
 }
+html[data-android="true"][data-standalone="false"] {
+  overscroll-behavior-y: auto;
+}
 html, body, #root { min-height: 100%; height: 100%; }
 html[data-builder-mode],
 html[data-builder-mode] body,
@@ -57,6 +60,9 @@ body {
   overscroll-behavior: none;
   -webkit-font-smoothing: antialiased;
   text-rendering: geometricPrecision;
+}
+html[data-android="true"][data-standalone="false"] body {
+  overscroll-behavior-y: auto;
 }
 button, input, textarea, select { font: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; }
@@ -566,6 +572,9 @@ html[data-builder-mode="split"] .account {
   min-height: 0;
   height: 100%;
   overflow: hidden;
+}
+.pullRefreshTouchZone {
+  display: none;
 }
 .previewPane iframe {
   width: 100%;
@@ -1128,6 +1137,8 @@ html[data-builder-mode="split"] .account {
 .projectTitleButton {
   min-width: 0;
   flex: 1 1 auto;
+  position: relative;
+  z-index: 1;
   border: 0;
   background: transparent;
   color: inherit;
@@ -1175,6 +1186,8 @@ html[data-builder-mode="split"] .account {
 .projectTitleMeta {
   flex: 0 0 auto;
   min-width: 0;
+  position: relative;
+  z-index: 2;
   margin-left: auto;
   display: inline-flex;
   align-items: center;
@@ -1237,6 +1250,8 @@ html[data-builder-mode="split"] .account {
 }
 .projectExternalLink {
   flex: 0 0 auto;
+  position: relative;
+  z-index: 3;
   width: 28px;
   height: 28px;
   border: 0;
@@ -1252,6 +1267,13 @@ html[data-builder-mode="split"] .account {
   color: var(--text);
   border-color: transparent;
   background: rgba(213, 141, 45, .06);
+}
+@media (hover: none), (pointer: coarse) {
+  .projectExternalLink {
+    width: 36px;
+    height: 36px;
+    margin-block: -4px;
+  }
 }
 .identityPill {
   gap: 3px;
@@ -2583,11 +2605,11 @@ html[data-builder-mode="split"] .account {
 .overlayChat.minimized { width: auto; max-height: none; }
 .chatResizeHandle {
   position: absolute;
-  top: -9px;
+  top: -16px;
   left: 50%;
   z-index: 12;
-  width: 96px;
-  height: 22px;
+  width: 128px;
+  height: 34px;
   border: 0;
   background: transparent;
   cursor: ns-resize;
@@ -2600,9 +2622,9 @@ html[data-builder-mode="split"] .account {
   content: "";
   position: absolute;
   left: 50%;
-  top: 5px;
-  width: 54px;
-  height: 4px;
+  top: 12px;
+  width: 68px;
+  height: 5px;
   border: 1px solid rgba(223, 154, 47, .34);
   border-radius: 999px;
   background: rgba(7, 14, 17, .82);
@@ -2612,38 +2634,6 @@ html[data-builder-mode="split"] .account {
 .chatResizeHandle:hover::after {
   border-color: rgba(223, 154, 47, .72);
   background: rgba(213, 141, 45, .16);
-}
-.chatHeightControls {
-  display: none;
-  position: absolute;
-  z-index: 13;
-  top: -42px;
-  right: max(8px, env(safe-area-inset-right));
-  gap: 2px;
-  pointer-events: auto;
-}
-.chatHeightControls button {
-  width: 36px;
-  height: 36px;
-  border: 0;
-  border-radius: 8px;
-  background: rgba(5, 11, 14, .76);
-  color: rgba(216, 228, 231, .72);
-  cursor: pointer;
-  display: grid;
-  place-items: center;
-  touch-action: manipulation;
-}
-.chatHeightControls button:hover,
-.chatHeightControls button:focus-visible {
-  color: var(--text);
-  background: rgba(213, 141, 45, .12);
-}
-html[data-android="true"] .chatHeightControls {
-  display: flex;
-}
-html[data-android="true"] .chatResizeHandle {
-  display: none;
 }
 html.resizingChat,
 html.resizingChat * {
@@ -3701,6 +3691,20 @@ html.draggingCollapsedChat * {
       env(safe-area-inset-bottom)
       env(safe-area-inset-left);
   }
+  .pullRefreshTouchZone {
+    display: block;
+    position: absolute;
+    z-index: 8;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 44px;
+    background: transparent;
+    touch-action: none;
+  }
+  html[data-android="true"][data-standalone="false"] .pullRefreshTouchZone {
+    touch-action: pan-y;
+  }
   .builder.overlay .previewContent > iframe {
     border-radius: 8px;
     overflow: hidden;
@@ -3834,10 +3838,8 @@ html.draggingCollapsedChat * {
     transform: none;
     max-height: var(--mobile-chat-available-height);
   }
-  .overlayChat:not(.collapsed):not(.minimized):focus-within {
-    height: var(--mobile-chat-available-height);
-  }
-  html[data-keyboard-open="true"] .overlayChat:not(.collapsed):not(.minimized) {
+  html:not([data-android="true"]) .overlayChat:not(.collapsed):not(.minimized):focus-within,
+  html:not([data-android="true"])[data-keyboard-open="true"] .overlayChat:not(.collapsed):not(.minimized) {
     height: var(--mobile-chat-available-height);
   }
   .overlayChat:not(.collapsed):not(.minimized) .chatPane {

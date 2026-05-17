@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { ChevronDown, ChevronUp, CircleHelp, CircleStop, ExternalLink, FolderOpen, Languages, LayoutPanelLeft, Loader2, LogOut, Minimize2, MessageSquare, Paperclip, Send, Settings, UserRound, X } from 'lucide-react';
+import { ChevronDown, CircleHelp, CircleStop, ExternalLink, FolderOpen, Languages, LayoutPanelLeft, Loader2, LogOut, Minimize2, MessageSquare, Paperclip, Send, Settings, UserRound, X } from 'lucide-react';
 import './styles.css';
 import { Admin } from './admin';
 import { api } from './api';
@@ -26,7 +26,7 @@ const PULL_REFRESH_MAX = 118;
 const PULL_REFRESH_SETTLE_DELAY_MS = 180;
 const PULL_REFRESH_TIMEOUT_MS = 3500;
 const PENDING_MESSAGE_RECONCILE_MS = 2 * 60_000;
-const BASIC_CHAT_HEIGHT_STEP = 112;
+const BASIC_CHAT_MIN_PERSISTED_HEIGHT = 260;
 const MATRIX_RAIN_COLUMNS = [
   ['10101010', '01010101', '11010110', '00101011', '10110100', '01011001', '11101010', '00110101', '10010110', '01101011'],
   ['01011010', '10100101', '01101001', '10010110', '01010111', '11010010', '00101101', '10110101', '01001011', '11100100'],
@@ -67,12 +67,28 @@ function googleAuthStartPath() {
 }
 
 function installPlatformFlags() {
-  if (typeof navigator === 'undefined') return;
+  if (typeof navigator === 'undefined' || typeof document === 'undefined') return;
+  const syncStandalone = () => {
+    document.documentElement.dataset.standalone = isStandaloneDisplayMode() ? 'true' : 'false';
+  };
   document.documentElement.dataset.android = isAndroidPlatform() ? 'true' : 'false';
+  syncStandalone();
+  const standaloneQuery = window.matchMedia?.('(display-mode: standalone)');
+  standaloneQuery?.addEventListener('change', syncStandalone);
 }
 
 function isAndroidPlatform() {
   return typeof navigator !== 'undefined' && /\bAndroid\b/i.test(navigator.userAgent);
+}
+
+function isStandaloneDisplayMode() {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+  const navigatorWithStandalone = navigator as Navigator & { standalone?: boolean };
+  return window.matchMedia?.('(display-mode: standalone)').matches || navigatorWithStandalone.standalone === true;
+}
+
+function isAndroidBrowserPlatform() {
+  return isAndroidPlatform() && !isStandaloneDisplayMode();
 }
 
 function App() {
@@ -350,7 +366,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const updateBasicChatHeight = (next: number | ((height: number) => number)) => {
     setBasicChatHeight((current) => {
       const value = typeof next === 'function' ? next(current) : next;
-      const clamped = clampBasicChatHeight(value);
+      const clamped = isAndroidPlatform() ? Math.max(BASIC_CHAT_MIN_PERSISTED_HEIGHT, Math.round(value)) : clampBasicChatHeight(value);
       localStorage.setItem(BASIC_CHAT_HEIGHT_KEY, String(Math.round(clamped)));
       return clamped;
     });
@@ -820,6 +836,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const startBasicChatResize = (event: React.PointerEvent<HTMLDivElement>) => {
     if (viewMode !== 'overlay' || effectiveChatCollapsed) return;
     event.preventDefault();
+    event.stopPropagation();
     event.currentTarget.setPointerCapture?.(event.pointerId);
     const startY = event.clientY;
     const startHeight = basicChatHeight;
@@ -838,11 +855,20 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     addEventListener('pointerup', onUp);
     addEventListener('pointercancel', onUp);
   };
-  const resizeBasicChatBy = (delta: number) => {
-    updateBasicChatHeight((height) => height + delta);
-  };
   const stopExternalLinkPropagation = (event: React.SyntheticEvent<HTMLAnchorElement>) => {
     event.stopPropagation();
+  };
+  const openExternalLink = (event: React.MouseEvent<HTMLAnchorElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const href = event.currentTarget.href;
+    if (!href) return;
+    const opened = window.open(href, '_blank');
+    if (opened) {
+      opened.opener = null;
+      return;
+    }
+    window.location.assign(href);
   };
   const startCollapsedChatDrag = (event: React.PointerEvent<HTMLButtonElement>) => {
     if (viewMode !== 'overlay' || !effectiveChatCollapsed || chatCollapsedForTutorial) return;
@@ -1003,7 +1029,9 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
         : Promise.resolve()
     ]);
   };
-  const pullRefresh = usePullToRefresh(signedIn, refreshBuilder);
+  const customPullRefreshEnabled = signedIn && !isAndroidBrowserPlatform();
+  const pullRefreshTouchZoneEnabled = signedIn && (customPullRefreshEnabled || isAndroidBrowserPlatform());
+  const pullRefresh = usePullToRefresh(customPullRefreshEnabled, refreshBuilder);
   const serviceSelectorButton = () => hasMultipleServices ? (
     <button
       className={`${showServices ? 'serviceSelectorButton selected' : 'serviceSelectorButton'} serviceSelectorInTitle`}
@@ -1036,8 +1064,10 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
             target="_blank"
             rel="noopener noreferrer"
             data-no-pull-refresh="true"
+            onTouchStart={stopExternalLinkPropagation}
             onPointerDown={stopExternalLinkPropagation}
-            onClick={stopExternalLinkPropagation}
+            onMouseDown={stopExternalLinkPropagation}
+            onClick={openExternalLink}
             aria-label={t('builder.preview.open')}
             data-tip={t('builder.preview.open')}
           >
@@ -1096,8 +1126,10 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
               target="_blank"
               rel="noopener noreferrer"
               data-no-pull-refresh="true"
+              onTouchStart={stopExternalLinkPropagation}
               onPointerDown={stopExternalLinkPropagation}
-              onClick={stopExternalLinkPropagation}
+              onMouseDown={stopExternalLinkPropagation}
+              onClick={openExternalLink}
               aria-label={t('builder.preview.open')}
               data-tip={t('builder.preview.open')}
             >
@@ -1251,7 +1283,10 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       style={viewMode === 'overlay' && !effectiveChatCollapsed ? ({ '--basic-chat-height': `${basicChatHeight}px` } as React.CSSProperties) : undefined}
     >
       <div className="previewTopChrome">{builderChrome}</div>
-      <div className="previewContent">{previewContent}</div>
+      <div className="previewContent">
+        {pullRefreshTouchZoneEnabled && <div className="pullRefreshTouchZone" aria-hidden="true" />}
+        {previewContent}
+      </div>
       {viewMode === 'overlay' && (
         <div
           className={`overlayChat ${effectiveChatCollapsed ? 'collapsed minimized' : ''}`}
@@ -1259,13 +1294,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
             ? collapsedChatStyle(collapsedChatPosition)
             : ({ '--basic-chat-height': `${basicChatHeight}px` } as React.CSSProperties)}
         >
-          {!effectiveChatCollapsed && (
-            <div className="chatHeightControls" data-no-pull-refresh="true" aria-label={t('builder.resizeChat')}>
-              <button type="button" onClick={() => resizeBasicChatBy(BASIC_CHAT_HEIGHT_STEP)} aria-label={t('builder.expandChat')}><ChevronUp size={17} /></button>
-              <button type="button" onClick={() => resizeBasicChatBy(-BASIC_CHAT_HEIGHT_STEP)} aria-label={t('builder.resizeChat')}><ChevronDown size={17} /></button>
-            </div>
-          )}
-          {!effectiveChatCollapsed && <div className="chatResizeHandle" aria-label={t('builder.resizeChat')} onPointerDown={startBasicChatResize} />}
+          {!effectiveChatCollapsed && <div className="chatResizeHandle" data-no-pull-refresh="true" aria-label={t('builder.resizeChat')} onPointerDown={startBasicChatResize} />}
           {effectiveChatCollapsed ? minimizedChatBar : chat}
         </div>
       )}
