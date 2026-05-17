@@ -1,5 +1,5 @@
 import { LIKEABLE_NOTIFICATION_END, LIKEABLE_NOTIFICATION_START } from './config';
-import type { Feed, FeedRow, Message, MessageAttachment, NotificationFeedRow, NotificationTiming } from './domain';
+import type { AgentActivity, AgentMessage, Feed, FeedRow, Message, MessageAttachment, NotificationFeedRow, NotificationTiming } from './domain';
 
 const TURN_TIME_SLOP_MS = 5000;
 const RECENT_UNANSWERED_TURN_MS = 30 * 60_000;
@@ -45,13 +45,16 @@ function notificationFeedRows(feed: Feed): NotificationFeedRow[] {
   const assistantRows: NotificationFeedRow[] = [];
   const assistantCounters = new Map<string, number>();
   const assistantSources = (feed.messages ?? [])
-    .map((msg, sourceIndex) => ({
-      sourceIndex,
-      timeValue: Date.parse(msg.created_at ?? ''),
-      time: msg.created_at,
-      role: msg.role,
-      body: msg.body ?? msg.content ?? ''
-    }))
+    .map((msg, sourceIndex) => {
+      const time = agentMessageTime(msg);
+      return {
+        sourceIndex,
+        timeValue: Date.parse(time ?? ''),
+        time,
+        role: msg.role,
+        body: msg.body ?? msg.content ?? ''
+      };
+    })
     .filter((source) => source.role === 'assistant')
     .sort((a, b) => {
       const left = Number.isNaN(a.timeValue) ? Number.MAX_SAFE_INTEGER : a.timeValue;
@@ -77,14 +80,15 @@ function notificationFeedRows(feed: Feed): NotificationFeedRow[] {
 
   const activityRows: NotificationFeedRow[] = [];
   for (const [index, activity] of (feed.activity ?? []).entries()) {
-    const sourceID = activity.id ?? activity.occurred_at ?? `activity-${index}`;
+    const activityTime = agentActivityTime(activity);
+    const sourceID = activity.id ?? activityTime ?? `activity-${index}`;
     const body = activity.message ?? '';
     for (const [segmentIndex, segment] of parseLikeableNotificationSegments(body).entries()) {
       activityRows.push({
         kind: 'notification',
         id: `activity-${sourceID}-notification-${segmentIndex}`,
         body: segment.body,
-        time: activity.occurred_at,
+        time: activityTime,
         active: false,
         fallback: segment.fallback
       });
@@ -99,11 +103,12 @@ function notificationFeedRows(feed: Feed): NotificationFeedRow[] {
     const liveSegments = parseLikeableNotificationSegments(feed.live.streamText);
     const lastLiveIndex = liveSegments.length - 1;
     for (const [segmentIndex, segment] of liveSegments.entries()) {
-      if (!segment.streaming && durableNotificationCovers(rows, segment.body, liveTime)) continue;
+      const id = `${liveTurnKey}-notification-${segmentIndex}`;
+      if (!segment.streaming && durableNotificationCovers(rows, segment.body, liveTime, id)) continue;
       const isLast = segmentIndex === lastLiveIndex;
       rows.push({
         kind: 'notification',
-        id: `${liveTurnKey}-notification-${segmentIndex}`,
+        id,
         body: segment.body,
         time: liveTime,
         active: isLast && !liveIdle && Boolean(feed.live.isProcessing || segment.streaming),
@@ -122,7 +127,8 @@ function dedupeNotifications(rows: NotificationFeedRow[]): NotificationFeedRow[]
     if (!body) continue;
     const time = Date.parse(row.time ?? '');
     const timeBucket = Number.isNaN(time) ? '' : String(Math.floor(time / 2000));
-    const key = `${body}:${timeBucket}`;
+    const scope = timeBucket || notificationSequenceKey(row.id) || row.id;
+    const key = `${body}:${scope}`;
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(row);
@@ -130,14 +136,17 @@ function dedupeNotifications(rows: NotificationFeedRow[]): NotificationFeedRow[]
   return out;
 }
 
-function durableNotificationCovers(rows: NotificationFeedRow[], body: string, time?: string): boolean {
+function durableNotificationCovers(rows: NotificationFeedRow[], body: string, time: string | undefined, notificationID: string): boolean {
   const normalized = normalizeBody(body);
   if (!normalized) return false;
   const targetTime = Date.parse(time ?? '');
   return rows.some((row) => {
     if (row.active) return false;
     const rowTime = Date.parse(row.time ?? '');
-    if (!Number.isNaN(targetTime) && !Number.isNaN(rowTime) && Math.abs(rowTime - targetTime) > 60_000) return false;
+    if (!Number.isNaN(targetTime)) {
+      if (!Number.isNaN(rowTime) && Math.abs(rowTime - targetTime) > 60_000) return false;
+      if (Number.isNaN(rowTime) && notificationSequenceKey(row.id) !== notificationSequenceKey(notificationID)) return false;
+    }
     const candidate = normalizeBody(row.body);
     return candidate === normalized || candidate.startsWith(normalized) || normalized.startsWith(candidate);
   });
@@ -161,6 +170,20 @@ function turnKeyForTime(userTimes: number[], sourceTime: number | null): string 
     if (time > sourceTime + 5000) break;
   }
   return `turn-${selected}`;
+}
+
+function agentMessageTime(msg: AgentMessage): string | undefined {
+  return msg.created_at ?? msg.createdAt;
+}
+
+function agentActivityTime(activity: AgentActivity): string | undefined {
+  return activity.occurred_at ?? activity.occurredAt;
+}
+
+function notificationSequenceKey(notificationID: string): string {
+  const marker = '-notification-';
+  const index = notificationID.indexOf(marker);
+  return index === -1 ? '' : notificationID.slice(0, index);
 }
 
 function compareFeedRows(a: FeedRow, b: FeedRow): number {
@@ -204,7 +227,7 @@ export function feedAwaitingAgent(feed: Feed | null): boolean {
   if (feedLiveIdle(feed)) return false;
   if (feedHasAssistantAfterLatestUser(feed)) return false;
 
-  const latestActivity = latestTimestamp((feed.activity ?? []).map((activity) => activity.occurred_at));
+  const latestActivity = latestTimestamp((feed.activity ?? []).map(agentActivityTime));
   if (latestActivity != null && latestActivity >= latestUser - TURN_TIME_SLOP_MS) {
     return Date.now() - latestActivity < RECENT_ACTIVITY_WORKING_MS;
   }
@@ -227,7 +250,7 @@ export function feedHasAssistantAfterLatestUser(feed: Feed | null): boolean {
   if (!feed || latestUser == null) return false;
   const latestAssistant = latestTimestamp([
     ...(feed.localMessages ?? []).filter((msg) => msg.role !== 'user').map((msg) => msg.createdAt),
-    ...(feed.messages ?? []).filter((msg) => msg.role === 'assistant').map((msg) => msg.created_at)
+    ...(feed.messages ?? []).filter((msg) => msg.role === 'assistant').map(agentMessageTime)
   ]);
   return latestAssistant != null && latestAssistant >= latestUser - TURN_TIME_SLOP_MS;
 }

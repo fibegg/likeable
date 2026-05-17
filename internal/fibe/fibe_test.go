@@ -716,6 +716,41 @@ func TestSendMessagePassesConversationAttachmentsThroughCLI(t *testing.T) {
 	}
 }
 
+func TestSendMessagePassesImageAttachmentsInline(t *testing.T) {
+	cliPath, logPath, stdinPath := fakeFibeCLI(t)
+	attachmentPath := filepath.Join(t.TempDir(), "screenshot.png")
+	if err := os.WriteFile(attachmentPath, []byte("png-bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	client := &Client{
+		apiKey:    "test",
+		agentID:   "agent",
+		cliPath:   cliPath,
+		cliDomain: testFibeCLIDomain(),
+		http:      http.DefaultClient,
+	}
+	if err := client.SendMessage(t.Context(), "conv-1", "Use screenshot", []string{attachmentPath}, "queue"); err != nil {
+		t.Fatal(err)
+	}
+	log := readFile(t, logPath)
+	if strings.Contains(log, "--attach") {
+		t.Fatalf("unexpected image upload args: %s", log)
+	}
+	var payload struct {
+		Text   string   `json:"text"`
+		Images []string `json:"images"`
+	}
+	if err := json.Unmarshal([]byte(readFile(t, stdinPath)), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Text != "Use screenshot" {
+		t.Fatalf("payload text=%q, want Use screenshot", payload.Text)
+	}
+	if len(payload.Images) != 1 || payload.Images[0] != "data:image/png;base64,cG5nLWJ5dGVz" {
+		t.Fatalf("payload images=%#v, want inline PNG data URL", payload.Images)
+	}
+}
+
 func TestConversationLiveStateFetchesRuntimeStreamState(t *testing.T) {
 	cliPath, logPath, _ := fakeFibeCLI(t)
 

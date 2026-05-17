@@ -1,5 +1,11 @@
 import { SINGLE_VIEW_QUERY } from './config';
 
+const BASIC_CHAT_MIN_HEIGHT = 260;
+const BASIC_CHAT_DEFAULT_MIN_HEIGHT = 320;
+const BASIC_CHAT_DEFAULT_MAX_HEIGHT = 640;
+const BASIC_CHAT_DESKTOP_EDGE_GUARD = 28;
+const BASIC_CHAT_MOBILE_TOP_GUARD = 118;
+
 export function singleViewScreen() {
   return typeof window !== 'undefined' && window.matchMedia(SINGLE_VIEW_QUERY).matches;
 }
@@ -62,10 +68,13 @@ export function installViewportCssVars() {
 
 export function defaultBasicChatHeight() {
   if (typeof window === 'undefined') return 520;
-  return Math.min(640, Math.max(320, Math.round(currentViewportHeight() * 0.58)));
+  const preferred = Math.min(BASIC_CHAT_DEFAULT_MAX_HEIGHT, Math.max(BASIC_CHAT_DEFAULT_MIN_HEIGHT, Math.round(currentViewportHeight() * 0.58)));
+  return clampBasicChatHeight(preferred);
 }
 
 export function clampBasicChatHeight(value: number) {
   if (typeof window === 'undefined') return value;
-  return Math.min(Math.max(300, currentViewportHeight() - 28), Math.max(260, value));
+  const topGuard = singleViewScreen() ? BASIC_CHAT_MOBILE_TOP_GUARD : BASIC_CHAT_DESKTOP_EDGE_GUARD;
+  const maxHeight = Math.max(BASIC_CHAT_MIN_HEIGHT, currentViewportHeight() - topGuard);
+  return Math.min(maxHeight, Math.max(BASIC_CHAT_MIN_HEIGHT, value));
 }

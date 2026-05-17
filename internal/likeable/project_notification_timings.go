@@ -115,12 +115,13 @@ func projectNotificationRows(local []Message, messages []any, activity []any, li
 	segments := parseLikeableNotificationSegments(live.StreamText)
 	lastLiveIndex := len(segments) - 1
 	for segmentIndex, segment := range segments {
-		if !segment.Streaming && durableNotificationCovers(rows, segment.Body, liveTime) {
+		rowID := fmt.Sprintf("%s-notification-%d", liveTurnKey, segmentIndex)
+		if !segment.Streaming && durableNotificationCovers(rows, segment.Body, liveTime, rowID) {
 			continue
 		}
 		isLast := segmentIndex == lastLiveIndex
 		rows = append(rows, projectNotificationRow{
-			ID:     fmt.Sprintf("%s-notification-%d", liveTurnKey, segmentIndex),
+			ID:     rowID,
 			Body:   segment.Body,
 			Time:   liveTime,
 			Active: isLast && !liveIdle && (live.IsProcessing || segment.Streaming),
@@ -204,7 +205,7 @@ func assistantNotificationRows(userTimes []time.Time, messages []any) []projectN
 		if body == "" {
 			body = anyString(message["content"])
 		}
-		timeRaw := anyString(message["created_at"])
+		timeRaw := firstNonEmpty(anyString(message["created_at"]), anyString(message["createdAt"]))
 		parsed, hasTime := parseProjectNotificationTime(timeRaw)
 		if role != "assistant" {
 			continue
@@ -245,13 +246,14 @@ func activityNotificationRows(activity []any) []projectNotificationRow {
 	rows := []projectNotificationRow{}
 	for index, item := range activity {
 		entry := mapFromAny(item)
-		sourceID := firstNonEmpty(anyString(entry["id"]), anyString(entry["occurred_at"]), fmt.Sprintf("activity-%d", index))
+		timeRaw := firstNonEmpty(anyString(entry["occurred_at"]), anyString(entry["occurredAt"]))
+		sourceID := firstNonEmpty(anyString(entry["id"]), timeRaw, fmt.Sprintf("activity-%d", index))
 		body := anyString(entry["message"])
 		for segmentIndex, segment := range parseLikeableNotificationSegments(body) {
 			rows = append(rows, projectNotificationRow{
 				ID:   fmt.Sprintf("activity-%s-notification-%d", sourceID, segmentIndex),
 				Body: segment.Body,
-				Time: anyString(entry["occurred_at"]),
+				Time: timeRaw,
 			})
 		}
 	}
@@ -319,6 +321,12 @@ func dedupeProjectNotifications(rows []projectNotificationRow) []projectNotifica
 		if ok {
 			timeBucket = fmt.Sprintf("%d", parsed.UnixMilli()/2000)
 		}
+		if timeBucket == "" {
+			timeBucket, _ = notificationSequenceKey(row.ID)
+		}
+		if timeBucket == "" {
+			timeBucket = row.ID
+		}
 		key := body + ":" + timeBucket
 		if seen[key] {
 			continue
@@ -330,7 +338,7 @@ func dedupeProjectNotifications(rows []projectNotificationRow) []projectNotifica
 	return out
 }
 
-func durableNotificationCovers(rows []projectNotificationRow, body string, timeRaw string) bool {
+func durableNotificationCovers(rows []projectNotificationRow, body string, timeRaw string, notificationID string) bool {
 	normalized := normalizeNotificationBody(body)
 	if normalized == "" {
 		return false
@@ -349,6 +357,8 @@ func durableNotificationCovers(rows []projectNotificationRow, body string, timeR
 				if delta > time.Minute {
 					continue
 				}
+			} else if notificationID != "" && !sameNotificationSequence(row.ID, notificationID) {
+				continue
 			}
 		}
 		candidate := normalizeNotificationBody(row.Body)

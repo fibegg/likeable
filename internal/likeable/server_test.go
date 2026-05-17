@@ -1868,6 +1868,74 @@ esac
 	}
 }
 
+func TestProjectNotificationRowsUseCamelCaseAgentTimestamps(t *testing.T) {
+	firstUserAt := time.Date(2026, 5, 17, 12, 0, 0, 0, time.UTC)
+	secondUserAt := firstUserAt.Add(5 * time.Minute)
+	notification := likeableNotificationStart + "Inspecting the app" + likeableNotificationEnd
+	rows := projectNotificationRows(
+		[]Message{
+			{Role: "user", Body: "build it", CreatedAt: firstUserAt.Format(time.RFC3339Nano)},
+			{Role: "user", Body: "add theme switcher", CreatedAt: secondUserAt.Format(time.RFC3339Nano)},
+		},
+		[]any{
+			map[string]any{
+				"role":      "assistant",
+				"body":      notification,
+				"createdAt": firstUserAt.Add(10 * time.Second).Format(time.RFC3339Nano),
+			},
+		},
+		nil,
+		&fibe.ConversationLiveState{
+			ConversationID: "conv",
+			IsProcessing:   true,
+			StreamText:     notification,
+			StartedAt:      secondUserAt.Add(time.Second).Format(time.RFC3339Nano),
+		},
+	)
+
+	oldID := notificationTurnKey(firstUserAt) + "-notification-0"
+	currentID := notificationTurnKey(secondUserAt) + "-notification-0"
+	if row, ok := notificationRowByID(rows, oldID); !ok || row.Active {
+		t.Fatalf("old row=%+v ok=%v, want inactive durable row with camelCase timestamp", row, ok)
+	}
+	if row, ok := notificationRowByID(rows, currentID); !ok || !row.Active {
+		t.Fatalf("current row=%+v ok=%v, want active live row after repeated notification body", row, ok)
+	}
+}
+
+func TestProjectNotificationRowsUntimedDurableRowsDoNotCoverCurrentLiveTurn(t *testing.T) {
+	userAt := time.Date(2026, 5, 17, 12, 30, 0, 0, time.UTC)
+	notification := likeableNotificationStart + "Inspecting the app" + likeableNotificationEnd
+	rows := projectNotificationRows(
+		[]Message{{Role: "user", Body: "add theme switcher", CreatedAt: userAt.Format(time.RFC3339Nano)}},
+		nil,
+		[]any{map[string]any{"id": "old-activity", "message": notification}},
+		&fibe.ConversationLiveState{
+			ConversationID: "conv",
+			IsProcessing:   true,
+			StreamText:     notification,
+			StartedAt:      userAt.Add(time.Second).Format(time.RFC3339Nano),
+		},
+	)
+
+	if row, ok := notificationRowByID(rows, "activity-old-activity-notification-0"); !ok || row.Active {
+		t.Fatalf("activity row=%+v ok=%v, want inactive durable row", row, ok)
+	}
+	currentID := notificationTurnKey(userAt) + "-notification-0"
+	if row, ok := notificationRowByID(rows, currentID); !ok || !row.Active {
+		t.Fatalf("current row=%+v ok=%v, want active live row when only old durable row is untimed", row, ok)
+	}
+}
+
+func notificationRowByID(rows []projectNotificationRow, id string) (projectNotificationRow, bool) {
+	for _, row := range rows {
+		if row.ID == id {
+			return row, true
+		}
+	}
+	return projectNotificationRow{}, false
+}
+
 func TestProjectFeedCachesWorkspaceSnapshot(t *testing.T) {
 	cliPath, logPath, _ := fakeFibeCLI(t)
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))

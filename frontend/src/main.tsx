@@ -24,6 +24,7 @@ const PULL_REFRESH_TRIGGER = 74;
 const PULL_REFRESH_MAX = 118;
 const PULL_REFRESH_SETTLE_DELAY_MS = 180;
 const PULL_REFRESH_TIMEOUT_MS = 3500;
+const PENDING_MESSAGE_RECONCILE_MS = 2 * 60_000;
 
 function App() {
   const [me, setMe] = useState<Me | null>(null);
@@ -261,6 +262,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const composerDisabled = !signedIn || projectsLoading || noActiveProject || projectArchived;
   const canSend = signedIn && !composerDisabled && hasDraft && !busy && !messageSubmitting && Boolean(activePreviewURL) && (activeProject?.status === 'ready' || previewReady);
   const hasActiveNotification = rows.some((row) => row.kind === 'notification' && row.active);
+  const brandWorking = agentWorking || hasActiveNotification;
   const agentActivityActive = Boolean(messageSubmitting || localAgentRunActive || displayFeed?.live?.isProcessing || feedAwaitingAgent(displayFeed) || hasActiveNotification);
   const utilityScreenOpen = showProjects || showProfile || showHelp || showServices;
   const inputPlaceholder = !signedIn
@@ -353,7 +355,10 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   }, [viewMode]);
   useEffect(() => {
     const query = window.matchMedia(SINGLE_VIEW_QUERY);
-    const update = () => setSingleView(query.matches);
+    const update = () => {
+      setSingleView(query.matches);
+      setBasicChatHeight((height) => clampBasicChatHeight(height));
+    };
     update();
     query.addEventListener('change', update);
     return () => query.removeEventListener('change', update);
@@ -374,10 +379,12 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     };
     const visualViewport = window.visualViewport;
     addEventListener('resize', resize);
+    addEventListener('orientationchange', resize);
     visualViewport?.addEventListener('resize', resize);
     visualViewport?.addEventListener('scroll', resize);
     return () => {
       removeEventListener('resize', resize);
+      removeEventListener('orientationchange', resize);
       visualViewport?.removeEventListener('resize', resize);
       visualViewport?.removeEventListener('scroll', resize);
     };
@@ -419,11 +426,11 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   }, [feed?.project]);
   useEffect(() => {
     if (!feed?.project?.id) return;
-    const serverIDs = new Set((feed.localMessages ?? []).map((message) => message.id));
-    if (serverIDs.size === 0) return;
+    const serverMessages = feed.localMessages ?? [];
+    if (serverMessages.length === 0) return;
     setPendingMessagesByProject((current) => {
       const pending = current[feed.project.id] ?? [];
-      const nextPending = pending.filter((message) => !serverIDs.has(message.id));
+      const nextPending = pending.filter((message) => !serverMessages.some((serverMessage) => messageMatchesServerCopy(message, serverMessage)));
       if (nextPending.length === pending.length) return current;
       if (nextPending.length === 0) {
         const { [feed.project.id]: _removed, ...rest } = current;
@@ -961,7 +968,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const builderChrome = (
     <div className="basicChatChrome">
       <button className="brand chatBrand tooltip tooltipBottom" onClick={() => nav('/')} aria-label={t('builder.brand.tooltip')} data-tip={t('builder.brand.tooltip')}>
-        <span className={`mark small statusMark ${agentWorking ? 'working' : ''}`}><span className="markGlyph">L</span><span className="brandStatusDot" /></span>
+        <span className={`mark small statusMark ${brandWorking ? 'working' : ''}`}><span className="markGlyph">L</span><span className="brandStatusDot" /></span>
       </button>
       {projectTitleButton('chromeProjectTitle', false, true)}
       <nav className="chatNav">
@@ -1044,7 +1051,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
               </div>
             )}
             <button className="attachButton" type="button" onClick={() => fileInputRef.current?.click()} disabled={composerDisabled || attachments.length >= MAX_ATTACHMENTS} aria-label={t('builder.attachFiles')}>
-              <Paperclip size={20} />
+              <Paperclip size={22} />
             </button>
             <div className="composerTextSlot">
               <textarea ref={textareaRef} value={prompt} onChange={(e) => setPrompt(e.target.value)} onKeyDown={handleComposerKeyDown} placeholder={inputPlaceholder} rows={1} disabled={composerDisabled} />
@@ -1064,13 +1071,13 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   );
   const minimizedChatBar = (
     <button
-      className={`minimizedChatBar ${agentWorking ? 'working' : ''}`}
+      className={`minimizedChatBar ${brandWorking ? 'working' : ''}`}
       aria-label={t('builder.expandChat')}
       onPointerDown={startCollapsedChatDrag}
       onKeyDown={handleCollapsedChatKeyDown}
       {...chatDragHandlers}
     >
-      <span className={`mark small statusMark ${agentWorking ? 'working' : ''}`}><span className="markGlyph">L</span><span className="brandStatusDot" /></span>
+      <span className={`mark small statusMark ${brandWorking ? 'working' : ''}`}><span className="markGlyph">L</span><span className="brandStatusDot" /></span>
     </button>
   );
 
@@ -1277,12 +1284,36 @@ function feedWithPendingMessages(feed: Feed | null, project: Project | undefined
   const localMessages = [...(base.localMessages ?? [])];
   const seen = new Set(localMessages.map((message) => message.id));
   for (const message of pending) {
-    if (!seen.has(message.id)) {
+    if (!seen.has(message.id) && !localMessages.some((serverMessage) => messageMatchesServerCopy(message, serverMessage))) {
       localMessages.push(message);
       seen.add(message.id);
     }
   }
   return { ...base, localMessages };
+}
+
+function messageMatchesServerCopy(pending: Message, serverMessage: Message): boolean {
+  if (pending.id === serverMessage.id) return true;
+  if (pending.role !== 'user' || serverMessage.role !== 'user') return false;
+  if (pending.body !== serverMessage.body) return false;
+  if (!attachmentsMatch(pending.attachments ?? [], serverMessage.attachments ?? [])) return false;
+  const pendingTime = Date.parse(pending.createdAt);
+  const serverTime = Date.parse(serverMessage.createdAt);
+  if (Number.isNaN(pendingTime) || Number.isNaN(serverTime)) return false;
+  return Math.abs(pendingTime - serverTime) <= PENDING_MESSAGE_RECONCILE_MS;
+}
+
+function attachmentsMatch(left: Message['attachments'], right: Message['attachments']): boolean {
+  const leftAttachments = left ?? [];
+  const rightAttachments = right ?? [];
+  if (leftAttachments.length !== rightAttachments.length) return false;
+  return leftAttachments.every((attachment, index) => {
+    const candidate = rightAttachments[index];
+    return Boolean(candidate)
+      && attachment.filename === candidate.filename
+      && (attachment.contentType ?? '') === (candidate.contentType ?? '')
+      && (attachment.size ?? 0) === (candidate.size ?? 0);
+  });
 }
 
 function addPendingMessage(current: Record<string, Message[]>, projectID: string, message: Message): Record<string, Message[]> {

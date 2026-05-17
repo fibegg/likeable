@@ -2,9 +2,16 @@ package fibe
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
+	"fmt"
+	"mime"
+	"os"
+	"path/filepath"
 	"strings"
 )
+
+const maxInlineImageAttachmentBytes = 12 << 20
 
 type ConversationLiveState struct {
 	ConversationID    string `json:"conversationId,omitempty"`
@@ -22,13 +29,57 @@ func (c *Client) SendMessage(ctx context.Context, conversationID, text string, a
 		busyPolicy = "queue"
 	}
 	args := []string{"agents", "send-message", c.agentID, "--conversation-id", conversationID, "--busy-policy", busyPolicy}
+	images := make([]string, 0, len(attachmentPaths))
 	for _, path := range attachmentPaths {
-		if strings.TrimSpace(path) != "" {
-			args = append(args, "--attach", path)
+		path = strings.TrimSpace(path)
+		if path == "" {
+			continue
 		}
+		imageDataURL, inline, err := inlineImageAttachmentDataURL(path)
+		if err != nil {
+			return err
+		}
+		if inline {
+			images = append(images, imageDataURL)
+			continue
+		}
+		args = append(args, "--attach", path)
 	}
 	payload := map[string]any{"text": text}
+	if len(images) > 0 {
+		payload["images"] = images
+	}
 	return c.runCLI(ctx, append(args, "-f", "-"), payload, &out)
+}
+
+func inlineImageAttachmentDataURL(path string) (string, bool, error) {
+	contentType := inlineImageContentType(path)
+	if contentType == "" {
+		return "", false, nil
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", false, fmt.Errorf("read image attachment: %w", err)
+	}
+	if info.Size() > maxInlineImageAttachmentBytes {
+		return "", false, nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", false, fmt.Errorf("read image attachment: %w", err)
+	}
+	return "data:" + contentType + ";base64," + base64.StdEncoding.EncodeToString(data), true, nil
+}
+
+func inlineImageContentType(path string) string {
+	contentType := strings.ToLower(strings.TrimSpace(mime.TypeByExtension(filepath.Ext(path))))
+	contentType = strings.TrimSpace(strings.Split(contentType, ";")[0])
+	switch contentType {
+	case "image/png", "image/jpeg", "image/gif", "image/webp":
+		return contentType
+	default:
+		return ""
+	}
 }
 
 func (c *Client) StartAgentChat(ctx context.Context) error {
