@@ -18,6 +18,7 @@
   --matrix-green: #37ff78;
   --danger: #ff695d;
   --app-viewport-height: 100dvh;
+  --app-visual-viewport-height: 100dvh;
   --app-viewport-width: 100vw;
   --app-viewport-offset-top: 0px;
   --app-keyboard-inset: 0px;
@@ -3668,6 +3669,8 @@ html.draggingCollapsedChat * {
   }
   .previewPane.chatExpanded {
     --mobile-chat-top-guard: calc(86px + env(safe-area-inset-top));
+    --mobile-chat-keyboard-inset: var(--app-keyboard-inset, 0px);
+    --mobile-chat-available-height: max(180px, calc(var(--app-viewport-height, 100dvh) - var(--mobile-chat-top-guard) - var(--mobile-chat-keyboard-inset)));
     --mobile-iframe-safe-top: 8px;
     --mobile-iframe-safe-bottom: max(8px, env(safe-area-inset-bottom));
     display: grid;
@@ -3771,15 +3774,15 @@ html.draggingCollapsedChat * {
   .overlayChat:not(.collapsed):not(.minimized) {
     left: 0;
     right: 0;
-    bottom: 0;
+    bottom: var(--mobile-chat-keyboard-inset);
     width: 100%;
-    height: min(var(--basic-chat-height, calc(var(--app-viewport-height, 100dvh) - var(--mobile-chat-top-guard))), calc(var(--app-viewport-height, 100dvh) - var(--mobile-chat-top-guard)));
+    height: min(var(--basic-chat-height, var(--mobile-chat-available-height)), var(--mobile-chat-available-height));
     min-height: 0;
     transform: none;
-    max-height: calc(var(--app-viewport-height, 100dvh) - var(--mobile-chat-top-guard));
+    max-height: var(--mobile-chat-available-height);
   }
   .overlayChat:not(.collapsed):not(.minimized):focus-within {
-    height: calc(var(--app-viewport-height, 100dvh) - var(--mobile-chat-top-guard));
+    height: var(--mobile-chat-available-height);
   }
   .overlayChat:not(.collapsed):not(.minimized) .chatPane {
     width: 100%;
@@ -4033,7 +4036,7 @@ html.draggingCollapsedChat * {
     max-height: calc(var(--app-viewport-height, 100dvh) - 20px);
   }
   .overlayChat:not(.collapsed):not(.minimized) {
-    max-height: calc(var(--app-viewport-height, 100dvh) - var(--mobile-chat-top-guard));
+    max-height: var(--mobile-chat-available-height);
   }
   .overlayChat .chatPane { max-height: inherit; }
   .overlayChat .messages {

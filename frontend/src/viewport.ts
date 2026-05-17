@@ -12,7 +12,10 @@ export function singleViewScreen() {
 
 export function currentViewportHeight() {
   if (typeof window === 'undefined') return 0;
-  return window.visualViewport?.height ?? window.innerHeight;
+  const visualViewport = window.visualViewport;
+  if (!visualViewport) return window.innerHeight;
+  const keyboardInset = currentKeyboardInset();
+  return keyboardInset > 80 ? window.innerHeight : visualViewport.height;
 }
 
 export function currentViewportWidth() {
@@ -29,11 +32,13 @@ export function installViewportCssVars() {
 
   const update = () => {
     frame = 0;
+    const visualHeight = visualViewport?.height ?? window.innerHeight;
     const height = currentViewportHeight();
     const width = currentViewportWidth();
-    const offsetTop = visualViewport?.offsetTop ?? 0;
-    const keyboardInset = Math.max(0, window.innerHeight - height - offsetTop);
+    const offsetTop = visualViewportOffsetTop();
+    const keyboardInset = currentKeyboardInset();
     root.style.setProperty('--app-viewport-height', `${height}px`);
+    root.style.setProperty('--app-visual-viewport-height', `${visualHeight}px`);
     root.style.setProperty('--app-viewport-width', `${width}px`);
     root.style.setProperty('--app-viewport-offset-top', `${offsetTop}px`);
     root.style.setProperty('--app-keyboard-inset', `${keyboardInset}px`);
@@ -64,6 +69,18 @@ export function installViewportCssVars() {
     visualViewport?.removeEventListener('resize', scheduleUpdate);
     visualViewport?.removeEventListener('scroll', scheduleUpdate);
   };
+}
+
+function visualViewportOffsetTop() {
+  if (typeof window === 'undefined') return 0;
+  return window.visualViewport?.offsetTop ?? 0;
+}
+
+function currentKeyboardInset() {
+  if (typeof window === 'undefined') return 0;
+  const visualViewport = window.visualViewport;
+  if (!visualViewport) return 0;
+  return Math.max(0, window.innerHeight - visualViewport.height - visualViewportOffsetTop());
 }
 
 export function defaultBasicChatHeight() {
