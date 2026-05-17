@@ -117,7 +117,7 @@ func TestStaticPWAHeaders(t *testing.T) {
 		contentType  string
 		swAllowed    string
 	}{
-		{path: "/service-worker.js", cacheControl: "no-cache", contentType: "application/javascript", swAllowed: "/"},
+		{path: "/service-worker.js", cacheControl: "no-store, no-cache, max-age=0, must-revalidate", contentType: "application/javascript", swAllowed: "/"},
 		{path: "/manifest.webmanifest", cacheControl: "no-cache", contentType: "application/manifest+json"},
 		{path: "/offline.html", cacheControl: "no-cache", contentType: "text/html"},
 		{path: "/assets/index-AbCdEf1234.js", cacheControl: "public, max-age=31536000, immutable", contentType: "application/javascript"},

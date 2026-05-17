@@ -24,7 +24,9 @@ export function installPwa() {
   if (!('serviceWorker' in navigator) || !import.meta.env.PROD) return;
 
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/service-worker.js', { scope: '/' })
+    const serviceWorkerURL = new URL('/service-worker.js', window.location.origin);
+    serviceWorkerURL.searchParams.set('v', currentBuildID());
+    navigator.serviceWorker.register(serviceWorkerURL, { scope: '/' })
       .then((registration) => {
         void registration.update();
       })
@@ -32,4 +34,10 @@ export function installPwa() {
         console.warn('Likeable service worker registration failed', error);
       });
   });
+}
+
+function currentBuildID() {
+  const script = document.querySelector<HTMLScriptElement>('script[type="module"][src*="/assets/"]');
+  const asset = script?.src.match(/\/assets\/([^/?#]+)/)?.[1];
+  return asset ?? 'app';
 }

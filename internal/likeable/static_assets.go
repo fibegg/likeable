@@ -69,7 +69,7 @@ func setStaticHeaders(w http.ResponseWriter, file string) {
 	switch {
 	case clean == "service-worker.js":
 		w.Header().Set("Service-Worker-Allowed", "/")
-		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Cache-Control", "no-store, no-cache, max-age=0, must-revalidate")
 	case clean == "index.html":
 		w.Header().Set("Cache-Control", "no-cache")
 	case clean == "manifest.webmanifest" || clean == "offline.html":

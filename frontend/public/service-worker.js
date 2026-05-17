@@ -2,7 +2,7 @@
 // Network-first for navigation with an app-shell fallback, stale-while-revalidate
 // for Vite fingerprinted assets, and cache-first for static install resources.
 
-const VERSION = "v1";
+const VERSION = "v2";
 const CACHE_PREFIX = "likeable-pwa";
 const APP_CACHE = `${CACHE_PREFIX}-app-${VERSION}`;
 const RUNTIME_CACHE = `${CACHE_PREFIX}-runtime-${VERSION}`;
