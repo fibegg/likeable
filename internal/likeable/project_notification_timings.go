@@ -55,18 +55,35 @@ func (s *Server) syncProjectNotificationTimingsAt(ctx context.Context, project *
 	if err != nil {
 		return nil, shouldContinue, err
 	}
-	for i := 0; i+1 < len(rows); i++ {
-		timing, ok := timings[rows[i].ID]
+	for i, row := range rows {
+		timing, ok := timings[row.ID]
 		if !ok || strings.TrimSpace(timing.CompletedAt) != "" {
 			continue
 		}
-		completedAt := observedAt
-		if nextTiming, ok := timings[rows[i+1].ID]; ok {
-			if parsed, ok := parseProjectNotificationTime(nextTiming.StartedAt); ok {
-				completedAt = parsed
-			}
+		if row.Active {
+			continue
 		}
-		if err := s.store.CompleteProjectNotificationTiming(ctx, project.ID, rows[i].ID, completedAt); err != nil {
+		completedAt := observedAt
+		nextInSequence := i+1 < len(rows) && sameNotificationSequence(row.ID, rows[i+1].ID)
+		if nextInSequence {
+			if nextTiming, ok := timings[rows[i+1].ID]; ok {
+				if parsed, ok := parseProjectNotificationTime(nextTiming.StartedAt); ok {
+					completedAt = parsed
+				}
+			}
+		} else if i+1 >= len(rows) && shouldContinue {
+			continue
+		} else if parsed, ok := parseProjectNotificationTime(row.Time); ok && parsed.After(completedAt) {
+			completedAt = parsed
+		}
+		if !nextInSequence {
+			elapsedMs := projectNotificationSummaryElapsedMs(rows, timings, row.ID, completedAt)
+			if err := s.store.CompleteProjectNotificationTimingWithElapsed(ctx, project.ID, row.ID, completedAt, elapsedMs); err != nil {
+				return nil, shouldContinue, err
+			}
+			continue
+		}
+		if err := s.store.CompleteProjectNotificationTiming(ctx, project.ID, row.ID, completedAt); err != nil {
 			return nil, shouldContinue, err
 		}
 	}
@@ -112,6 +129,63 @@ func projectNotificationRows(local []Message, messages []any, activity []any, li
 		})
 	}
 	return rows
+}
+
+func projectNotificationSummaryElapsedMs(rows []projectNotificationRow, timings map[string]ProjectNotificationTiming, notificationID string, completedAt time.Time) int64 {
+	startedAt, ok := projectNotificationSequenceStartedAt(rows, timings, notificationID)
+	if !ok {
+		timing, ok := timings[notificationID]
+		if !ok {
+			return 0
+		}
+		startedAt, ok = parseProjectNotificationTime(timing.StartedAt)
+		if !ok {
+			return 0
+		}
+	}
+	if completedAt.Before(startedAt) {
+		return 0
+	}
+	return completedAt.Sub(startedAt).Milliseconds()
+}
+
+func projectNotificationSequenceStartedAt(rows []projectNotificationRow, timings map[string]ProjectNotificationTiming, notificationID string) (time.Time, bool) {
+	sequenceKey, ok := notificationSequenceKey(notificationID)
+	if !ok {
+		return time.Time{}, false
+	}
+	var startedAt time.Time
+	found := false
+	for _, row := range rows {
+		rowSequenceKey, ok := notificationSequenceKey(row.ID)
+		if !ok || rowSequenceKey != sequenceKey {
+			continue
+		}
+		timing, ok := timings[row.ID]
+		if !ok {
+			continue
+		}
+		parsed, ok := parseProjectNotificationTime(timing.StartedAt)
+		if !ok {
+			continue
+		}
+		if !found || parsed.Before(startedAt) {
+			startedAt = parsed
+			found = true
+		}
+	}
+	return startedAt, found
+}
+
+func notificationSequenceKey(notificationID string) (string, bool) {
+	prefix, _, ok := strings.Cut(notificationID, "-notification-")
+	return prefix, ok
+}
+
+func sameNotificationSequence(leftID, rightID string) bool {
+	leftKey, leftOK := notificationSequenceKey(leftID)
+	rightKey, rightOK := notificationSequenceKey(rightID)
+	return leftOK && rightOK && leftKey == rightKey
 }
 
 type assistantNotificationSource struct {

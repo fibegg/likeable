@@ -161,13 +161,13 @@ func (s *Server) canSignInEmail(ctx context.Context, email string) (bool, error)
 	if email == "" {
 		return false, nil
 	}
-	if s.config.AdminEmail != "" && email == s.config.AdminEmail {
-		return true, nil
-	}
 	if user, err := s.store.UserByEmail(ctx, email); err == nil {
 		return user.AccessStatus != "restricted", nil
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return false, err
+	}
+	if s.config.AdminEmail != "" && email == s.config.AdminEmail {
+		return true, nil
 	}
 	cfg, err := s.store.ConfigMap(ctx)
 	if err != nil {

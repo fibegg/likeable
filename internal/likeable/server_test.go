@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -2119,7 +2120,7 @@ func TestProjectNotificationTimingsPersistAcrossRefresh(t *testing.T) {
 	secondLive := &fibe.ConversationLiveState{
 		ConversationID: project.ConversationID,
 		IsProcessing:   true,
-		StreamText:     likeableNotificationStart + "Inspecting the app" + likeableNotificationEnd + likeableNotificationStart + "Checking the preview" + likeableNotificationEnd,
+		StreamText:     likeableNotificationStart + "Inspecting the app" + likeableNotificationEnd + likeableNotificationStart + "Updating files" + likeableNotificationEnd,
 		QueuedTurns:    1,
 		StartedAt:      userAt.Add(time.Second).Format(time.RFC3339Nano),
 	}
@@ -2132,6 +2133,35 @@ func TestProjectNotificationTimingsPersistAcrossRefresh(t *testing.T) {
 	}
 	if got := timings[secondID].ElapsedMs; got != 0 {
 		t.Fatalf("second elapsed=%d, want 0 until another notification arrives", got)
+	}
+
+	finalLive := &fibe.ConversationLiveState{
+		ConversationID: project.ConversationID,
+		IsProcessing:   false,
+		StreamText: likeableNotificationStart + "Inspecting the app" + likeableNotificationEnd +
+			likeableNotificationStart + "Updating files" + likeableNotificationEnd +
+			likeableNotificationStart + "Refreshing the canvas" + likeableNotificationEnd +
+			likeableNotificationStart + "Checking the preview" + likeableNotificationEnd +
+			likeableNotificationStart + "Canvas updated" + likeableNotificationEnd,
+		QueuedTurns: 0,
+		StartedAt:   userAt.Add(time.Second).Format(time.RFC3339Nano),
+	}
+	timings, shouldContinue, err = server.syncProjectNotificationTimingsAt(t.Context(), project, local, nil, nil, finalLive, userAt.Add(10*time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if shouldContinue {
+		t.Fatal("sync should stop monitoring after live state is idle")
+	}
+	for index := 0; index <= 4; index++ {
+		id := fmt.Sprintf("%s-notification-%d", notificationTurnKey(userAt), index)
+		if timings[id].CompletedAt == "" {
+			t.Fatalf("%s completed_at is empty, want every idle notification completed", id)
+		}
+	}
+	finalID := notificationTurnKey(userAt) + "-notification-4"
+	if got, want := timings[finalID].ElapsedMs, int64(587_000); got != want {
+		t.Fatalf("final elapsed=%d, want total turn elapsed %d", got, want)
 	}
 	if err := appStore.Close(); err != nil {
 		t.Fatal(err)
@@ -2148,6 +2178,9 @@ func TestProjectNotificationTimingsPersistAcrossRefresh(t *testing.T) {
 	}
 	if got := persisted[firstID].ElapsedMs; got != 34_000 {
 		t.Fatalf("persisted first elapsed=%d, want 34000", got)
+	}
+	if got, want := persisted[finalID].ElapsedMs, int64(587_000); got != want {
+		t.Fatalf("persisted final elapsed=%d, want total turn elapsed %d", got, want)
 	}
 }
 
@@ -3302,6 +3335,20 @@ func TestSignupPolicyDefaultsClosedButAllowsAdminExistingAndAllowlist(t *testing
 	}
 	if !allowed {
 		t.Fatal("admin should be allowed even when signup is closed")
+	}
+	admin, err := store.UpsertUser(t.Context(), "admin@example.com", "Admin", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.UpdateUserAccess(t.Context(), admin.ID, "restricted", "account deletion requested"); err != nil {
+		t.Fatal(err)
+	}
+	allowed, err = server.canSignInEmail(t.Context(), "admin@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if allowed {
+		t.Fatal("restricted admin account should stay blocked until deletion completes")
 	}
 
 	if _, err := store.UpsertUser(t.Context(), "existing@example.com", "Existing", ""); err != nil {

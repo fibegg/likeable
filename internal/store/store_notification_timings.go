@@ -39,6 +39,17 @@ func (s *Store) UpsertProjectNotificationStarted(ctx context.Context, projectID,
 }
 
 func (s *Store) CompleteProjectNotificationTiming(ctx context.Context, projectID, notificationID string, completedAt time.Time) error {
+	return s.completeProjectNotificationTiming(ctx, projectID, notificationID, completedAt, nil)
+}
+
+func (s *Store) CompleteProjectNotificationTimingWithElapsed(ctx context.Context, projectID, notificationID string, completedAt time.Time, elapsedMs int64) error {
+	if elapsedMs < 0 {
+		elapsedMs = 0
+	}
+	return s.completeProjectNotificationTiming(ctx, projectID, notificationID, completedAt, &elapsedMs)
+}
+
+func (s *Store) completeProjectNotificationTiming(ctx context.Context, projectID, notificationID string, completedAt time.Time, elapsedOverrideMs *int64) error {
 	row := s.db.QueryRowContext(ctx, `
 		SELECT started_at, completed_at
 		FROM project_notification_timings
@@ -59,6 +70,9 @@ func (s *Store) CompleteProjectNotificationTiming(ctx context.Context, projectID
 		completedAt = startedAt
 	}
 	elapsedMs := completedAt.Sub(startedAt).Milliseconds()
+	if elapsedOverrideMs != nil {
+		elapsedMs = *elapsedOverrideMs
+	}
 	_, err = s.db.ExecContext(ctx, `
 		UPDATE project_notification_timings
 		SET completed_at = ?, elapsed_ms = ?, updated_at = ?

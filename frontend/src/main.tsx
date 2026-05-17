@@ -165,6 +165,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const [prompt, setPrompt] = useState('');
   const [busy, setBusy] = useState(false);
   const [messageSubmitting, setMessageSubmitting] = useState(false);
+  const [projectsLoaded, setProjectsLoaded] = useState(false);
   const [pendingAgentRuns, setPendingAgentRuns] = useState<Record<string, number>>({});
   const [pendingMessagesByProject, setPendingMessagesByProject] = useState<Record<string, Message[]>>({});
   const [projectCap, setProjectCap] = useState<number | null>(null);
@@ -209,7 +210,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const displayFeed = useMemo(() => feedWithPendingMessages(feed, activeProject, activeID, activePendingMessages), [feed, activeProject, activeID, activePendingMessages]);
   const selectedService = useMemo(() => selectedProjectService(activeProject), [activeProject]);
   const activePreviewURL = selectedService?.url ?? activeProject?.previewUrl ?? '';
-  const rawRows = useMemo(() => feedRows(displayFeed), [displayFeed]);
+  const rawRows = useMemo(() => feedRows(displayFeed, quotaNow), [displayFeed, quotaNow]);
   const rows = useMemo(() => normalizeActiveNotificationRows(rawRows), [rawRows]);
   const pendingAgentStartedAt = activeProject?.id ? pendingAgentRuns[activeProject.id] : undefined;
   const pendingAgentAge = typeof pendingAgentStartedAt === 'number' ? Date.now() - pendingAgentStartedAt : null;
@@ -233,6 +234,8 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const githubConnected = Boolean(me.githubConnected);
   const githubNeedsReconnect = Boolean(me.githubNeedsReconnect);
   const projectArchived = activeProject?.status === 'archived';
+  const projectsLoading = signedIn && !projectsLoaded;
+  const noActiveProject = signedIn && projectsLoaded && !activeProject;
   const isProjectStarting = activeProject?.status === 'creating' || activeProject?.status === 'launching';
   const previewRuntimeActive = activeProject?.status === 'ready';
   const previewMaintenance = Boolean(activePreviewURL && previewRuntimeActive && previewStatus?.maintenance);
@@ -249,11 +252,17 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const idleStopCountdown = activeProject?.status === 'ready' && activeProject.playgroundIdleStopAt ? formatResetCountdown(activeProject.playgroundIdleStopAt, quotaNow, resetCountdownLabels(t)) : '';
   const idleStopTooltip = idleStopCountdown ? t('builder.idleStop.tooltip', { time: idleStopCountdown }) : '';
   const hasDraft = Boolean(prompt.trim()) || attachments.length > 0;
-  const canSend = signedIn && !projectArchived && hasDraft && !busy && !messageSubmitting && Boolean(activePreviewURL) && (activeProject?.status === 'ready' || previewReady);
+  const composerDisabled = !signedIn || projectsLoading || noActiveProject || projectArchived;
+  const canSend = signedIn && !composerDisabled && hasDraft && !busy && !messageSubmitting && Boolean(activePreviewURL) && (activeProject?.status === 'ready' || previewReady);
   const hasActiveNotification = rows.some((row) => row.kind === 'notification' && row.active);
+  const agentActivityActive = Boolean(messageSubmitting || localAgentRunActive || displayFeed?.live?.isProcessing || feedAwaitingAgent(displayFeed) || hasActiveNotification);
   const utilityScreenOpen = showProjects || showProfile || showHelp || showServices;
   const inputPlaceholder = !signedIn
     ? t('builder.placeholder.signIn')
+    : projectsLoading
+    ? t('builder.placeholder.loadingProjects')
+    : noActiveProject
+    ? t('builder.placeholder.noProject')
     : isProjectStarting
     ? t('builder.placeholder.starting')
     : projectArchived
@@ -279,6 +288,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     const nextProjects = Array.isArray(r.projects) ? r.projects : [];
     setProjects(nextProjects);
     setProjectCap(typeof r.projectCap === 'number' ? r.projectCap : null);
+    setProjectsLoaded(true);
     setActiveID((current) => {
       if (current && nextProjects.some((project) => project.id === current)) return current;
       return nextProjects[0]?.id ?? '';
@@ -303,6 +313,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       setProjects([]);
       setActiveID('');
       setFeed(null);
+      setProjectsLoaded(false);
       setPendingAgentRuns({});
       setPendingMessagesByProject({});
       setShowProjects(false);
@@ -311,9 +322,11 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       setShowServices(false);
       return;
     }
+    setProjectsLoaded(false);
     void loadProjects().catch(() => {
       setProjects([]);
       setActiveID('');
+      setProjectsLoaded(true);
     });
     void refreshQuota();
   }, [signedIn]);
@@ -783,24 +796,24 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   };
   const chatDragHandlers = {
     onDragEnter: (event: React.DragEvent) => {
-      if (!event.dataTransfer.types.includes('Files')) return;
+      if (composerDisabled || !event.dataTransfer.types.includes('Files')) return;
       if (event.cancelable) event.preventDefault();
       dragDepthRef.current += 1;
       setDraggingFiles(true);
     },
     onDragOver: (event: React.DragEvent) => {
-      if (!event.dataTransfer.types.includes('Files')) return;
+      if (composerDisabled || !event.dataTransfer.types.includes('Files')) return;
       event.preventDefault();
       event.dataTransfer.dropEffect = 'copy';
     },
     onDragLeave: (event: React.DragEvent) => {
-      if (!event.dataTransfer.types.includes('Files')) return;
+      if (composerDisabled || !event.dataTransfer.types.includes('Files')) return;
       event.preventDefault();
       dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
       if (dragDepthRef.current === 0) setDraggingFiles(false);
     },
     onDrop: (event: React.DragEvent) => {
-      if (!event.dataTransfer.files.length) return;
+      if (composerDisabled || !event.dataTransfer.files.length) return;
       event.preventDefault();
       dragDepthRef.current = 0;
       setDraggingFiles(false);
@@ -996,7 +1009,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
         <>
           <div className="messages" ref={messagesRef}>
             {rows.map((row) => row.kind === 'notification'
-              ? <AgentNotificationRow key={row.id} body={row.body || agentWorkingLabel} active={row.active} elapsedMs={row.elapsedMs} />
+              ? <AgentNotificationRow key={row.id} body={row.body || agentWorkingLabel} active={row.active} elapsedMs={row.elapsedMs} elapsedStartedAt={row.elapsedStartedAt} />
               : <UserMessageRow key={row.id} row={row} />
             )}
             {agentWorking && !hasActiveNotification && <AgentNotificationRow body={agentWorkingLabel} active />}
@@ -1018,11 +1031,11 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
                 ))}
               </div>
             )}
-            <button className="attachButton" type="button" onClick={() => fileInputRef.current?.click()} disabled={!signedIn || projectArchived || attachments.length >= MAX_ATTACHMENTS} aria-label={t('builder.attachFiles')}>
+            <button className="attachButton" type="button" onClick={() => fileInputRef.current?.click()} disabled={composerDisabled || attachments.length >= MAX_ATTACHMENTS} aria-label={t('builder.attachFiles')}>
               <Paperclip size={20} />
             </button>
             <div className="composerTextSlot">
-              <textarea ref={textareaRef} value={prompt} onChange={(e) => setPrompt(e.target.value)} onKeyDown={handleComposerKeyDown} placeholder={inputPlaceholder} rows={1} disabled={!signedIn || projectArchived} />
+              <textarea ref={textareaRef} value={prompt} onChange={(e) => setPrompt(e.target.value)} onKeyDown={handleComposerKeyDown} placeholder={inputPlaceholder} rows={1} disabled={composerDisabled} />
               {messageQuota && (
                 <span className="composerQuotaBadge tooltip" tabIndex={0} data-tip={messageQuotaTooltip} aria-label={`${t('builder.messages.left')}: ${messageQuotaLabel}`}>
                   {messageQuotaLabel}
@@ -1058,7 +1071,11 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     : t('builder.preview.warmingBody');
   const previewContent = (
     <>
-      {projectArchived ? (
+      {projectsLoading ? (
+        <CanvasLoader title={t('empty.loadingProjectsTitle')} body={t('empty.loadingProjectsBody')} />
+      ) : noActiveProject ? (
+        <EmptyCanvas title={t('empty.noProjectTitle')} body={t('empty.noProjectBody')} />
+      ) : projectArchived ? (
         <CanvasLoader title={t('builder.preview.archivedTitle')} body={t('builder.preview.archivedBody')} />
       ) : showOnboardingWizard ? (
         <>
@@ -1074,6 +1091,8 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
           )}
           <OnboardingGallery ready={onboardingReady} onUsePrompt={useOnboardingPrompt} onStart={dismissOnboarding} onDismiss={dismissOnboarding} />
         </>
+      ) : activeProject?.status === 'error' && agentActivityActive ? (
+        <CanvasLoader title={agentWorkingLabel} body={t('builder.preview.agentWorkingBody')} />
       ) : activeProject?.status === 'error' && !previewMaintenance ? (
         <CanvasLoader title={t('builder.preview.launchFailedTitle')} body={t('builder.preview.launchFailedBody')} tone="error" />
       ) : activeProject?.status === 'stopped' ? (

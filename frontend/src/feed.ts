@@ -5,7 +5,7 @@ const TURN_TIME_SLOP_MS = 5000;
 const RECENT_UNANSWERED_TURN_MS = 30 * 60_000;
 const RECENT_ACTIVITY_WORKING_MS = 15 * 60_000;
 
-export function feedRows(feed: Feed | null): FeedRow[] {
+export function feedRows(feed: Feed | null, now = Date.now()): FeedRow[] {
   if (!feed) return [];
   const rows: FeedRow[] = [];
   for (const msg of feed.localMessages ?? []) {
@@ -14,7 +14,7 @@ export function feedRows(feed: Feed | null): FeedRow[] {
     rows.push({ kind: 'user', id: msg.id, role: 'user', body: normalized.body, attachments: normalized.attachments, time: msg.createdAt });
   }
   rows.push(...notificationFeedRows(feed));
-  return applyNotificationTimings(rows.sort(compareFeedRows), feed.notificationTimings);
+  return applyNotificationTimings(rows.sort(compareFeedRows), feed.notificationTimings, now);
 }
 
 function normalizeLocalMessage(msg: Message): { body: string; attachments: MessageAttachment[] } {
@@ -246,12 +246,24 @@ function normalizeBody(body: string): string {
   return body.trim().replace(/\s+/g, ' ');
 }
 
-function applyNotificationTimings(rows: FeedRow[], timings?: Record<string, NotificationTiming>): FeedRow[] {
+function applyNotificationTimings(rows: FeedRow[], timings?: Record<string, NotificationTiming>, now = Date.now()): FeedRow[] {
   if (!timings) return rows;
   return rows.map((row) => {
     if (row.kind !== 'notification') return row;
-    const elapsedMs = timings[row.id]?.elapsedMs;
-    if (elapsedMs == null || elapsedMs <= 0) return row;
-    return { ...row, elapsedMs };
+    const timing = timings[row.id];
+    const elapsedMs = notificationElapsedMs(row, timing, now);
+    if (elapsedMs == null) return row;
+    return { ...row, elapsedMs, elapsedStartedAt: row.active ? timing?.startedAt : undefined };
   });
+}
+
+function notificationElapsedMs(row: NotificationFeedRow, timing: NotificationTiming | undefined, now: number): number | null {
+  if (!timing) return null;
+  if (typeof timing.elapsedMs === 'number' && Number.isFinite(timing.elapsedMs) && timing.elapsedMs > 0) {
+    return timing.elapsedMs;
+  }
+  if (!row.active) return null;
+  const startedAt = Date.parse(timing.startedAt ?? '');
+  if (Number.isNaN(startedAt)) return null;
+  return Math.max(0, now - startedAt);
 }

@@ -1,4 +1,4 @@
-import { useState, type MouseEvent, type ReactNode } from 'react';
+import { useEffect, useState, type MouseEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, ChevronLeft, ChevronRight, CircleHelp, Download, FileOutput, GitBranch, Loader2, MessageSquare, Minimize2, MoreHorizontal, Paperclip, Pencil, Play, Plus, RotateCcw, Sparkles, Square, Trash2, X } from 'lucide-react';
 import type { AppDialogConfig, MessageAttachment, Project, ProjectService, UserFeedRow } from './domain';
@@ -395,10 +395,19 @@ function isPreviewableImage(contentType: string, filename: string): boolean {
   ].includes(contentType) || /\.(avif|bmp|gif|ico|jpe?g|png|svg|webp)$/.test(filename);
 }
 
-export function AgentNotificationRow({ body, active, elapsedMs }: { body: string; active?: boolean; elapsedMs?: number }) {
+export function AgentNotificationRow({ body, active, elapsedMs, elapsedStartedAt }: { body: string; active?: boolean; elapsedMs?: number; elapsedStartedAt?: string }) {
   const { t } = useI18n();
+  const [liveNow, setLiveNow] = useState(Date.now());
   const text = body.trim() || (active ? t('notification.receiving') : t('notification.canvasUpdated'));
-  const elapsed = active ? '' : formatElapsedDuration(elapsedMs, elapsedDurationLabels(t));
+  useEffect(() => {
+    if (!active || !elapsedStartedAt) return;
+    setLiveNow(Date.now());
+    const timer = setInterval(() => setLiveNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [active, elapsedStartedAt]);
+  const liveStartedAt = active ? Date.parse(elapsedStartedAt ?? '') : Number.NaN;
+  const liveElapsedMs = !Number.isNaN(liveStartedAt) ? Math.max(0, liveNow - liveStartedAt) : undefined;
+  const elapsed = formatElapsedDuration(liveElapsedMs ?? elapsedMs, elapsedDurationLabels(t));
   return (
     <div className={`notificationRow ${active ? 'active' : ''}`} aria-live="polite">
       <div className="notificationBubble">
@@ -409,7 +418,7 @@ export function AgentNotificationRow({ body, active, elapsedMs }: { body: string
   );
 }
 
-export function EmptyCanvas() {
+export function EmptyCanvas({ title, body }: { title?: string; body?: string } = {}) {
   const { t } = useI18n();
   return (
     <div className="emptyPreview">
@@ -420,8 +429,8 @@ export function EmptyCanvas() {
       <div className="stars" />
       <div className="reticle" />
       <div className="emptyCopy">
-        <h1>{t('empty.awaitingTitle')}</h1>
-        <p>{t('empty.awaitingBody')}</p>
+        <h1>{title ?? t('empty.awaitingTitle')}</h1>
+        <p>{body ?? t('empty.awaitingBody')}</p>
       </div>
     </div>
   );
