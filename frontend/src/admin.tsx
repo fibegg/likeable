@@ -5,7 +5,6 @@ import { api } from './api';
 import { AppDialog, Metric } from './builder_components';
 import { ADMIN_CONFIG_SECTIONS } from './config';
 import type { AdminConfigEntry, AdminConfigResponse, AdminProjectSummary, AdminRecoveryResponse, AdminUserDetail, AdminUserSummary, AdminUsersResponse, AgentAssignmentSummary, AgentPoolOption, AgentPoolStat, AppDialogConfig, PoolRow } from './domain';
-import { openExternalLinkFromTap } from './external_links';
 import { formatBillingDuration, formatMessageTime, formatShortDate } from './format';
 import { resetCountdownLabels, statusLabel, TranslationKey, useDocumentTitle, useI18n } from './i18n';
 
@@ -388,7 +387,7 @@ function AdminCustomersPanel() {
                         </select>
                       </label>
                       <div className="adminProjectActions">
-                        {previewUrl && <a className="ghostButton" href={previewUrl} target="_blank" rel="noopener noreferrer" onClick={(event) => openExternalLinkFromTap(event, previewUrl)}>{t('common.open')}</a>}
+                        {previewUrl && <a className="ghostButton" href={previewUrl} target="_blank" rel="noopener noreferrer">{t('common.open')}</a>}
                         <button className="projectDelete" onClick={() => void deleteProject(item.project.id)} aria-label={t('admin.deleteProject.aria', { title: item.project.title })}><Trash2 size={15} /></button>
                       </div>
                     </div>

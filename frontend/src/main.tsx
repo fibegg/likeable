@@ -7,7 +7,6 @@ import { api } from './api';
 import { AgentNotificationRow, AppDialog, CanvasLoader, ConfirmDeleteProject, ConfirmExportProject, ConfirmNewProject, DeleteAllAccountDialog, EmptyCanvas, HelpPanel, OnboardingGallery, ProjectList, ServicePanel, UserMessageRow } from './builder_components';
 import { BASIC_CHAT_COLLAPSED_KEY, BASIC_CHAT_HEIGHT_KEY, BUILDER_MODE_KEY, COLLAPSED_CHAT_POSITION_KEY, MAX_ATTACHMENTS, SINGLE_VIEW_QUERY } from './config';
 import type { AppDialogConfig, BuilderMode, BusyPolicy, Feed, FeedRow, HourQuota, Message, Me, PendingAttachment, PreviewStatus, Project, ProjectArchiveResponse, ProjectExportResponse, ProjectListResponse, ProjectService, UserNotice } from './domain';
-import { openExternalLinkFromTap } from './external_links';
 import { feedAwaitingAgent, feedHasAssistantAfterLatestUser, feedLiveIdle, feedRows } from './feed';
 import { formatBillingDuration, formatResetCountdown } from './format';
 import { I18nProvider, resetCountdownLabels, type TranslationKey, useDocumentTitle, useI18n } from './i18n';
@@ -16,6 +15,7 @@ import { ProfilePanel } from './profile_panel';
 import { clampBasicChatHeight, currentViewportHeight, currentViewportWidth, defaultBasicChatHeight, installViewportCssVars, singleViewScreen } from './viewport';
 
 installPwa();
+installPlatformFlags();
 
 const LOCAL_AGENT_RUN_MAX_MS = 30 * 60_000;
 const LOCAL_AGENT_IDLE_GRACE_MS = 10_000;
@@ -63,6 +63,11 @@ function googleAuthStartPath() {
     'snapchat'
   ].some((marker) => userAgent.includes(marker));
   return inAppBrowser ? '/api/auth/google/start?browser_hint=in_app' : '/api/auth/google/start';
+}
+
+function installPlatformFlags() {
+  if (typeof navigator === 'undefined') return;
+  document.documentElement.dataset.android = /\bAndroid\b/i.test(navigator.userAgent) ? 'true' : 'false';
 }
 
 function App() {
@@ -976,9 +981,6 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     ]);
   };
   const pullRefresh = usePullToRefresh(signedIn, refreshBuilder);
-  const openPreviewExternally = (event: React.MouseEvent<HTMLAnchorElement>) => {
-    openExternalLinkFromTap(event, activePreviewURL);
-  };
   const serviceSelectorButton = () => hasMultipleServices ? (
     <button
       className={`${showServices ? 'serviceSelectorButton selected' : 'serviceSelectorButton'} serviceSelectorInTitle`}
@@ -1010,7 +1012,6 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
             href={activePreviewURL}
             target="_blank"
             rel="noopener noreferrer"
-            onClick={openPreviewExternally}
             data-no-pull-refresh="true"
             aria-label={t('builder.preview.open')}
             data-tip={t('builder.preview.open')}
@@ -1069,7 +1070,6 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
               href={activePreviewURL}
               target="_blank"
               rel="noopener noreferrer"
-              onClick={openPreviewExternally}
               data-no-pull-refresh="true"
               aria-label={t('builder.preview.open')}
               data-tip={t('builder.preview.open')}

@@ -3,7 +3,6 @@ import { BookOpen, Check, ExternalLink, FolderOpen, GitBranch, Loader2, LogOut, 
 import { api } from './api';
 import { DeleteAllAccountDialog } from './builder_components';
 import type { Me, ProjectArchive, UserNotice } from './domain';
-import { openExternalLinkFromTap } from './external_links';
 import { formatBillingDuration, formatMessageTime, formatResetCountdown, formatShortDate, userInitials } from './format';
 import { resetCountdownLabels, statusLabel, useI18n } from './i18n';
 
@@ -228,7 +227,7 @@ export function ProfilePanel({ me, onClose, onOpenTutorial }: { me: Me; onClose:
                     <em>{statusLabel(archive.status, t)}{archive.expiresAt ? ` · ${t('common.expires', { date: formatShortDate(archive.expiresAt, locale) })}` : ''}</em>
                     {archive.error && <small>{archive.error}</small>}
                   </div>
-                  {githubRepoUrl && <a className="ghostButton" href={githubRepoUrl} target="_blank" rel="noopener noreferrer" onClick={(event) => openExternalLinkFromTap(event, githubRepoUrl)}><ExternalLink size={15} /> {t('common.github')}</a>}
+                  {githubRepoUrl && <a className="ghostButton" href={githubRepoUrl} target="_blank" rel="noopener noreferrer"><ExternalLink size={15} /> {t('common.github')}</a>}
                   {archive.downloadUrl && <a className="primaryButton" href={archive.downloadUrl}><FolderOpen size={15} /> {t('common.zip')}</a>}
                 </div>
               );

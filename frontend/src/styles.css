@@ -3797,13 +3797,8 @@ html.draggingCollapsedChat * {
     width: 100%;
     height: min(var(--basic-chat-height, var(--mobile-chat-available-height)), var(--mobile-chat-available-height));
     min-height: 0;
-    transform: translateZ(0);
+    transform: none;
     max-height: var(--mobile-chat-available-height);
-    isolation: isolate;
-    contain: layout paint;
-    background: #060c0f;
-    backface-visibility: hidden;
-    -webkit-backface-visibility: hidden;
   }
   .overlayChat:not(.collapsed):not(.minimized):focus-within {
     height: var(--mobile-chat-available-height);
@@ -3823,12 +3818,7 @@ html.draggingCollapsedChat * {
     border-width: 1px 0 0 0;
     overflow: hidden;
     backdrop-filter: none;
-    background: #060c0f;
-  }
-  .overlayChat:not(.collapsed):not(.minimized) .messages {
-    background:
-      linear-gradient(180deg, rgba(9, 17, 20, .98), rgba(5, 11, 14, .99)),
-      #060c0f;
+    background: rgba(6, 12, 15, .92);
   }
   .overlayChat:not(.collapsed):not(.minimized) .chatPane.screenOpen {
     grid-template-rows: auto auto minmax(0, 1fr);
@@ -3850,7 +3840,51 @@ html.draggingCollapsedChat * {
     padding: 9px 10px;
     border-width: 0 0 1px;
     border-radius: 0;
-    background: rgba(7, 14, 17, .96);
+    background: rgba(7, 14, 17, .46);
+  }
+  html[data-android="true"] .previewPane.chatExpanded::after {
+    background: #060c0f;
+  }
+  html[data-android="true"] .previewPane.chatExpanded .previewTopChrome .basicChatChrome {
+    background: #050b0e;
+    backdrop-filter: none;
+  }
+  html[data-android="true"] .overlayChat:not(.collapsed):not(.minimized) {
+    transform: translateZ(0);
+    isolation: isolate;
+    contain: layout paint;
+    background: #060c0f;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+  }
+  html[data-android="true"] .overlayChat:not(.collapsed):not(.minimized) .chatPane {
+    background: #060c0f;
+  }
+  html[data-android="true"] .overlayChat:not(.collapsed):not(.minimized) .messages {
+    background: linear-gradient(180deg, #091114, #050b0e), #060c0f;
+  }
+  html[data-android="true"] .overlayChat:not(.collapsed):not(.minimized) .messageCard {
+    background: linear-gradient(90deg, #111412, #0a1112), #0a1112;
+  }
+  html[data-android="true"] .overlayChat:not(.collapsed):not(.minimized) .messageRole,
+  html[data-android="true"] .overlayChat:not(.collapsed):not(.minimized) .messageAttachment {
+    background: #0c1518;
+  }
+  html[data-android="true"] .overlayChat:not(.collapsed):not(.minimized) .messageRow.assistant .messageRole {
+    background: #20180c;
+  }
+  html[data-android="true"] .overlayChat:not(.collapsed):not(.minimized) .notificationBubble {
+    background: linear-gradient(90deg, #0a171b, #12120d), #0a171b;
+    backdrop-filter: none;
+  }
+  html[data-android="true"] .overlayChat:not(.collapsed):not(.minimized) .attachmentChip {
+    background: #070f12;
+  }
+  html[data-android="true"] .overlayChat:not(.collapsed):not(.minimized) .chatProjectTitle {
+    background: #071011;
+  }
+  html[data-android="true"] .overlayChat:not(.collapsed):not(.minimized) .composer {
+    background: #050b0e;
   }
   .overlayChat .composer {
     padding: 0;
