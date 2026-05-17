@@ -22,33 +22,25 @@ FROM debian:bookworm-slim AS fibe-cli
 RUN apt-get update \
   && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates curl jq tar gzip \
   && rm -rf /var/lib/apt/lists/*
-RUN set -eu; \
-  arch="$(dpkg --print-architecture)"; \
-  case "$arch" in \
-    amd64) fibe_arch="amd64" ;; \
-    arm64) fibe_arch="arm64" ;; \
-    *) echo "unsupported architecture: $arch" >&2; exit 1 ;; \
-  esac; \
-  release="$(curl -fsSL https://api.github.com/repos/fibegg/sdk/releases/latest)"; \
-  version="$(printf '%s' "$release" | jq -r '.tag_name | sub("^v"; "")')"; \
-  asset="fibe_${version}_linux_${fibe_arch}.tar.gz"; \
-  url="$(printf '%s' "$release" | jq -r --arg asset "$asset" '.assets[] | select(.name == $asset) | .browser_download_url')"; \
-  test -n "$url"; \
-  curl -fsSL "$url" -o /tmp/fibe.tar.gz; \
-  tar -xzf /tmp/fibe.tar.gz -C /tmp; \
-  install -m 0755 /tmp/fibe /usr/local/bin/fibe; \
-  rm -rf /tmp/fibe /tmp/fibe.tar.gz
+COPY scripts/install-fibe.sh /usr/local/bin/install-fibe.sh
+RUN chmod +x /usr/local/bin/install-fibe.sh \
+  && /usr/local/bin/install-fibe.sh \
+  && /usr/local/bin/fibe version
 
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update \
-  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates curl git \
+  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates curl git jq tar gzip \
   && rm -rf /var/lib/apt/lists/*
 RUN useradd --uid 10001 --create-home --home-dir /home/likeable --shell /usr/sbin/nologin likeable && mkdir -p /data && chown -R likeable:likeable /data
 COPY --from=backend /out/likeable /usr/local/bin/likeable
 COPY --from=fibe-cli /usr/local/bin/fibe /usr/local/bin/fibe
+COPY scripts/install-fibe.sh /usr/local/bin/install-fibe.sh
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/install-fibe.sh /usr/local/bin/docker-entrypoint.sh
 USER likeable
 ENV ADDR=:8080 DATABASE_PATH=/data/likeable.db HOME=/tmp
 EXPOSE 8080
 STOPSIGNAL SIGTERM
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD curl -fsS http://127.0.0.1:8080/healthz || exit 1
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["likeable"]
