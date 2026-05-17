@@ -31,9 +31,9 @@ func (s *Server) stripeConfig(r *http.Request) (map[string]string, error) {
 func stripeConfigFromMap(cfg map[string]string) map[string]string {
 	out := map[string]string{
 		"secret":              strings.TrimSpace(cfg["stripe_secret_key"]),
-		"price_10":            strings.TrimSpace(cfg["stripe_price_id_10"]),
-		"price_100":           strings.TrimSpace(cfg["stripe_price_id_100"]),
-		"price_1000":          strings.TrimSpace(cfg["stripe_price_id_1000"]),
+		"price_1_hour":        strings.TrimSpace(cfg["stripe_price_id_1_hour"]),
+		"price_10_hours":      strings.TrimSpace(cfg["stripe_price_id_10_hours"]),
+		"price_100_hours":     strings.TrimSpace(cfg["stripe_price_id_100_hours"]),
 		"project_quota_price": strings.TrimSpace(cfg["stripe_project_quota_price_id"]),
 		"webhook":             strings.TrimSpace(cfg["stripe_webhook_secret"]),
 	}
@@ -52,25 +52,25 @@ func billingProductsFromConfig(cfg map[string]string) map[string]any {
 	if strings.TrimSpace(cfg["secret"]) == "" {
 		return emptyBillingProducts()
 	}
-	messagePacks := make([]int, 0, 3)
-	if strings.TrimSpace(cfg["price_10"]) != "" {
-		messagePacks = append(messagePacks, 10)
+	hourPacks := make([]int, 0, 3)
+	if strings.TrimSpace(cfg["price_1_hour"]) != "" {
+		hourPacks = append(hourPacks, 1)
 	}
-	if strings.TrimSpace(cfg["price_100"]) != "" {
-		messagePacks = append(messagePacks, 100)
+	if strings.TrimSpace(cfg["price_10_hours"]) != "" {
+		hourPacks = append(hourPacks, 10)
 	}
-	if strings.TrimSpace(cfg["price_1000"]) != "" {
-		messagePacks = append(messagePacks, 1000)
+	if strings.TrimSpace(cfg["price_100_hours"]) != "" {
+		hourPacks = append(hourPacks, 100)
 	}
 	return map[string]any{
-		"messagePacks": messagePacks,
+		"hourPacks":    hourPacks,
 		"projectQuota": strings.TrimSpace(cfg["project_quota_price"]) != "",
 	}
 }
 
 func emptyBillingProducts() map[string]any {
 	return map[string]any{
-		"messagePacks": []int{},
+		"hourPacks":    []int{},
 		"projectQuota": false,
 	}
 }
@@ -103,7 +103,7 @@ func (s *Server) handleBillingCheckout(w http.ResponseWriter, r *http.Request) {
 	case "project_quota":
 		slots, priceID, err = stripeProjectQuotaPrice(cfg, body.Slots)
 	default:
-		pack, priceID, err = stripePackPrice(cfg, body.Pack)
+		pack, priceID, err = stripeHourPackPrice(cfg, body.Pack)
 	}
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -120,7 +120,7 @@ func (s *Server) handleBillingCheckout(w http.ResponseWriter, r *http.Request) {
 		form.Set("metadata[project_slots]", strconv.Itoa(slots))
 		form.Set("metadata[project_quota_days]", "30")
 	} else {
-		form.Set("metadata[pack_messages]", strconv.Itoa(pack))
+		form.Set("metadata[pack_hours]", strconv.Itoa(pack))
 	}
 	form.Set("line_items[0][price]", priceID)
 	form.Set("line_items[0][quantity]", "1")
@@ -152,29 +152,29 @@ func normalizeStripeProduct(product string) string {
 	case "project", "projects", "project_quota", "project-quota":
 		return "project_quota"
 	default:
-		return "message_pack"
+		return "hour_pack"
 	}
 }
 
-func stripePackPrice(cfg map[string]string, pack int) (int, string, error) {
+func stripeHourPackPrice(cfg map[string]string, pack int) (int, string, error) {
 	switch pack {
+	case 1:
+		if cfg["price_1_hour"] == "" {
+			return 0, "", fmt.Errorf("Stripe price for 1 hour is not configured")
+		}
+		return 1, cfg["price_1_hour"], nil
 	case 10:
-		if cfg["price_10"] == "" {
-			return 0, "", fmt.Errorf("Stripe price for 10 messages is not configured")
+		if cfg["price_10_hours"] == "" {
+			return 0, "", fmt.Errorf("Stripe price for 10 hours is not configured")
 		}
-		return 10, cfg["price_10"], nil
+		return 10, cfg["price_10_hours"], nil
 	case 100:
-		if cfg["price_100"] == "" {
-			return 0, "", fmt.Errorf("Stripe price for 100 messages is not configured")
+		if cfg["price_100_hours"] == "" {
+			return 0, "", fmt.Errorf("Stripe price for 100 hours is not configured")
 		}
-		return 100, cfg["price_100"], nil
-	case 1000:
-		if cfg["price_1000"] == "" {
-			return 0, "", fmt.Errorf("Stripe price for 1000 messages is not configured")
-		}
-		return 1000, cfg["price_1000"], nil
+		return 100, cfg["price_100_hours"], nil
 	default:
-		return 0, "", fmt.Errorf("unsupported message pack")
+		return 0, "", fmt.Errorf("unsupported hour pack")
 	}
 }
 
@@ -245,17 +245,17 @@ func (s *Server) handleStripeWebhook(w http.ResponseWriter, r *http.Request) {
 					Status:            "paid",
 				})
 			}
-			packMessages := stripePackMessages(event.Data.Object["metadata"])
-			if packMessages > 0 {
-				expectedPriceID := expectedStripePackPrice(cfg, packMessages)
+			packHours := stripePackHours(event.Data.Object["metadata"])
+			if packHours > 0 {
+				expectedPriceID := expectedStripeHourPackPrice(cfg, packHours)
 				if err := s.verifyStripeCheckoutPrice(r.Context(), cfg, sessionID, expectedPriceID); err != nil {
 					writeError(w, http.StatusBadRequest, err.Error())
 					return
 				}
 			}
-			if packMessages > 0 && sessionID != "" && sessionID != "<nil>" {
-				if granted, err := s.store.GrantMessageCredits(r.Context(), userID, sessionID, packMessages); err == nil && granted {
-					s.notifyMessageCreditsPurchased(r.Context(), userID, packMessages)
+			if packHours > 0 && sessionID != "" && sessionID != "<nil>" {
+				if granted, err := s.store.GrantHourCredits(r.Context(), userID, sessionID, packHours); err == nil && granted {
+					s.notifyHourCreditsPurchased(r.Context(), userID, packHours)
 				}
 			}
 			projectSlots := stripeProjectSlots(event.Data.Object["metadata"])
@@ -306,17 +306,17 @@ func stripeInt64(value any) int64 {
 	}
 }
 
-func stripePackMessages(metadata any) int {
+func stripePackHours(metadata any) int {
 	raw := ""
 	if m, ok := metadata.(map[string]any); ok {
-		raw = fmt.Sprint(m["pack_messages"])
+		raw = fmt.Sprint(m["pack_hours"])
 	}
 	if raw == "" || raw == "<nil>" {
 		return 0
 	}
 	n, _ := strconv.Atoi(raw)
 	switch n {
-	case 10, 100, 1000:
+	case 1, 10, 100:
 		return n
 	default:
 		return 0
@@ -343,14 +343,14 @@ func stripeProjectSlots(metadata any) int {
 	}
 }
 
-func expectedStripePackPrice(cfg map[string]string, pack int) string {
+func expectedStripeHourPackPrice(cfg map[string]string, pack int) string {
 	switch pack {
+	case 1:
+		return cfg["price_1_hour"]
 	case 10:
-		return cfg["price_10"]
+		return cfg["price_10_hours"]
 	case 100:
-		return cfg["price_100"]
-	case 1000:
-		return cfg["price_1000"]
+		return cfg["price_100_hours"]
 	default:
 		return ""
 	}

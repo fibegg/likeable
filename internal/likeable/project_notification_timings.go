@@ -19,6 +19,11 @@ type projectNotificationRow struct {
 	Active bool
 }
 
+type projectWorkObservation struct {
+	Key    string
+	Active bool
+}
+
 type likeableNotificationSegment struct {
 	Body      string
 	Streaming bool
@@ -39,10 +44,17 @@ func (s *Server) syncProjectNotificationTimingsAt(ctx context.Context, project *
 	if err != nil {
 		return nil, shouldContinue, err
 	}
+	observedAt = observedAt.UTC()
 	if len(rows) == 0 {
+		if billed, err := s.syncProjectWorkSessionsAt(ctx, project, local, rows, live, observedAt); err != nil {
+			return nil, shouldContinue, err
+		} else if billed {
+			if user, err := s.store.UserByID(ctx, project.UserID); err == nil {
+				s.notifyHourQuotaIfNeeded(ctx, user)
+			}
+		}
 		return timings, shouldContinue, nil
 	}
-	observedAt = observedAt.UTC()
 	for _, row := range rows {
 		if _, ok := timings[row.ID]; ok {
 			continue
@@ -85,8 +97,100 @@ func (s *Server) syncProjectNotificationTimingsAt(ctx context.Context, project *
 			return nil, shouldContinue, err
 		}
 	}
+	if billed, err := s.syncProjectWorkSessionsAt(ctx, project, local, rows, live, observedAt); err != nil {
+		return nil, shouldContinue, err
+	} else if billed {
+		if user, err := s.store.UserByID(ctx, project.UserID); err == nil {
+			s.notifyHourQuotaIfNeeded(ctx, user)
+		}
+	}
 	timings, err = s.store.ProjectNotificationTimingMap(ctx, project.ID)
 	return timings, shouldContinue, err
+}
+
+func (s *Server) syncProjectWorkSessionsAt(ctx context.Context, project *Project, local []Message, rows []projectNotificationRow, live *fibegateway.ConversationLiveState, observedAt time.Time) (bool, error) {
+	if project == nil {
+		return false, nil
+	}
+	observations := projectWorkObservations(local, rows, live)
+	if len(observations) == 0 {
+		if live != nil && !live.IsProcessing {
+			completed, err := s.store.CompleteOpenProjectWorkSessions(ctx, project.UserID, project.ID, observedAt, s.freeHourWindowHours(ctx), s.freeHourLimitMs(ctx))
+			return completed > 0, err
+		}
+		return false, nil
+	}
+	seen := map[string]bool{}
+	for _, observation := range observations {
+		if observation.Key == "" || seen[observation.Key] {
+			continue
+		}
+		seen[observation.Key] = true
+		if err := s.store.StartProjectWorkSession(ctx, project.UserID, project.ID, observation.Key, observedAt); err != nil {
+			return false, err
+		}
+	}
+	billed := false
+	for _, observation := range observations {
+		if observation.Key == "" || observation.Active {
+			continue
+		}
+		completed, err := s.store.CompleteAndBillProjectWorkSession(ctx, project.UserID, project.ID, observation.Key, observedAt, s.freeHourWindowHours(ctx), s.freeHourLimitMs(ctx))
+		if err != nil {
+			return billed, err
+		}
+		if completed {
+			billed = true
+		}
+	}
+	if live != nil && !live.IsProcessing {
+		completed, err := s.store.CompleteOpenProjectWorkSessions(ctx, project.UserID, project.ID, observedAt, s.freeHourWindowHours(ctx), s.freeHourLimitMs(ctx))
+		if err != nil {
+			return billed, err
+		}
+		billed = billed || completed > 0
+	}
+	return billed, nil
+}
+
+func projectWorkObservations(local []Message, rows []projectNotificationRow, live *fibegateway.ConversationLiveState) []projectWorkObservation {
+	activeByKey := map[string]bool{}
+	order := []string{}
+	for _, row := range rows {
+		key, ok := notificationSequenceKey(row.ID)
+		if !ok || key == "" {
+			continue
+		}
+		if _, exists := activeByKey[key]; !exists {
+			order = append(order, key)
+		}
+		activeByKey[key] = activeByKey[key] || row.Active
+	}
+	if live != nil && live.IsProcessing {
+		key := liveWorkSessionKey(local, live)
+		if key != "" {
+			if _, exists := activeByKey[key]; !exists {
+				order = append(order, key)
+			}
+			activeByKey[key] = true
+		}
+	}
+	out := make([]projectWorkObservation, 0, len(order))
+	for _, key := range order {
+		out = append(out, projectWorkObservation{Key: key, Active: activeByKey[key]})
+	}
+	return out
+}
+
+func liveWorkSessionKey(local []Message, live *fibegateway.ConversationLiveState) string {
+	userTimes := notificationUserTimes(local)
+	if len(userTimes) > 0 {
+		return notificationTurnKey(userTimes[len(userTimes)-1])
+	}
+	if live != nil && strings.TrimSpace(live.CurrentActivityID) != "" {
+		return "activity-" + strings.TrimSpace(live.CurrentActivityID)
+	}
+	return "live"
 }
 
 func projectNotificationRows(local []Message, messages []any, activity []any, live *fibegateway.ConversationLiveState) []projectNotificationRow {

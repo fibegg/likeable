@@ -55,6 +55,27 @@ export function formatElapsedDuration(ms?: number, labels: ElapsedDurationLabels
   return `${minutes}${labels.minute}${String(seconds).padStart(2, '0')}${labels.second}`;
 }
 
+type BillingDurationLabels = {
+  hour: string;
+  minute: string;
+};
+
+const defaultBillingDurationLabels: BillingDurationLabels = {
+  hour: 'h',
+  minute: 'm'
+};
+
+export function formatBillingDuration(ms?: number, labels: BillingDurationLabels = defaultBillingDurationLabels): string {
+  if (typeof ms !== 'number' || !Number.isFinite(ms)) return `0${labels.hour}`;
+  const sign = ms < 0 ? '-' : '';
+  const totalMinutes = Math.max(0, Math.round(Math.abs(ms) / 60000));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours <= 0) return `${sign}${minutes}${labels.minute}`;
+  if (minutes <= 0) return `${sign}${hours}${labels.hour}`;
+  return `${sign}${hours}${labels.hour} ${minutes}${labels.minute}`;
+}
+
 export function formatShortDate(value?: string, locale?: string): string {
   const date = new Date(value ?? '');
   if (Number.isNaN(date.getTime())) return '';

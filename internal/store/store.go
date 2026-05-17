@@ -143,6 +143,22 @@ func (s *Store) migrate(ctx context.Context) error {
 			PRIMARY KEY(project_id, notification_id)
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_project_notification_timings_project ON project_notification_timings(project_id, started_at)`,
+		`CREATE TABLE IF NOT EXISTS project_work_sessions (
+			project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			session_key TEXT NOT NULL,
+			started_at TEXT NOT NULL,
+			completed_at TEXT NOT NULL DEFAULT '',
+			elapsed_ms INTEGER NOT NULL DEFAULT 0,
+			free_billed_ms INTEGER NOT NULL DEFAULT 0,
+			paid_billed_ms INTEGER NOT NULL DEFAULT 0,
+			billed_at TEXT NOT NULL DEFAULT '',
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			PRIMARY KEY(project_id, session_key)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_project_work_sessions_user_started ON project_work_sessions(user_id, started_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_project_work_sessions_project_open ON project_work_sessions(project_id, completed_at)`,
 		`CREATE TABLE IF NOT EXISTS social_connections (
 			id TEXT PRIMARY KEY,
 			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -194,6 +210,18 @@ func (s *Store) migrate(ctx context.Context) error {
 			created_at TEXT NOT NULL
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_message_credit_ledger_user_created ON message_credit_ledger(user_id, created_at DESC)`,
+		`CREATE TABLE IF NOT EXISTS hour_credit_ledger (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			delta_ms INTEGER NOT NULL,
+			reason TEXT NOT NULL,
+			payment_id TEXT NOT NULL DEFAULT '',
+			work_session_key TEXT NOT NULL DEFAULT '',
+			created_at TEXT NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_hour_credit_ledger_user_created ON hour_credit_ledger(user_id, created_at DESC)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_hour_credit_ledger_payment_purchase ON hour_credit_ledger(payment_id) WHERE reason = 'purchase' AND payment_id != ''`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_hour_credit_ledger_work_session ON hour_credit_ledger(user_id, work_session_key) WHERE reason = 'work_session' AND work_session_key != ''`,
 		`CREATE TABLE IF NOT EXISTS project_quota_ledger (
 			id TEXT PRIMARY KEY,
 			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

@@ -5,8 +5,8 @@ import { api } from './api';
 import { AppDialog, Metric } from './builder_components';
 import { ADMIN_CONFIG_SECTIONS } from './config';
 import type { AdminConfigEntry, AdminConfigResponse, AdminProjectSummary, AdminRecoveryResponse, AdminUserDetail, AdminUserSummary, AdminUsersResponse, AgentAssignmentSummary, AgentPoolOption, AgentPoolStat, AppDialogConfig, PoolRow } from './domain';
-import { formatMessageTime, formatShortDate } from './format';
-import { statusLabel, TranslationKey, useDocumentTitle, useI18n } from './i18n';
+import { formatBillingDuration, formatMessageTime, formatShortDate } from './format';
+import { resetCountdownLabels, statusLabel, TranslationKey, useDocumentTitle, useI18n } from './i18n';
 
 function AdminCustomersPanel() {
   const { locale, t } = useI18n();
@@ -73,6 +73,13 @@ function AdminCustomersPanel() {
     return leftTime - rightTime;
   }), [detail?.notices]);
   const totalPages = Math.max(1, Math.ceil(total / Number(filters.perPage || 25)));
+  const durationLabels = resetCountdownLabels(t);
+  const workDuration = (ms?: number) => formatBillingDuration(ms ?? 0, durationLabels);
+  const paidHourStatus = (summary: AdminUserSummary) => {
+    if (summary.paidHourBalanceMs > 0) return `${workDuration(summary.paidHourBalanceMs)} ${t('profile.hours')}`;
+    if (summary.paidHourBalanceMs < 0) return `${workDuration(summary.paidHourBalanceMs)} ${t('common.debt')}`;
+    return summary.paidTotalCents > 0 ? t('common.paid') : t('common.unpaid');
+  };
 
   useEffect(() => {
     const container = noticeListRef.current;
@@ -233,7 +240,7 @@ function AdminCustomersPanel() {
           <span>{t('admin.sort')}</span>
           <select className="adminSelect" value={filters.sort} onChange={(event) => setFilters({ ...filters, sort: event.target.value })}>
             <option value="created_desc">{t('admin.sort.newest')}</option>
-            <option value="messages_desc">{t('admin.sort.messages')}</option>
+            <option value="hours_desc">{t('admin.sort.hours')}</option>
             <option value="paid_desc">{t('admin.sort.paid')}</option>
             <option value="projects_desc">{t('admin.sort.projects')}</option>
             <option value="email_asc">{t('admin.sort.email')}</option>
@@ -250,12 +257,12 @@ function AdminCustomersPanel() {
                 <em>{summary.user.name || summary.user.id}</em>
               </span>
               <span className="customerStats">
-                <b>{summary.dailyMessageCount}/{summary.freeMessageLimit}</b>
-                <small>{summary.messageCount} {t('admin.lifetime')} · {summary.projectCount}/{summary.projectLimit ?? summary.projectCount} {t('common.projects')}</small>
+                <b>{workDuration(summary.windowWorkMs)}/{workDuration(summary.freeHourLimitMs)}</b>
+                <small>{workDuration(summary.lifetimeWorkMs)} {t('admin.lifetime')} · {summary.projectCount}/{summary.projectLimit ?? summary.projectCount} {t('common.projects')}</small>
               </span>
               <span className="customerBadges">
                 <i>{summary.githubConnected ? t('common.github') : t('admin.noGithub')}</i>
-                <i>{summary.paidCreditBalance > 0 ? `${summary.paidCreditBalance} ${t('common.credits')}` : (summary.paidTotalCents > 0 ? t('common.paid') : t('common.unpaid'))}</i>
+                <i>{paidHourStatus(summary)}</i>
                 {summary.user.accessStatus === 'restricted' && <i className="dangerBadge">{t('common.restricted')}</i>}
                 {(summary.agentPairs ?? []).slice(0, 2).map((pair) => (
                   <i className="assignmentBadge" key={`${pair.agentId}:${pair.serverId}`}>
@@ -286,9 +293,9 @@ function AdminCustomersPanel() {
                 <span className={`accessBadge ${selectedSummary.user.accessStatus === 'restricted' ? 'restricted' : ''}`}>{selectedSummary.user.accessStatus === 'restricted' ? t('common.restricted') : t('common.active')}</span>
               </div>
               <div className="customerMetricGrid">
-                <Metric label={t('admin.metric.free5h')} value={`${selectedSummary.dailyMessageCount}/${selectedSummary.freeMessageLimit}`} />
-                <Metric label={t('admin.metric.lifetimeSent')} value={String(selectedSummary.messageCount)} />
-                <Metric label={t('admin.metric.paidCredits')} value={String(selectedSummary.paidCreditBalance)} />
+                <Metric label={t('admin.metric.freeWindowHours')} value={`${workDuration(selectedSummary.windowWorkMs)}/${workDuration(selectedSummary.freeHourLimitMs)}`} />
+                <Metric label={t('admin.metric.lifetimeHours')} value={workDuration(selectedSummary.lifetimeWorkMs)} />
+                <Metric label={t('admin.metric.paidHours')} value={workDuration(selectedSummary.paidHourBalanceMs)} />
                 <Metric label={t('admin.metric.projects')} value={`${selectedSummary.projectCount}/${selectedSummary.projectLimit ?? selectedSummary.projectCount}`} />
                 <Metric label={t('admin.metric.paidSlots')} value={selectedSummary.paidProjectSlots ? `${selectedSummary.paidProjectSlots}${selectedSummary.projectSlotsExpire ? ` ${t('common.until')} ${formatShortDate(selectedSummary.projectSlotsExpire, locale)}` : ''}` : '0'} />
                 <Metric label={t('admin.metric.github')} value={selectedSummary.githubConnected ? t('common.connected') : t('common.missing')} />
@@ -360,7 +367,7 @@ function AdminCustomersPanel() {
                     <div className="adminProjectRow" key={item.project.id}>
                       <span>
                         <strong>{item.project.title}</strong>
-                        <em>{statusLabel(item.project.status, t)} · {item.messageCount} {t('common.messages')}</em>
+                        <em>{statusLabel(item.project.status, t)} · {workDuration(item.workMs)}</em>
                       </span>
                       <label className="adminProjectAssignment">
                         <span>{t('admin.assignment')}</span>
@@ -466,13 +473,13 @@ function adminConfigLabel(key: string, t: (key: TranslationKey) => string): stri
   const labelKeys: Record<string, TranslationKey> = {
     stripe_publishable_key: 'admin.config.stripe_publishable_key',
     stripe_secret_key: 'admin.config.stripe_secret_key',
-    stripe_price_id_10: 'admin.config.stripe_price_id_10',
-    stripe_price_id_100: 'admin.config.stripe_price_id_100',
-    stripe_price_id_1000: 'admin.config.stripe_price_id_1000',
+    stripe_price_id_1_hour: 'admin.config.stripe_price_id_1_hour',
+    stripe_price_id_10_hours: 'admin.config.stripe_price_id_10_hours',
+    stripe_price_id_100_hours: 'admin.config.stripe_price_id_100_hours',
     stripe_project_quota_price_id: 'admin.config.stripe_project_quota_price_id',
     stripe_webhook_secret: 'admin.config.stripe_webhook_secret',
-    free_messages: 'admin.config.free_messages',
-    free_message_window_hours: 'admin.config.free_message_window_hours',
+    free_hours: 'admin.config.free_hours',
+    free_hour_window_hours: 'admin.config.free_hour_window_hours',
     project_cap: 'admin.config.project_cap'
   };
   const labelKey = labelKeys[key];

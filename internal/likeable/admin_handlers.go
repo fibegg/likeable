@@ -291,15 +291,17 @@ func (s *Server) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleAdminUsersIndex(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
+	windowStart, windowEnd := s.freeHourWindow(time.Now(), r.Context())
 	filters := AdminUserFilters{
-		Query:              query.Get("q"),
-		Status:             query.Get("status"),
-		Github:             query.Get("github"),
-		Billing:            query.Get("billing"),
-		Sort:               query.Get("sort"),
-		Page:               boundedQueryInt(query.Get("page"), 1, 1, 100000),
-		PerPage:            boundedQueryInt(query.Get("per_page"), 25, 1, 100),
-		MessageWindowStart: s.currentFreeMessageWindowStart(r.Context()),
+		Query:            query.Get("q"),
+		Status:           query.Get("status"),
+		Github:           query.Get("github"),
+		Billing:          query.Get("billing"),
+		Sort:             query.Get("sort"),
+		Page:             boundedQueryInt(query.Get("page"), 1, 1, 100000),
+		PerPage:          boundedQueryInt(query.Get("per_page"), 25, 1, 100),
+		UsageWindowStart: windowStart,
+		UsageWindowEnd:   windowEnd,
 	}
 	users, total, err := s.store.AdminUsers(r.Context(), filters)
 	if err != nil {
@@ -311,9 +313,9 @@ func (s *Server) handleAdminUsersIndex(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	freeLimit := s.freeMessageLimit(r.Context())
+	freeLimitMs := s.freeHourLimitMs(r.Context())
 	for i := range users {
-		users[i].FreeMessageLimit = freeLimit
+		users[i].FreeHourLimitMs = freeLimitMs
 		users[i].ProjectLimit = s.baseProjectCap(r.Context()) + users[i].PaidProjectSlots
 		decorateAdminUserAssignmentStatuses(&users[i], pool)
 	}
@@ -329,7 +331,8 @@ func (s *Server) handleAdminUsersIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAdminUserShow(w http.ResponseWriter, r *http.Request, userID string) {
-	detail, err := s.store.AdminUserDetail(r.Context(), userID, s.freeMessageLimit(r.Context()), s.currentFreeMessageWindowStart(r.Context()))
+	windowStart, windowEnd := s.freeHourWindow(time.Now(), r.Context())
+	detail, err := s.store.AdminUserDetail(r.Context(), userID, s.freeHourLimitMs(r.Context()), windowStart, windowEnd)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "user not found")
@@ -500,7 +503,8 @@ func (s *Server) handleAdminUserProjectAssignment(w http.ResponseWriter, r *http
 		return
 	}
 	warning := s.warmProjectAssignmentWarning(r.Context(), target.Email, updated)
-	detail, err := s.store.AdminUserDetail(r.Context(), userID, s.freeMessageLimit(r.Context()), s.currentFreeMessageWindowStart(r.Context()))
+	windowStart, windowEnd := s.freeHourWindow(time.Now(), r.Context())
+	detail, err := s.store.AdminUserDetail(r.Context(), userID, s.freeHourLimitMs(r.Context()), windowStart, windowEnd)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -629,7 +633,7 @@ func firstNonEmptyString(values ...string) string {
 
 func publicAdminConfig(cfg map[string]string) map[string]any {
 	out := map[string]any{}
-	for _, key := range []string{"fibe_base_url", "fibe_agent_server_pool", "fibe_template_version_id", "free_messages", "free_message_window_hours", "project_cap", "signup_mode", "signup_allowed_emails", "stripe_publishable_key", "stripe_price_id_10", "stripe_price_id_100", "stripe_price_id_1000", "stripe_project_quota_price_id", "github_client_id", "google_client_id", "smtp_host", "smtp_port", "smtp_username", "smtp_from_email", "smtp_from_name", "smtp_tls_mode"} {
+	for _, key := range []string{"fibe_base_url", "fibe_agent_server_pool", "fibe_template_version_id", "free_hours", "free_hour_window_hours", "project_cap", "signup_mode", "signup_allowed_emails", "stripe_publishable_key", "stripe_price_id_1_hour", "stripe_price_id_10_hours", "stripe_price_id_100_hours", "stripe_project_quota_price_id", "github_client_id", "google_client_id", "smtp_host", "smtp_port", "smtp_username", "smtp_from_email", "smtp_from_name", "smtp_tls_mode"} {
 		value := cfg[key]
 		set := strings.TrimSpace(cfg[key]) != ""
 		if key == "fibe_agent_server_pool" && strings.TrimSpace(value) == "" {
@@ -652,10 +656,10 @@ func publicAdminConfig(cfg map[string]string) map[string]any {
 
 func publicConfigDefault(key string) string {
 	switch key {
-	case "free_messages":
+	case "free_hours":
 		return "5"
-	case "free_message_window_hours":
-		return strconv.Itoa(defaultFreeMessageWindowHours)
+	case "free_hour_window_hours":
+		return strconv.Itoa(defaultFreeHourWindowHours)
 	case "project_cap":
 		return "3"
 	case "signup_mode":
@@ -694,15 +698,15 @@ func normalizeAdminConfigValues(values map[string]string) (map[string]string, er
 			}
 		case "smtp_tls_mode":
 			out[key] = normalizeSMTPTLSMode(value)
-		case "free_message_window_hours":
+		case "free_hour_window_hours":
 			trimmed := strings.TrimSpace(value)
 			if trimmed == "" {
 				out[key] = ""
 				continue
 			}
 			n, err := strconv.Atoi(trimmed)
-			if err != nil || n <= 0 || n > maxFreeMessageWindowHours {
-				return nil, errors.New("free_message_window_hours must be between 1 and 24")
+			if err != nil || n <= 0 || n > maxFreeHourWindowHours {
+				return nil, errors.New("free_hour_window_hours must be between 1 and 24")
 			}
 			out[key] = strconv.Itoa(n)
 		default:

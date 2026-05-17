@@ -8,76 +8,85 @@ import (
 )
 
 const (
-	defaultFreeMessageWindowHours = 5
-	maxFreeMessageWindowHours     = 24
-	freeMessageWindow             = time.Duration(defaultFreeMessageWindowHours) * time.Hour
+	defaultFreeHourWindowHours = 5
+	maxFreeHourWindowHours     = 24
+	freeHourWindow             = time.Duration(defaultFreeHourWindowHours) * time.Hour
+	msPerHour                  = int64(time.Hour / time.Millisecond)
 )
 
 func (s *Server) canSendMessage(ctx context.Context, user *User) bool {
-	allowed, _, err := s.messageAllowance(ctx, user)
+	allowed, err := s.hourAllowance(ctx, user)
 	return err == nil && allowed
 }
 
-func (s *Server) messageQuota(ctx context.Context, user *User) map[string]any {
-	limit := s.freeMessageLimit(ctx)
-	windowHours := s.freeMessageWindowHours(ctx)
-	windowStart, resetAt := fixedUTCMessageWindow(time.Now(), time.Duration(windowHours)*time.Hour)
-	used, _, err := s.store.UserMessageWindow(ctx, user.ID, windowStart)
+func (s *Server) hourQuota(ctx context.Context, user *User) map[string]any {
+	limitMs := s.freeHourLimitMs(ctx)
+	windowHours := s.freeHourWindowHours(ctx)
+	now := time.Now().UTC()
+	windowStart, resetAt := fixedUTCHourWindow(now, time.Duration(windowHours)*time.Hour)
+	usedMs, err := s.store.UserWorkMsBetween(ctx, user.ID, windowStart, resetAt, now)
 	if err != nil {
-		used = 0
+		usedMs = 0
 	}
-	lifetimeUsed, err := s.store.UserMessageCount(ctx, user.ID)
+	lifetimeUsedMs, err := s.store.UserLifetimeWorkMs(ctx, user.ID, now)
 	if err != nil {
-		lifetimeUsed = 0
+		lifetimeUsedMs = 0
 	}
-	paidRemaining, err := s.store.PaidMessageCreditBalance(ctx, user.ID)
+	paidRemainingMs, err := s.store.PaidHourCreditBalance(ctx, user.ID)
 	if err != nil {
-		paidRemaining = 0
+		paidRemainingMs = 0
 	}
-	remaining := limit - used
-	if remaining < 0 {
-		remaining = 0
+	remainingMs := limitMs - usedMs
+	if remainingMs < 0 {
+		remainingMs = 0
 	}
 	return map[string]any{
-		"used":          used,
-		"limit":         limit,
-		"remaining":     remaining,
-		"paidRemaining": paidRemaining,
-		"lifetimeUsed":  lifetimeUsed,
-		"resetsAt":      resetAt.Format(time.RFC3339),
-		"windowHours":   windowHours,
+		"usedMs":          usedMs,
+		"limitMs":         limitMs,
+		"remainingMs":     remainingMs,
+		"paidRemainingMs": paidRemainingMs,
+		"lifetimeUsedMs":  lifetimeUsedMs,
+		"resetsAt":        resetAt.Format(time.RFC3339),
+		"windowHours":     windowHours,
 	}
 }
 
-func (s *Server) messageAllowance(ctx context.Context, user *User) (bool, bool, error) {
-	limit := s.freeMessageLimit(ctx)
-	windowStart, _ := s.freeMessageWindow(time.Now(), ctx)
-	used, _, err := s.store.UserMessageWindow(ctx, user.ID, windowStart)
+func (s *Server) hourAllowance(ctx context.Context, user *User) (bool, error) {
+	if user == nil {
+		return false, nil
+	}
+	paidRemainingMs, err := s.store.PaidHourCreditBalance(ctx, user.ID)
 	if err != nil {
-		return false, false, err
+		return false, err
 	}
-	if used < limit {
-		return true, false, nil
+	if paidRemainingMs < 0 {
+		return false, nil
 	}
-	paidRemaining, err := s.store.PaidMessageCreditBalance(ctx, user.ID)
+	limitMs := s.freeHourLimitMs(ctx)
+	now := time.Now().UTC()
+	windowStart, resetAt := s.freeHourWindow(now, ctx)
+	usedMs, err := s.store.UserWorkMsBetween(ctx, user.ID, windowStart, resetAt, now)
 	if err != nil {
-		return false, false, err
+		return false, err
 	}
-	return paidRemaining > 0, true, nil
+	if usedMs < limitMs {
+		return true, nil
+	}
+	return paidRemainingMs > 0, nil
 }
 
-func (s *Server) freeMessageWindow(now time.Time, ctx context.Context) (time.Time, time.Time) {
-	return fixedUTCMessageWindow(now, time.Duration(s.freeMessageWindowHours(ctx))*time.Hour)
+func (s *Server) freeHourWindow(now time.Time, ctx context.Context) (time.Time, time.Time) {
+	return fixedUTCHourWindow(now, time.Duration(s.freeHourWindowHours(ctx))*time.Hour)
 }
 
-func (s *Server) currentFreeMessageWindowStart(ctx context.Context) time.Time {
-	start, _ := s.freeMessageWindow(time.Now(), ctx)
+func (s *Server) currentFreeHourWindowStart(ctx context.Context) time.Time {
+	start, _ := s.freeHourWindow(time.Now(), ctx)
 	return start
 }
 
-func fixedUTCMessageWindow(now time.Time, interval time.Duration) (time.Time, time.Time) {
+func fixedUTCHourWindow(now time.Time, interval time.Duration) (time.Time, time.Time) {
 	if interval <= 0 {
-		interval = freeMessageWindow
+		interval = freeHourWindow
 	}
 	if interval > 24*time.Hour {
 		interval = 24 * time.Hour
@@ -95,9 +104,9 @@ func fixedUTCMessageWindow(now time.Time, interval time.Duration) (time.Time, ti
 	return start, end
 }
 
-func (s *Server) freeMessageLimit(ctx context.Context) int {
+func (s *Server) freeHourLimit(ctx context.Context) int {
 	cfg, _ := s.store.ConfigMap(ctx)
-	raw := strings.TrimSpace(cfg["free_messages"])
+	raw := strings.TrimSpace(cfg["free_hours"])
 	if raw == "" {
 		raw = "5"
 	}
@@ -108,15 +117,19 @@ func (s *Server) freeMessageLimit(ctx context.Context) int {
 	return n
 }
 
-func (s *Server) freeMessageWindowHours(ctx context.Context) int {
+func (s *Server) freeHourLimitMs(ctx context.Context) int64 {
+	return int64(s.freeHourLimit(ctx)) * msPerHour
+}
+
+func (s *Server) freeHourWindowHours(ctx context.Context) int {
 	cfg, _ := s.store.ConfigMap(ctx)
-	raw := strings.TrimSpace(cfg["free_message_window_hours"])
+	raw := strings.TrimSpace(cfg["free_hour_window_hours"])
 	if raw == "" {
-		return defaultFreeMessageWindowHours
+		return defaultFreeHourWindowHours
 	}
 	n, err := strconv.Atoi(raw)
-	if err != nil || n <= 0 || n > maxFreeMessageWindowHours {
-		return defaultFreeMessageWindowHours
+	if err != nil || n <= 0 || n > maxFreeHourWindowHours {
+		return defaultFreeHourWindowHours
 	}
 	return n
 }

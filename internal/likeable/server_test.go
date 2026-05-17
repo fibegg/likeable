@@ -364,7 +364,7 @@ func TestMeIncludesOnlyConfiguredBillingProducts(t *testing.T) {
 		t.Fatal(err)
 	}
 	readProducts := func() struct {
-		MessagePacks []int `json:"messagePacks"`
+		HourPacks    []int `json:"hourPacks"`
 		ProjectQuota bool  `json:"projectQuota"`
 	} {
 		t.Helper()
@@ -377,7 +377,7 @@ func TestMeIncludesOnlyConfiguredBillingProducts(t *testing.T) {
 		}
 		var body struct {
 			BillingProducts struct {
-				MessagePacks []int `json:"messagePacks"`
+				HourPacks    []int `json:"hourPacks"`
 				ProjectQuota bool  `json:"projectQuota"`
 			} `json:"billingProducts"`
 		}
@@ -388,19 +388,19 @@ func TestMeIncludesOnlyConfiguredBillingProducts(t *testing.T) {
 	}
 
 	products := readProducts()
-	if len(products.MessagePacks) != 0 || products.ProjectQuota {
+	if len(products.HourPacks) != 0 || products.ProjectQuota {
 		t.Fatalf("billing products=%+v before Stripe config, want none", products)
 	}
 	if err := store.UpsertConfig(t.Context(), map[string]string{
 		"stripe_secret_key":             "sk_test",
-		"stripe_price_id_10":            "price_10",
-		"stripe_price_id_1000":          "price_1000",
+		"stripe_price_id_1_hour":        "price_1h",
+		"stripe_price_id_100_hours":     "price_100h",
 		"stripe_project_quota_price_id": "price_project_slot",
 	}, secretConfigKeys); err != nil {
 		t.Fatal(err)
 	}
 	products = readProducts()
-	if !reflect.DeepEqual(products.MessagePacks, []int{10, 1000}) || !products.ProjectQuota {
+	if !reflect.DeepEqual(products.HourPacks, []int{1, 100}) || !products.ProjectQuota {
 		t.Fatalf("billing products=%+v, want configured packs and project quota", products)
 	}
 }
@@ -2159,6 +2159,12 @@ func TestProjectNotificationTimingsPersistAcrossRefresh(t *testing.T) {
 	if err := appStore.CreateProject(t.Context(), project); err != nil {
 		t.Fatal(err)
 	}
+	if err := appStore.UpsertConfig(t.Context(), map[string]string{"free_hours": "0"}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := appStore.GrantHourCredits(t.Context(), user.ID, "cs_notification_hours", 1); err != nil {
+		t.Fatal(err)
+	}
 	userAt := time.Date(2026, 5, 12, 10, 0, 0, 0, time.UTC)
 	if _, err := appStore.AddMessageAt(t.Context(), project.ID, "user", "make changes", userAt.Format(time.RFC3339Nano)); err != nil {
 		t.Fatal(err)
@@ -2232,6 +2238,13 @@ func TestProjectNotificationTimingsPersistAcrossRefresh(t *testing.T) {
 	finalID := notificationTurnKey(userAt) + "-notification-4"
 	if got, want := timings[finalID].ElapsedMs, int64(587_000); got != want {
 		t.Fatalf("final elapsed=%d, want total turn elapsed %d", got, want)
+	}
+	balance, err := appStore.PaidHourCreditBalance(t.Context(), user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := balance, int64(time.Hour/time.Millisecond)-587_000; got != want {
+		t.Fatalf("paid hour balance=%d, want one turn billed once as %dms", got, 587_000)
 	}
 	if err := appStore.Close(); err != nil {
 		t.Fatal(err)
@@ -2321,6 +2334,69 @@ func TestProjectNotificationTimingsCompleteFinishedLastRowWhileQueued(t *testing
 	}
 	if got, want := timings[finalID].ElapsedMs, int64(109_000); got != want {
 		t.Fatalf("final elapsed=%d, want total turn elapsed %d", got, want)
+	}
+}
+
+func TestObservedLiveWorkWithoutCanvasNotificationIsBilled(t *testing.T) {
+	appStore, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer appStore.Close()
+	server := &Server{store: appStore, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	user, _ := appStore.UpsertUser(t.Context(), "a@example.com", "A", "")
+	project := &Project{
+		ID:             "project-live-work-billing",
+		UserID:         user.ID,
+		Title:          "Live work billing",
+		ConversationID: "conv-live-work-billing",
+		AgentID:        "agent-1",
+		PreviewURL:     "http://preview.example.test",
+		Status:         "ready",
+	}
+	if err := appStore.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+	if err := appStore.UpsertConfig(t.Context(), map[string]string{"free_hours": "0"}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := appStore.GrantHourCredits(t.Context(), user.ID, "cs_live_hours", 1); err != nil {
+		t.Fatal(err)
+	}
+	userAt := time.Date(2026, 5, 12, 12, 0, 0, 0, time.UTC)
+	if _, err := appStore.AddMessageAt(t.Context(), project.ID, "user", "make changes", userAt.Format(time.RFC3339Nano)); err != nil {
+		t.Fatal(err)
+	}
+	local, err := appStore.MessagesForProject(t.Context(), project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	activeLive := &fibe.ConversationLiveState{
+		ConversationID: project.ConversationID,
+		IsProcessing:   true,
+		StreamText:     "",
+		QueuedTurns:    0,
+		StartedAt:      userAt.Add(time.Second).Format(time.RFC3339Nano),
+	}
+	if _, _, err := server.syncProjectNotificationTimingsAt(t.Context(), project, local, nil, nil, activeLive, userAt.Add(10*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	idleLive := &fibe.ConversationLiveState{
+		ConversationID: project.ConversationID,
+		IsProcessing:   false,
+		StreamText:     "",
+		QueuedTurns:    0,
+		StartedAt:      userAt.Add(time.Second).Format(time.RFC3339Nano),
+	}
+	if _, _, err := server.syncProjectNotificationTimingsAt(t.Context(), project, local, nil, nil, idleLive, userAt.Add(70*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	balance, err := appStore.PaidHourCreditBalance(t.Context(), user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := balance, int64(time.Hour/time.Millisecond)-60_000; got != want {
+		t.Fatalf("paid hour balance=%d, want one observed live session billed as 60000ms", got)
 	}
 }
 
@@ -4240,7 +4316,20 @@ func TestAdminUserListingAndRestrictionControls(t *testing.T) {
 		t.Fatalf("users=%d total=%d, want single paid github-connected user", len(users), total)
 	}
 	got := users[0]
-	if got.MessageCount != 1 || got.ProjectCount != 1 || !got.GithubConnected || got.PaidTotalCents != 2500 || got.LatestNotice == nil {
+	startedAt := time.Now().UTC().Add(-40 * time.Minute)
+	if err := store.StartProjectWorkSession(t.Context(), user.ID, project.ID, "turn-admin", startedAt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CompleteAndBillProjectWorkSession(t.Context(), user.ID, project.ID, "turn-admin", startedAt.Add(30*time.Minute), 5, int64(5*time.Hour/time.Millisecond)); err != nil {
+		t.Fatal(err)
+	}
+
+	users, total, err = store.AdminUsers(t.Context(), AdminUserFilters{Github: "connected", Billing: "paid", Page: 1, PerPage: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got = users[0]
+	if got.LifetimeWorkMs != int64(30*time.Minute/time.Millisecond) || got.ProjectCount != 1 || !got.GithubConnected || got.PaidTotalCents != 2500 || got.LatestNotice == nil {
 		t.Fatalf("summary=%+v, want usage/github/payment/notice populated", got)
 	}
 
@@ -4317,7 +4406,7 @@ func TestAdminNoticeSendsEmailWhenSMTPConfigured(t *testing.T) {
 	}
 }
 
-func TestFixedUTCFreeMessagesAndPaidCredits(t *testing.T) {
+func TestFixedUTCFreeHoursAndPaidBalance(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -4332,64 +4421,68 @@ func TestFixedUTCFreeMessagesAndPaidCredits(t *testing.T) {
 	if err := store.CreateProject(t.Context(), project); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.UpsertConfig(t.Context(), map[string]string{"free_messages": "1"}, secretConfigKeys); err != nil {
+	if err := store.UpsertConfig(t.Context(), map[string]string{"free_hours": "1", "free_hour_window_hours": "24"}, secretConfigKeys); err != nil {
 		t.Fatal(err)
 	}
-	oldTime := time.Now().UTC().Add(-freeMessageWindow - time.Minute).Format(time.RFC3339Nano)
-	if _, err := store.AddMessageAt(t.Context(), project.ID, "user", "expired", oldTime); err != nil {
+	windowStart, _ := server.freeHourWindow(time.Now().UTC(), t.Context())
+	oldStart := windowStart.Add(-90 * time.Minute)
+	if err := store.StartProjectWorkSession(t.Context(), user.ID, project.ID, "old-turn", oldStart); err != nil {
 		t.Fatal(err)
 	}
-	today, err := store.AddMessage(t.Context(), project.ID, "user", "today")
+	if _, err := store.CompleteAndBillProjectWorkSession(t.Context(), user.ID, project.ID, "old-turn", oldStart.Add(30*time.Minute), server.freeHourWindowHours(t.Context()), server.freeHourLimitMs(t.Context())); err != nil {
+		t.Fatal(err)
+	}
+	currentStart := windowStart.Add(time.Minute)
+	if err := store.StartProjectWorkSession(t.Context(), user.ID, project.ID, "current-turn", currentStart); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CompleteAndBillProjectWorkSession(t.Context(), user.ID, project.ID, "current-turn", currentStart.Add(10*time.Minute), server.freeHourWindowHours(t.Context()), server.freeHourLimitMs(t.Context())); err != nil {
+		t.Fatal(err)
+	}
+	quota := server.hourQuota(t.Context(), user)
+	if quota["usedMs"] != int64(10*time.Minute/time.Millisecond) || quota["remainingMs"] != int64(50*time.Minute/time.Millisecond) || quota["lifetimeUsedMs"] != int64(40*time.Minute/time.Millisecond) {
+		t.Fatalf("quota=%+v, want current window 10m used, 50m remaining, 40m lifetime", quota)
+	}
+	if quota["windowHours"] != 24 {
+		t.Fatalf("quota windowHours=%v, want 24", quota["windowHours"])
+	}
+	if _, err := store.GrantHourCredits(t.Context(), user.ID, "cs_pack", 10); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.GrantHourCredits(t.Context(), user.ID, "cs_pack", 10); err != nil {
+		t.Fatal(err)
+	}
+	balance, err := store.PaidHourCreditBalance(t.Context(), user.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	quota := server.messageQuota(t.Context(), user)
-	if quota["used"] != 1 || quota["remaining"] != 0 || quota["lifetimeUsed"] != 2 {
-		t.Fatalf("quota=%+v, want current UTC-window used 1, remaining 0, lifetime 2", quota)
+	if balance != int64(10*time.Hour/time.Millisecond) {
+		t.Fatalf("balance=%d, want idempotent grant of 10h", balance)
 	}
-	if quota["windowHours"] != defaultFreeMessageWindowHours {
-		t.Fatalf("quota windowHours=%v, want %d", quota["windowHours"], defaultFreeMessageWindowHours)
-	}
-	allowed, paid, err := server.messageAllowance(t.Context(), user)
+	allowed, err := server.hourAllowance(t.Context(), user)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if allowed || !paid {
-		t.Fatalf("allowed=%v paid=%v, want paid allowance required but unavailable", allowed, paid)
+	if !allowed {
+		t.Fatal("hour allowance should allow user with free time or paid balance")
 	}
-	if _, err := store.GrantMessageCredits(t.Context(), user.ID, "cs_pack", 10); err != nil {
+	paidStart := windowStart.Add(20 * time.Minute)
+	if err := store.StartProjectWorkSession(t.Context(), user.ID, project.ID, "paid-turn", paidStart); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.GrantMessageCredits(t.Context(), user.ID, "cs_pack", 10); err != nil {
+	if _, err := store.CompleteAndBillProjectWorkSession(t.Context(), user.ID, project.ID, "paid-turn", paidStart.Add(70*time.Minute), server.freeHourWindowHours(t.Context()), server.freeHourLimitMs(t.Context())); err != nil {
 		t.Fatal(err)
 	}
-	balance, err := store.PaidMessageCreditBalance(t.Context(), user.ID)
+	balance, err = store.PaidHourCreditBalance(t.Context(), user.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if balance != 10 {
-		t.Fatalf("balance=%d, want idempotent grant of 10", balance)
-	}
-	allowed, paid, err = server.messageAllowance(t.Context(), user)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !allowed || !paid {
-		t.Fatalf("allowed=%v paid=%v, want paid allowance", allowed, paid)
-	}
-	if err := store.ConsumePaidMessageCredit(t.Context(), user.ID, today.ID); err != nil {
-		t.Fatal(err)
-	}
-	balance, err = store.PaidMessageCreditBalance(t.Context(), user.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if balance != 9 {
-		t.Fatalf("balance=%d, want 9 after consume", balance)
+	if balance != int64((10*time.Hour-20*time.Minute)/time.Millisecond) {
+		t.Fatalf("balance=%d, want 20 paid minutes consumed after free hour", balance)
 	}
 }
 
-func TestFixedUTCMessageWindowAnchorsToMidnight(t *testing.T) {
+func TestFixedUTCHourWindowAnchorsToMidnight(t *testing.T) {
 	tests := []struct {
 		name     string
 		now      string
@@ -4425,7 +4518,7 @@ func TestFixedUTCMessageWindowAnchorsToMidnight(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			from, to := fixedUTCMessageWindow(now, time.Duration(tc.hours)*time.Hour)
+			from, to := fixedUTCHourWindow(now, time.Duration(tc.hours)*time.Hour)
 			if from.Format(time.RFC3339) != tc.wantFrom || to.Format(time.RFC3339) != tc.wantTo {
 				t.Fatalf("window=%s..%s, want %s..%s", from.Format(time.RFC3339), to.Format(time.RFC3339), tc.wantFrom, tc.wantTo)
 			}
@@ -4433,25 +4526,25 @@ func TestFixedUTCMessageWindowAnchorsToMidnight(t *testing.T) {
 	}
 }
 
-func TestFreeMessageWindowHoursConfig(t *testing.T) {
+func TestFreeHourWindowHoursConfig(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
 	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
-	if got := server.freeMessageWindowHours(t.Context()); got != defaultFreeMessageWindowHours {
-		t.Fatalf("default window hours=%d, want %d", got, defaultFreeMessageWindowHours)
+	if got := server.freeHourWindowHours(t.Context()); got != defaultFreeHourWindowHours {
+		t.Fatalf("default window hours=%d, want %d", got, defaultFreeHourWindowHours)
 	}
-	if err := store.UpsertConfig(t.Context(), map[string]string{"free_message_window_hours": "2"}, secretConfigKeys); err != nil {
+	if err := store.UpsertConfig(t.Context(), map[string]string{"free_hour_window_hours": "2"}, secretConfigKeys); err != nil {
 		t.Fatal(err)
 	}
-	if got := server.freeMessageWindowHours(t.Context()); got != 2 {
+	if got := server.freeHourWindowHours(t.Context()); got != 2 {
 		t.Fatalf("configured window hours=%d, want 2", got)
 	}
 }
 
-func TestMessageQuotaResetAtUsesNextFixedWindowWhenUnused(t *testing.T) {
+func TestHourQuotaResetAtUsesNextFixedWindowWhenUnused(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -4463,8 +4556,8 @@ func TestMessageQuotaResetAtUsesNextFixedWindowWhenUnused(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	quota := server.messageQuota(t.Context(), user)
-	if quota["used"] != 0 || quota["remaining"] != quota["limit"] {
+	quota := server.hourQuota(t.Context(), user)
+	if quota["usedMs"] != int64(0) || quota["remainingMs"] != quota["limitMs"] {
 		t.Fatalf("quota=%+v, want unused full quota", quota)
 	}
 	resetAt, err := time.Parse(time.RFC3339, quota["resetsAt"].(string))
@@ -4569,6 +4662,58 @@ func TestProjectQuotaCheckoutBuildsStripeMetadata(t *testing.T) {
 	}
 }
 
+func TestHourPackCheckoutBuildsStripeMetadata(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"stripe_secret_key":        "sk_test",
+		"stripe_price_id_10_hours": "price_10h",
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	user, err := store.UpsertUser(t.Context(), "buyer@example.com", "Buyer", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateSession(t.Context(), user.ID, "hour-buyer-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	var form url.Values
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		body, err := io.ReadAll(req.Body)
+		if err != nil {
+			return nil, err
+		}
+		form, err = url.ParseQuery(string(body))
+		if err != nil {
+			return nil, err
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(`{"url":"https://checkout.stripe.test/session"}`)),
+		}, nil
+	})}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: client}
+	req := httptest.NewRequest(http.MethodPost, "/api/billing/checkout", strings.NewReader(`{"product":"hour_pack","pack":10}`))
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "hour-buyer-token"})
+	rec := httptest.NewRecorder()
+
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("checkout returned %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if form.Get("line_items[0][price]") != "price_10h" ||
+		form.Get("metadata[purchase_kind]") != "hour_pack" ||
+		form.Get("metadata[pack_hours]") != "10" {
+		t.Fatalf("stripe form=%v, want hour pack metadata", form)
+	}
+}
+
 func TestStripeWebhookGrantsProjectQuota(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {
@@ -4638,7 +4783,79 @@ func TestStripeWebhookGrantsProjectQuota(t *testing.T) {
 	}
 }
 
-func TestFreeQuotaIsConsumedBeforePaidCredits(t *testing.T) {
+func TestStripeWebhookGrantsHourPack(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"stripe_secret_key":         "sk_test",
+		"stripe_webhook_secret":     "whsec_test",
+		"stripe_price_id_100_hours": "price_100h",
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	user, err := store.UpsertUser(t.Context(), "buyer@example.com", "Buyer", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if !strings.Contains(req.URL.Path, "/line_items") {
+			t.Fatalf("unexpected stripe request %s", req.URL.String())
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(`{"data":[{"price":{"id":"price_100h"}}]}`)),
+		}, nil
+	})}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: client}
+	event := map[string]any{
+		"type": "checkout.session.completed",
+		"data": map[string]any{"object": map[string]any{
+			"id":                  "cs_hour_pack",
+			"client_reference_id": user.ID,
+			"amount_total":        9900,
+			"currency":            "usd",
+			"payment_status":      "paid",
+			"status":              "complete",
+			"metadata": map[string]any{
+				"purchase_kind": "hour_pack",
+				"pack_hours":    "100",
+			},
+		}},
+	}
+	payload, _ := json.Marshal(event)
+	req := httptest.NewRequest(http.MethodPost, "/api/stripe/webhook", strings.NewReader(string(payload)))
+	req.Header.Set("Stripe-Signature", testStripeSignature("whsec_test", payload))
+	rec := httptest.NewRecorder()
+
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("webhook returned %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	balance, err := store.PaidHourCreditBalance(t.Context(), user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if balance != int64(100*time.Hour/time.Millisecond) {
+		t.Fatalf("balance=%d, want 100 paid hours", balance)
+	}
+	if granted, err := store.GrantHourCredits(t.Context(), user.ID, "cs_hour_pack", 100); err != nil || granted {
+		t.Fatalf("duplicate grant granted=%v err=%v, want idempotent no-op", granted, err)
+	}
+	notices, err := store.NoticesForUser(t.Context(), user.ID, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(notices) == 0 || !strings.Contains(notices[0].Body, "Build hours purchased") {
+		t.Fatalf("notices=%+v, want hour purchase notice", notices)
+	}
+}
+
+func TestFreeHoursAreConsumedBeforePaidHoursAndDebtBlocksFutureWork(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -4653,87 +4870,87 @@ func TestFreeQuotaIsConsumedBeforePaidCredits(t *testing.T) {
 	if err := store.CreateProject(t.Context(), project); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.UpsertConfig(t.Context(), map[string]string{"free_messages": "2"}, secretConfigKeys); err != nil {
+	if err := store.UpsertConfig(t.Context(), map[string]string{"free_hours": "1", "free_hour_window_hours": "24"}, secretConfigKeys); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.GrantMessageCredits(t.Context(), user.ID, "cs_paid_pack", 10); err != nil {
+	if _, err := store.GrantHourCredits(t.Context(), user.ID, "cs_paid_pack", 1); err != nil {
 		t.Fatal(err)
 	}
 
-	allowed, paid, err := server.messageAllowance(t.Context(), user)
+	allowed, err := server.hourAllowance(t.Context(), user)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !allowed || paid {
-		t.Fatalf("first allowance allowed=%v paid=%v, want free allowance even with paid credits", allowed, paid)
+	if !allowed {
+		t.Fatal("first allowance should use available free hours")
 	}
-	first, err := store.AddMessage(t.Context(), project.ID, "user", "free one")
+	windowStart, _ := server.freeHourWindow(time.Now().UTC(), t.Context())
+	firstStart := windowStart.Add(time.Minute)
+	if err := store.StartProjectWorkSession(t.Context(), user.ID, project.ID, "free-turn", firstStart); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CompleteAndBillProjectWorkSession(t.Context(), user.ID, project.ID, "free-turn", firstStart.Add(45*time.Minute), server.freeHourWindowHours(t.Context()), server.freeHourLimitMs(t.Context())); err != nil {
+		t.Fatal(err)
+	}
+	balance, err := store.PaidHourCreditBalance(t.Context(), user.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if paid {
-		if err := store.ConsumePaidMessageCredit(t.Context(), user.ID, first.ID); err != nil {
-			t.Fatal(err)
-		}
-	}
-	balance, err := store.PaidMessageCreditBalance(t.Context(), user.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if balance != 10 {
-		t.Fatalf("balance=%d, want paid credits untouched while free quota remains", balance)
+	if balance != int64(time.Hour/time.Millisecond) {
+		t.Fatalf("balance=%d, want paid hours untouched while free hours remain", balance)
 	}
 
-	allowed, paid, err = server.messageAllowance(t.Context(), user)
+	overrunStart := windowStart.Add(time.Hour)
+	if err := store.StartProjectWorkSession(t.Context(), user.ID, project.ID, "overrun-turn", overrunStart); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CompleteAndBillProjectWorkSession(t.Context(), user.ID, project.ID, "overrun-turn", overrunStart.Add(100*time.Minute), server.freeHourWindowHours(t.Context()), server.freeHourLimitMs(t.Context())); err != nil {
+		t.Fatal(err)
+	}
+	balance, err = store.PaidHourCreditBalance(t.Context(), user.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !allowed || paid {
-		t.Fatalf("second allowance allowed=%v paid=%v, want second free allowance", allowed, paid)
-	}
-	second, err := store.AddMessage(t.Context(), project.ID, "user", "free two")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if paid {
-		if err := store.ConsumePaidMessageCredit(t.Context(), user.ID, second.ID); err != nil {
-			t.Fatal(err)
-		}
-	}
-	balance, err = store.PaidMessageCreditBalance(t.Context(), user.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if balance != 10 {
-		t.Fatalf("balance=%d, want paid credits untouched after free quota is consumed exactly", balance)
+	if balance != int64(-25*time.Minute/time.Millisecond) {
+		t.Fatalf("balance=%d, want 25m debt after overrun", balance)
 	}
 
-	allowed, paid, err = server.messageAllowance(t.Context(), user)
+	allowed, err = server.hourAllowance(t.Context(), user)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !allowed || !paid {
-		t.Fatalf("third allowance allowed=%v paid=%v, want paid allowance after free quota is exhausted", allowed, paid)
-	}
-	third, err := store.AddMessage(t.Context(), project.ID, "user", "paid one")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if paid {
-		if err := store.ConsumePaidMessageCredit(t.Context(), user.ID, third.ID); err != nil {
-			t.Fatal(err)
-		}
-	}
-	balance, err = store.PaidMessageCreditBalance(t.Context(), user.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if balance != 9 {
-		t.Fatalf("balance=%d, want one paid credit consumed after free quota is exhausted", balance)
+	if allowed {
+		t.Fatal("negative paid-hour balance should block future work")
 	}
 }
 
-func TestMessageQuotaNotificationIsDedupedPerDay(t *testing.T) {
+func TestOldMessageCreditsDoNotAllowHourBilling(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	user, err := store.UpsertUser(t.Context(), "old-credits@example.com", "Old Credits", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertConfig(t.Context(), map[string]string{"free_hours": "0"}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.GrantMessageCredits(t.Context(), user.ID, "old_message_pack", 100); err != nil {
+		t.Fatal(err)
+	}
+	allowed, err := server.hourAllowance(t.Context(), user)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if allowed {
+		t.Fatal("old message credits should not allow hour-billed work")
+	}
+}
+
+func TestHourQuotaNotificationIsDedupedPerWindow(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -4748,21 +4965,26 @@ func TestMessageQuotaNotificationIsDedupedPerDay(t *testing.T) {
 	if err := store.CreateProject(t.Context(), project); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.UpsertConfig(t.Context(), map[string]string{"free_messages": "1"}, secretConfigKeys); err != nil {
+	if err := store.UpsertConfig(t.Context(), map[string]string{"free_hours": "1", "free_hour_window_hours": "24"}, secretConfigKeys); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.AddMessage(t.Context(), project.ID, "user", "first"); err != nil {
+	windowStart, _ := server.freeHourWindow(time.Now().UTC(), t.Context())
+	startedAt := windowStart.Add(time.Minute)
+	if err := store.StartProjectWorkSession(t.Context(), user.ID, project.ID, "quota-turn", startedAt); err != nil {
 		t.Fatal(err)
 	}
-	server.notifyMessageQuotaIfNeeded(t.Context(), user)
-	server.notifyMessageQuotaIfNeeded(t.Context(), user)
+	if _, err := store.CompleteAndBillProjectWorkSession(t.Context(), user.ID, project.ID, "quota-turn", startedAt.Add(55*time.Minute), server.freeHourWindowHours(t.Context()), server.freeHourLimitMs(t.Context())); err != nil {
+		t.Fatal(err)
+	}
+	server.notifyHourQuotaIfNeeded(t.Context(), user)
+	server.notifyHourQuotaIfNeeded(t.Context(), user)
 	notices, err := store.NoticesForUser(t.Context(), user.ID, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var quotaNotices int
 	for _, notice := range notices {
-		if strings.HasPrefix(notice.Body, "Message quota:") {
+		if strings.HasPrefix(notice.Body, "Hour quota:") {
 			quotaNotices++
 		}
 	}

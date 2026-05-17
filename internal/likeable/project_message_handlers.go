@@ -74,13 +74,13 @@ func (s *Server) handleProjectMessages(w http.ResponseWriter, r *http.Request, u
 		}
 		cancel()
 	}
-	allowed, usesPaidCredit, err := s.messageAllowance(r.Context(), user)
+	allowed, err := s.hourAllowance(r.Context(), user)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if !allowed {
-		writeError(w, http.StatusPaymentRequired, "message pack required")
+		writeError(w, http.StatusPaymentRequired, "hour pack required")
 		return
 	}
 	fibeClient, err := s.fibeClientForProject(r.Context(), project, user.Email)
@@ -155,15 +155,8 @@ func (s *Server) handleProjectMessages(w http.ResponseWriter, r *http.Request, u
 		return
 	}
 	s.clearPlatformBackoff()
-	if usesPaidCredit {
-		if err := s.store.ConsumePaidMessageCredit(r.Context(), user.ID, msg.ID); err != nil {
-			writeError(w, http.StatusPaymentRequired, err.Error())
-			return
-		}
-	}
 	s.invalidateProjectFeedCache(project.ID)
 	s.enqueueProjectNotificationMonitor(context.Background(), user.ID, user.Email, project.ID, 0)
-	s.notifyMessageQuotaIfNeeded(r.Context(), user)
 	writeJSON(w, http.StatusAccepted, map[string]any{"message": msg})
 }
 

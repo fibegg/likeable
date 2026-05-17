@@ -81,18 +81,16 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request, use
 		return
 	}
 	body.Prompt = strings.TrimSpace(body.Prompt)
-	usesPaidCredit := false
 	if body.Prompt != "" {
-		allowed, paid, err := s.messageAllowance(r.Context(), user)
+		allowed, err := s.hourAllowance(r.Context(), user)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		if !allowed {
-			writeError(w, http.StatusPaymentRequired, "message pack required")
+			writeError(w, http.StatusPaymentRequired, "hour pack required")
 			return
 		}
-		usesPaidCredit = paid
 	}
 	count, err := s.store.ProjectCountForUser(r.Context(), user.ID)
 	if err != nil {
@@ -125,11 +123,7 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request, use
 		return
 	}
 	if body.Prompt != "" {
-		msg, _ := s.store.AddMessage(r.Context(), project.ID, "user", body.Prompt)
-		if usesPaidCredit && msg != nil {
-			_ = s.store.ConsumePaidMessageCredit(r.Context(), user.ID, msg.ID)
-		}
-		s.notifyMessageQuotaIfNeeded(r.Context(), user)
+		_, _ = s.store.AddMessage(r.Context(), project.ID, "user", body.Prompt)
 	}
 	s.notifyProjectQuotaIfNeeded(r.Context(), user)
 	created, _ := s.store.ProjectForUser(r.Context(), user.ID, project.ID)

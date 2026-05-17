@@ -44,7 +44,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		"isAdmin":              s.config.AdminEmail != "" && normalizeEmail(user.Email) == s.config.AdminEmail,
 		"githubConnected":      githubConnected,
 		"githubNeedsReconnect": githubNeedsReconnect,
-		"messageQuota":         s.messageQuota(r.Context(), user),
+		"hourQuota":            s.hourQuota(r.Context(), user),
 		"projectQuota":         s.projectQuota(r.Context(), user),
 		"billingProducts":      s.billingProducts(r.Context()),
 		"notices":              notices,

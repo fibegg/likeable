@@ -3,7 +3,7 @@ import { BookOpen, Check, ExternalLink, FolderOpen, GitBranch, Loader2, LogOut, 
 import { api } from './api';
 import { DeleteAllAccountDialog } from './builder_components';
 import type { Me, ProjectArchive, UserNotice } from './domain';
-import { formatMessageTime, formatResetCountdown, formatShortDate, userInitials } from './format';
+import { formatBillingDuration, formatMessageTime, formatResetCountdown, formatShortDate, userInitials } from './format';
 import { resetCountdownLabels, statusLabel, useI18n } from './i18n';
 
 export function ProfilePanel({ me, onClose, onOpenTutorial }: { me: Me; onClose: () => void; onOpenTutorial: () => void }) {
@@ -54,7 +54,7 @@ export function ProfilePanel({ me, onClose, onOpenTutorial }: { me: Me; onClose:
     try {
       const res = await api<{ url: string }>('/api/billing/checkout', {
         method: 'POST',
-        body: JSON.stringify({ pack })
+        body: JSON.stringify({ product: 'hour_pack', pack })
       });
       location.href = res.url;
     } catch (err) {
@@ -113,12 +113,16 @@ export function ProfilePanel({ me, onClose, onOpenTutorial }: { me: Me; onClose:
     }
   };
   const displayName = me.user?.name || me.user?.email || t('profile.signedIn');
-  const quota = me.messageQuota;
+  const quota = me.hourQuota;
   const projectQuota = me.projectQuota;
-  const availableMessagePacks = me.billingProducts?.messagePacks ?? [];
+  const availableHourPacks = me.billingProducts?.hourPacks ?? [];
   const projectQuotaPurchasable = Boolean(me.billingProducts?.projectQuota);
   const quotaResetLabel = quota ? formatResetCountdown(quota.resetsAt, Date.now(), resetCountdownLabels(t)) : t('duration.fiveHours');
   const quotaWindowHours = quota?.windowHours ?? 5;
+  const remainingHours = formatBillingDuration(quota?.remainingMs ?? 0, resetCountdownLabels(t));
+  const limitHours = formatBillingDuration(quota?.limitMs ?? 0, resetCountdownLabels(t));
+  const paidHours = formatBillingDuration(quota?.paidRemainingMs ?? 0, resetCountdownLabels(t));
+  const lifetimeHours = formatBillingDuration(quota?.lifetimeUsedMs ?? 0, resetCountdownLabels(t));
   return (
     <section className="inlinePanel profileInline">
       <div className="inlinePanelHeader">
@@ -160,15 +164,15 @@ export function ProfilePanel({ me, onClose, onOpenTutorial }: { me: Me; onClose:
         </div>
         <div className="profileCard profileActionCard">
           <div>
-            <span className="profileLabel">{t('profile.messages')}</span>
-            <strong>{quota ? t('profile.freeInWindow', { remaining: quota.remaining, limit: quota.limit, hours: quotaWindowHours }) : t('profile.freeQuota')}</strong>
-            <em>{t('profile.quotaDetail', { paid: quota?.paidRemaining ?? 0, reset: quotaResetLabel, lifetime: quota?.lifetimeUsed ?? 0 })}</em>
+            <span className="profileLabel">{t('profile.hours')}</span>
+            <strong>{quota ? t('profile.freeInWindow', { remaining: remainingHours, limit: limitHours, hours: quotaWindowHours }) : t('profile.freeQuota')}</strong>
+            <em>{t('profile.quotaDetail', { paid: paidHours, reset: quotaResetLabel, lifetime: lifetimeHours })}</em>
           </div>
-          {availableMessagePacks.length > 0 && (
+          {availableHourPacks.length > 0 && (
             <div className="packButtons">
-              {availableMessagePacks.map((pack) => (
+              {availableHourPacks.map((pack) => (
                 <button className="primaryButton" key={pack} disabled={busyPack != null} onClick={() => void checkout(pack)}>
-                  {busyPack === pack ? <Loader2 size={16} className="spin" /> : <Wallet size={16} />} {pack}
+                  {busyPack === pack ? <Loader2 size={16} className="spin" /> : <Wallet size={16} />} {pack}h
                 </button>
               ))}
             </div>

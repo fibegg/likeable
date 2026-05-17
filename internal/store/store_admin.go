@@ -15,23 +15,28 @@ func (s *Store) AdminUsers(ctx context.Context, filters AdminUserFilters) ([]Adm
 		filters.PerPage = 25
 	}
 	where, args := adminUserWhere(filters)
-	messageWindowStart := filters.MessageWindowStart
-	if messageWindowStart.IsZero() {
-		messageWindowStart = time.Now().UTC().Add(-5 * time.Hour)
+	usageWindowStart := filters.UsageWindowStart
+	if usageWindowStart.IsZero() {
+		usageWindowStart = time.Now().UTC().Add(-5 * time.Hour)
 	}
-	windowStart := messageWindowStart.UTC().Format(time.RFC3339Nano)
+	usageWindowEnd := filters.UsageWindowEnd
+	if usageWindowEnd.IsZero() || !usageWindowEnd.After(usageWindowStart) {
+		usageWindowEnd = usageWindowStart.UTC().Add(5 * time.Hour)
+	}
 	cte := `
 		WITH stats AS (
 			SELECT users.id AS user_id,
 				COUNT(DISTINCT projects.id) AS project_count,
-				COUNT(messages.id) AS message_count,
-				SUM(CASE WHEN messages.created_at >= '` + windowStart + `' THEN 1 ELSE 0 END) AS daily_message_count,
-				MAX(messages.created_at) AS last_message_at,
 				MAX(projects.updated_at) AS last_project_at
 				FROM users
 				LEFT JOIN projects ON projects.user_id = users.id AND projects.status NOT IN ('deleting', 'archived')
-			LEFT JOIN messages ON messages.project_id = projects.id AND messages.role = 'user'
 			GROUP BY users.id
+		),
+		work AS (
+			SELECT user_id, SUM(elapsed_ms) AS lifetime_work_ms, MAX(completed_at) AS last_work_at
+			FROM project_work_sessions
+			WHERE billed_at != ''
+			GROUP BY user_id
 		),
 		github AS (
 			SELECT user_id, 1 AS github_connected
@@ -45,9 +50,9 @@ func (s *Store) AdminUsers(ctx context.Context, filters AdminUserFilters) ([]Adm
 			WHERE status IN ('paid', 'complete', 'completed', 'succeeded')
 			GROUP BY user_id
 		),
-			credits AS (
-				SELECT user_id, SUM(delta) AS paid_credit_balance
-				FROM message_credit_ledger
+			hour_credits AS (
+				SELECT user_id, SUM(delta_ms) AS paid_hour_balance_ms
+				FROM hour_credit_ledger
 				GROUP BY user_id
 			),
 			project_quota AS (
@@ -61,9 +66,10 @@ func (s *Store) AdminUsers(ctx context.Context, filters AdminUserFilters) ([]Adm
 		FROM users
 		LEFT JOIN stats ON stats.user_id = users.id
 		LEFT JOIN github ON github.user_id = users.id
-		LEFT JOIN subscriptions ON subscriptions.user_id = users.id
+			LEFT JOIN subscriptions ON subscriptions.user_id = users.id
 			LEFT JOIN payments_total ON payments_total.user_id = users.id
-			LEFT JOIN credits ON credits.user_id = users.id
+			LEFT JOIN work ON work.user_id = users.id
+			LEFT JOIN hour_credits ON hour_credits.user_id = users.id
 			LEFT JOIN project_quota ON project_quota.user_id = users.id
 		`
 	var total int
@@ -78,14 +84,14 @@ func (s *Store) AdminUsers(ctx context.Context, filters AdminUserFilters) ([]Adm
 				COALESCE(stats.project_count, 0),
 				COALESCE(project_quota.paid_project_slots, 0),
 				COALESCE(project_quota.project_slots_expire, ''),
-				COALESCE(stats.message_count, 0),
-			COALESCE(stats.daily_message_count, 0),
-			COALESCE(credits.paid_credit_balance, 0),
+				COALESCE(work.lifetime_work_ms, 0),
+			0,
+			COALESCE(hour_credits.paid_hour_balance_ms, 0),
 			COALESCE(github.github_connected, 0),
 			COALESCE(subscriptions.status, ''),
 			COALESCE(payments_total.paid_total_cents, 0),
 			COALESCE(payments_total.paid_currency, ''),
-			COALESCE(stats.last_message_at, ''),
+			COALESCE(work.last_work_at, ''),
 			COALESCE(stats.last_project_at, ''),
 			COALESCE((SELECT id FROM user_notices WHERE user_id = users.id AND unsent_at = '' ORDER BY created_at DESC LIMIT 1), ''),
 			COALESCE((SELECT sender FROM user_notices WHERE user_id = users.id AND unsent_at = '' ORDER BY created_at DESC LIMIT 1), ''),
@@ -105,15 +111,11 @@ func (s *Store) AdminUsers(ctx context.Context, filters AdminUserFilters) ([]Adm
 		var latestNoticeID string
 		if err := rows.Scan(
 			&summary.User.ID, &summary.User.Email, &summary.User.Name, &summary.User.AvatarURL, &summary.User.AccessStatus, &summary.User.AccessNote, &summary.User.CreatedAt,
-			&summary.ProjectCount, &summary.PaidProjectSlots, &summary.ProjectSlotsExpire, &summary.MessageCount, &summary.DailyMessageCount, &summary.PaidCreditBalance, &summary.GithubConnected, &summary.SubscriptionStatus, &summary.PaidTotalCents, &summary.PaidCurrency,
+			&summary.ProjectCount, &summary.PaidProjectSlots, &summary.ProjectSlotsExpire, &summary.LifetimeWorkMs, &summary.WindowWorkMs, &summary.PaidHourBalanceMs, &summary.GithubConnected, &summary.SubscriptionStatus, &summary.PaidTotalCents, &summary.PaidCurrency,
 			&summary.LastMessageAt, &summary.LastProjectAt,
 			&latestNoticeID, &notice.Sender, &notice.Severity, &notice.Body, &notice.ReadAt, &notice.DismissedAt, &notice.CreatedAt,
 		); err != nil {
 			return nil, 0, err
-		}
-		summary.FreeMessageLimit = 0
-		if summary.PaidCreditBalance < 0 {
-			summary.PaidCreditBalance = 0
 		}
 		if summary.User.AccessStatus == "" {
 			summary.User.AccessStatus = "active"
@@ -131,6 +133,15 @@ func (s *Store) AdminUsers(ctx context.Context, filters AdminUserFilters) ([]Adm
 	}
 	if err := rows.Close(); err != nil {
 		return nil, 0, err
+	}
+	now := time.Now().UTC()
+	for i := range out {
+		if workMs, err := s.UserWorkMsBetween(ctx, out[i].User.ID, usageWindowStart, usageWindowEnd, now); err == nil {
+			out[i].WindowWorkMs = workMs
+		}
+		if workMs, err := s.UserLifetimeWorkMs(ctx, out[i].User.ID, now); err == nil {
+			out[i].LifetimeWorkMs = workMs
+		}
 	}
 	if out == nil {
 		out = []AdminUserSummary{}
@@ -259,8 +270,8 @@ func adminUserOrder(sort string) string {
 	switch strings.ToLower(strings.TrimSpace(sort)) {
 	case "email_asc":
 		return " ORDER BY users.email ASC"
-	case "messages_desc":
-		return " ORDER BY COALESCE(stats.message_count, 0) DESC, users.created_at DESC"
+	case "hours_desc":
+		return " ORDER BY COALESCE(work.lifetime_work_ms, 0) DESC, users.created_at DESC"
 	case "paid_desc":
 		return " ORDER BY COALESCE(payments_total.paid_total_cents, 0) DESC, users.created_at DESC"
 	case "projects_desc":
@@ -270,8 +281,8 @@ func adminUserOrder(sort string) string {
 	}
 }
 
-func (s *Store) AdminUserDetail(ctx context.Context, userID string, freeLimit int, messageWindowStart time.Time) (*AdminUserDetail, error) {
-	users, _, err := s.AdminUsers(ctx, AdminUserFilters{Query: userID, Page: 1, PerPage: 1, MessageWindowStart: messageWindowStart})
+func (s *Store) AdminUserDetail(ctx context.Context, userID string, freeLimitMs int64, usageWindowStart, usageWindowEnd time.Time) (*AdminUserDetail, error) {
+	users, _, err := s.AdminUsers(ctx, AdminUserFilters{Query: userID, Page: 1, PerPage: 1, UsageWindowStart: usageWindowStart, UsageWindowEnd: usageWindowEnd})
 	if err != nil {
 		return nil, err
 	}
@@ -286,7 +297,7 @@ func (s *Store) AdminUserDetail(ctx context.Context, userID string, freeLimit in
 		if _, err := s.UserByID(ctx, userID); err != nil {
 			return nil, err
 		}
-		users, _, err = s.AdminUsers(ctx, AdminUserFilters{Page: 1, PerPage: 100, MessageWindowStart: messageWindowStart})
+		users, _, err = s.AdminUsers(ctx, AdminUserFilters{Page: 1, PerPage: 100, UsageWindowStart: usageWindowStart, UsageWindowEnd: usageWindowEnd})
 		if err != nil {
 			return nil, err
 		}
@@ -300,7 +311,7 @@ func (s *Store) AdminUserDetail(ctx context.Context, userID string, freeLimit in
 	if summary == nil {
 		return nil, sql.ErrNoRows
 	}
-	summary.FreeMessageLimit = freeLimit
+	summary.FreeHourLimitMs = freeLimitMs
 	projects, err := s.AdminProjectsForUser(ctx, userID)
 	if err != nil {
 		return nil, err
@@ -315,9 +326,8 @@ func (s *Store) AdminUserDetail(ctx context.Context, userID string, freeLimit in
 func (s *Store) AdminProjectsForUser(ctx context.Context, userID string) ([]AdminProjectSummary, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT projects.id, projects.user_id, projects.title, projects.conversation_id, projects.agent_id, projects.marquee_id, projects.playground_id, projects.playground_name, projects.playspec_id, projects.prop_id, projects.repo_url, projects.preview_url, projects.selected_service_name, projects.status, projects.error_message, projects.provisioning_lock_until, projects.cleanup_last_error, projects.playground_last_used_at, projects.created_at, projects.updated_at,
-			COUNT(messages.id) AS message_count
+			COALESCE((SELECT SUM(elapsed_ms) FROM project_work_sessions WHERE project_work_sessions.project_id = projects.id AND billed_at != ''), 0) AS work_ms
 		FROM projects
-		LEFT JOIN messages ON messages.project_id = projects.id AND messages.role = 'user'
 		WHERE projects.user_id = ? AND projects.status != 'deleting'
 		GROUP BY projects.id
 		ORDER BY projects.updated_at DESC
@@ -328,7 +338,7 @@ func (s *Store) AdminProjectsForUser(ctx context.Context, userID string) ([]Admi
 	var out []AdminProjectSummary
 	for rows.Next() {
 		var summary AdminProjectSummary
-		if err := rows.Scan(&summary.Project.ID, &summary.Project.UserID, &summary.Project.Title, &summary.Project.ConversationID, &summary.Project.AgentID, &summary.Project.MarqueeID, &summary.Project.PlaygroundID, &summary.Project.PlaygroundName, &summary.Project.PlayspecID, &summary.Project.PropID, &summary.Project.RepoURL, &summary.Project.PreviewURL, &summary.Project.SelectedService, &summary.Project.Status, &summary.Project.ErrorMessage, &summary.Project.ProvisioningLockUntil, &summary.Project.CleanupLastError, &summary.Project.PlaygroundLastUsedAt, &summary.Project.CreatedAt, &summary.Project.UpdatedAt, &summary.MessageCount); err != nil {
+		if err := rows.Scan(&summary.Project.ID, &summary.Project.UserID, &summary.Project.Title, &summary.Project.ConversationID, &summary.Project.AgentID, &summary.Project.MarqueeID, &summary.Project.PlaygroundID, &summary.Project.PlaygroundName, &summary.Project.PlayspecID, &summary.Project.PropID, &summary.Project.RepoURL, &summary.Project.PreviewURL, &summary.Project.SelectedService, &summary.Project.Status, &summary.Project.ErrorMessage, &summary.Project.ProvisioningLockUntil, &summary.Project.CleanupLastError, &summary.Project.PlaygroundLastUsedAt, &summary.Project.CreatedAt, &summary.Project.UpdatedAt, &summary.WorkMs); err != nil {
 			_ = rows.Close()
 			return nil, err
 		}

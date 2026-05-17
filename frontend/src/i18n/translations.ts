@@ -49,7 +49,7 @@ const en = {
   'common.system': 'System',
   'common.messages': 'messages',
   'common.projects': 'playgrounds',
-  'common.credits': 'credits',
+  'common.debt': 'debt',
   'common.users': 'users',
   'common.until': 'until',
   'common.nextReset': 'resets {date}',
@@ -98,8 +98,8 @@ const en = {
   'builder.stopAgent': 'Stop agent',
   'builder.busy.queue': 'Queue new messages',
   'builder.busy.steer': 'Steer this run',
-  'builder.messages.left': 'Messages left',
-  'builder.messageQuota.tooltip': '{paid} paid credits · resets in {reset}',
+  'builder.hours.left': 'Build hours left',
+  'builder.hourQuota.tooltip': '{paid} paid hours · resets in {reset}',
   'builder.profile.tooltip': 'Profile',
   'builder.admin.tooltip': 'Admin',
   'builder.chat.collapse': 'Collapse chat',
@@ -128,7 +128,7 @@ Describe the app you want in the composer. Fibe builds the first playground in a
 
 ## Limits and lifecycle
 
-- Free messages refill on a window. Paid credits roll over.
+- Free build hours reset on a window. Paid hours roll over and are used after free time.
 - Playgrounds auto-pause when inactive. Start them again from the menu.
 - Archived playgrounds stay downloadable for a while after archiving.
 - Delete a playground or the whole account from Profile — everything goes with it.
@@ -162,7 +162,7 @@ A short summary of how Likeable handles your data.
 - Account info from Google when you sign in (name, email, profile picture).
 - The prompts you send and the messages Fibe returns.
 - Project data — generated source code, attached files, playground state.
-- Billing data when you pay for credits or slots (handled by Stripe; card numbers are not stored).
+- Billing data when you pay for build hours or slots (handled by Stripe; card numbers are not stored).
 - Usage data such as IP address, browser, and timestamps, used for security and abuse prevention.
 
 **How we use it**
@@ -251,10 +251,10 @@ A short summary of how Likeable handles your data.
   'onboarding.slide.modesBody': 'Use the mode button for split or basic view. Collapse chat when you only need the canvas.',
   'onboarding.slide.modesBulletOne': 'Basic overlays chat on the playground and can shrink to a small bubble.',
   'onboarding.slide.modesBulletTwo': 'Split keeps chat and preview side by side on wide screens.',
-  'onboarding.slide.messagesTitle': 'Free messages',
-  'onboarding.slide.messagesBody': 'Free messages refill on a window. Paid credits are used after free quota.',
-  'onboarding.slide.messagesBulletOne': 'The composer badge shows remaining free messages.',
-  'onboarding.slide.messagesBulletTwo': 'Profile shows resets, lifetime use, and credit packs.',
+  'onboarding.slide.messagesTitle': 'Free build hours',
+  'onboarding.slide.messagesBody': 'Free build hours reset on a window. Paid hours are used after free time.',
+  'onboarding.slide.messagesBulletOne': 'The composer badge shows remaining free build time.',
+  'onboarding.slide.messagesBulletTwo': 'Profile shows resets, lifetime use, and hour packs.',
   'onboarding.slide.helpTitle': 'Help and policies',
   'onboarding.slide.helpBody': 'Open Help from the top controls for prompt tips, lifecycle notes, terms, and privacy.',
   'onboarding.slide.helpBulletOne': 'Help stays inside the chat panel, so the playground remains nearby.',
@@ -357,12 +357,12 @@ A short summary of how Likeable handles your data.
   'profile.connected': 'Connected',
   'profile.tutorial': 'Tutorial',
   'profile.tutorialTitle': 'Open onboarding',
-  'profile.tutorialBody': 'Revisit the compact guide for prompts, credits, exports, and lifecycle.',
+  'profile.tutorialBody': 'Revisit the compact guide for prompts, build hours, exports, and lifecycle.',
   'profile.tutorialOpen': 'Open',
-  'profile.messages': 'Messages',
-  'profile.freeQuota': 'Free message quota',
+  'profile.hours': 'Build hours',
+  'profile.freeQuota': 'Free build-hour quota',
   'profile.freeInWindow': '{remaining}/{limit} free in {hours}h',
-  'profile.quotaDetail': '{paid} paid credits · resets in {reset} · {lifetime} sent in total',
+  'profile.quotaDetail': '{paid} paid hours · resets in {reset} · {lifetime} lifetime',
   'profile.projects': 'Playgrounds',
   'profile.projectQuota': 'Playground quota',
   'profile.projectSlots': '{used}/{limit} playground slots',
@@ -390,7 +390,7 @@ A short summary of how Likeable handles your data.
   'admin.billing': 'Billing',
   'admin.sort': 'Sort',
   'admin.sort.newest': 'newest',
-  'admin.sort.messages': 'messages',
+  'admin.sort.hours': 'hours',
   'admin.sort.paid': 'paid',
   'admin.sort.projects': 'playgrounds',
   'admin.sort.email': 'email',
@@ -404,9 +404,9 @@ A short summary of how Likeable handles your data.
   'admin.pagination': '{page}/{totalPages} · {total} users',
   'admin.selectUser': 'Select a user to inspect playgrounds, payments, notices, and access.',
   'admin.customer': 'Customer',
-  'admin.metric.free5h': 'Free window',
-  'admin.metric.lifetimeSent': 'Lifetime sent',
-  'admin.metric.paidCredits': 'Paid credits',
+  'admin.metric.freeWindowHours': 'Free window',
+  'admin.metric.lifetimeHours': 'Lifetime hours',
+  'admin.metric.paidHours': 'Paid hours',
   'admin.metric.projects': 'Playgrounds',
   'admin.metric.paidSlots': 'Paid slots',
   'admin.metric.github': 'GitHub',
@@ -496,18 +496,18 @@ A short summary of how Likeable handles your data.
   'admin.config.google.title': 'Google integration',
   'admin.config.google.body': 'App used for sign-in.',
   'admin.config.stripe.title': 'Stripe integration',
-  'admin.config.stripe.body': 'Checkout and webhook credentials for message packs and playground slots.',
+  'admin.config.stripe.body': 'Checkout and webhook credentials for build-hour packs and playground slots.',
   'admin.config.application.title': 'Application settings',
   'admin.config.application.body': 'Defaults, caps, and email delivery for user notifications.',
   'admin.config.stripe_publishable_key': 'Publishable key',
   'admin.config.stripe_secret_key': 'Secret key',
-  'admin.config.stripe_price_id_10': '10 messages price ID',
-  'admin.config.stripe_price_id_100': '100 messages price ID',
-  'admin.config.stripe_price_id_1000': '1000 messages price ID',
+  'admin.config.stripe_price_id_1_hour': '1 hour price ID',
+  'admin.config.stripe_price_id_10_hours': '10 hours price ID',
+  'admin.config.stripe_price_id_100_hours': '100 hours price ID',
   'admin.config.stripe_project_quota_price_id': 'Playground quota price ID',
   'admin.config.stripe_webhook_secret': 'Webhook secret',
-  'admin.config.free_messages': 'Free messages per window',
-  'admin.config.free_message_window_hours': 'Free message window hours',
+  'admin.config.free_hours': 'Free hours per window',
+  'admin.config.free_hour_window_hours': 'Free-hour window hours',
   'admin.config.project_cap': 'Base playground cap'
 } as const;
 
@@ -562,7 +562,7 @@ const uk: Record<keyof typeof en, string> = {
   'common.system': 'Система',
   'common.messages': 'повідомлення',
   'common.projects': 'майданчики',
-  'common.credits': 'кредити',
+  'common.debt': 'борг',
   'common.users': 'користувачі',
   'common.until': 'до',
   'common.nextReset': 'оновлення {date}',
@@ -611,8 +611,8 @@ const uk: Record<keyof typeof en, string> = {
   'builder.stopAgent': 'Зупинити агента',
   'builder.busy.queue': 'Додати в чергу',
   'builder.busy.steer': 'Скоригувати запуск',
-  'builder.messages.left': 'Доступні повідомлення',
-  'builder.messageQuota.tooltip': '{paid} платних кредитів · оновлення через {reset}',
+  'builder.hours.left': 'Доступні години збірки',
+  'builder.hourQuota.tooltip': '{paid} платних годин · оновлення через {reset}',
   'builder.profile.tooltip': 'Профіль',
   'builder.admin.tooltip': 'Адмін',
   'builder.chat.collapse': 'Згорнути чат',
@@ -641,7 +641,7 @@ const uk: Record<keyof typeof en, string> = {
 
 ## Ліміти та життєвий цикл
 
-- Безплатні повідомлення оновлюються кожне вікно. Платні кредити переходять на наступний період.
+- Безплатні години збірки оновлюються кожне вікно. Платні години переходять на наступний період і використовуються після безплатного часу.
 - Майданчики автоматично призупиняються в стані спокою. Запустити знову — з меню.
 - Архівовані майданчики можна завантажити обмежений час після архівування.
 - Видалення майданчика чи всього акаунта — у Профілі. Усе зникає разом.
@@ -675,7 +675,7 @@ Likeable — сервіс для створення застосунків че�
 - Інформацію акаунта з Google під час входу (імʼя, email, фото профілю).
 - Ваші запити та відповіді Fibe.
 - Дані проєктів — згенерований код, вкладені файли, стан майданчика.
-- Платіжні дані під час оплати кредитів або місць (обробляються Stripe; номери карток не зберігаються).
+- Платіжні дані під час оплати годин збірки або місць (обробляються Stripe; номери карток не зберігаються).
 - Дані використання — IP, браузер, часові мітки — для безпеки та запобігання зловживанням.
 
 **Як використовуємо**
@@ -764,10 +764,10 @@ Likeable — сервіс для створення застосунків че�
   'onboarding.slide.modesBody': 'Кнопка режиму перемикає split або basic. Згортайте чат, коли потрібне лише полотно.',
   'onboarding.slide.modesBulletOne': 'Basic накладає чат на майданчик і може згортатися в маленьку кнопку.',
   'onboarding.slide.modesBulletTwo': 'Split тримає чат і превʼю поруч на широких екранах.',
-  'onboarding.slide.messagesTitle': 'Безплатні повідомлення',
-  'onboarding.slide.messagesBody': 'Безплатні повідомлення оновлюються за вікном. Платні кредити йдуть після них.',
-  'onboarding.slide.messagesBulletOne': 'Бейдж у полі вводу показує залишок безплатних повідомлень.',
-  'onboarding.slide.messagesBulletTwo': 'Профіль показує оновлення, загальне використання й пакети кредитів.',
+  'onboarding.slide.messagesTitle': 'Безплатні години збірки',
+  'onboarding.slide.messagesBody': 'Безплатні години збірки оновлюються за вікном. Платні години йдуть після безплатного часу.',
+  'onboarding.slide.messagesBulletOne': 'Бейдж у полі вводу показує залишок безплатного часу.',
+  'onboarding.slide.messagesBulletTwo': 'Профіль показує оновлення, загальне використання й пакети годин.',
   'onboarding.slide.helpTitle': 'Help і правила',
   'onboarding.slide.helpBody': 'Відкрийте Help у верхніх контролах: підказки для запитів, lifecycle, terms і privacy.',
   'onboarding.slide.helpBulletOne': 'Help відкривається всередині панелі чату, тож майданчик лишається поруч.',
@@ -870,12 +870,12 @@ Likeable — сервіс для створення застосунків че�
   'profile.connected': 'Підключено',
   'profile.tutorial': 'Туторіал',
   'profile.tutorialTitle': 'Відкрити онбординг',
-  'profile.tutorialBody': 'Короткий гайд щодо запитів, кредитів, експорту й життєвого циклу.',
+  'profile.tutorialBody': 'Короткий гайд щодо запитів, годин збірки, експорту й життєвого циклу.',
   'profile.tutorialOpen': 'Відкрити',
-  'profile.messages': 'Повідомлення',
-  'profile.freeQuota': 'Безплатний ліміт повідомлень',
+  'profile.hours': 'Години збірки',
+  'profile.freeQuota': 'Безплатний ліміт годин збірки',
   'profile.freeInWindow': '{remaining}/{limit} безплатно за {hours} год',
-  'profile.quotaDetail': '{paid} платних кредитів · оновлення через {reset} · {lifetime} надіслано загалом',
+  'profile.quotaDetail': '{paid} платних годин · оновлення через {reset} · {lifetime} за весь час',
   'profile.projects': 'Майданчики',
   'profile.projectQuota': 'Ліміт майданчиків',
   'profile.projectSlots': '{used}/{limit} місць для майданчиків',
@@ -903,7 +903,7 @@ Likeable — сервіс для створення застосунків че�
   'admin.billing': 'Оплата',
   'admin.sort': 'Сортування',
   'admin.sort.newest': 'новіші',
-  'admin.sort.messages': 'повідомлення',
+  'admin.sort.hours': 'години',
   'admin.sort.paid': 'оплата',
   'admin.sort.projects': 'майданчики',
   'admin.sort.email': 'email',
@@ -917,9 +917,9 @@ Likeable — сервіс для створення застосунків че�
   'admin.pagination': '{page}/{totalPages} · {total} користувачів',
   'admin.selectUser': 'Виберіть користувача, щоб переглянути майданчики, платежі, сповіщення та доступ.',
   'admin.customer': 'Клієнт',
-  'admin.metric.free5h': 'Безплатно у вікні',
-  'admin.metric.lifetimeSent': 'Надіслано загалом',
-  'admin.metric.paidCredits': 'Платні кредити',
+  'admin.metric.freeWindowHours': 'Безплатно у вікні',
+  'admin.metric.lifetimeHours': 'Години за весь час',
+  'admin.metric.paidHours': 'Платні години',
   'admin.metric.projects': 'Майданчики',
   'admin.metric.paidSlots': 'Платні місця',
   'admin.metric.github': 'GitHub',
@@ -1009,18 +1009,18 @@ Likeable — сервіс для створення застосунків че�
   'admin.config.google.title': 'Інтеграція Google',
   'admin.config.google.body': 'Застосунок для входу.',
   'admin.config.stripe.title': 'Інтеграція Stripe',
-  'admin.config.stripe.body': 'Дані Checkout і webhook для пакетів повідомлень і місць майданчиків.',
+  'admin.config.stripe.body': 'Дані Checkout і webhook для пакетів годин збірки і місць майданчиків.',
   'admin.config.application.title': 'Налаштування застосунку',
   'admin.config.application.body': 'Стандартні значення, ліміти та доставка email для сповіщень користувачів.',
   'admin.config.stripe_publishable_key': 'Публічний ключ',
   'admin.config.stripe_secret_key': 'Секретний ключ',
-  'admin.config.stripe_price_id_10': 'Price ID для 10 повідомлень',
-  'admin.config.stripe_price_id_100': 'Price ID для 100 повідомлень',
-  'admin.config.stripe_price_id_1000': 'Price ID для 1000 повідомлень',
+  'admin.config.stripe_price_id_1_hour': 'Price ID для 1 години',
+  'admin.config.stripe_price_id_10_hours': 'Price ID для 10 годин',
+  'admin.config.stripe_price_id_100_hours': 'Price ID для 100 годин',
   'admin.config.stripe_project_quota_price_id': 'Price ID ліміту майданчиків',
   'admin.config.stripe_webhook_secret': 'Webhook secret',
-  'admin.config.free_messages': 'Безплатних повідомлень за вікно',
-  'admin.config.free_message_window_hours': 'Години вікна безплатних повідомлень',
+  'admin.config.free_hours': 'Безплатних годин за вікно',
+  'admin.config.free_hour_window_hours': 'Години вікна безплатних годин',
   'admin.config.project_cap': 'Базовий ліміт майданчиків'
 };
 

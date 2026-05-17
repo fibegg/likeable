@@ -6,9 +6,9 @@ import { Admin } from './admin';
 import { api } from './api';
 import { AgentNotificationRow, AppDialog, CanvasLoader, ConfirmDeleteProject, ConfirmExportProject, ConfirmNewProject, DeleteAllAccountDialog, EmptyCanvas, HelpPanel, OnboardingGallery, ProjectList, ServicePanel, UserMessageRow } from './builder_components';
 import { BASIC_CHAT_COLLAPSED_KEY, BASIC_CHAT_HEIGHT_KEY, BUILDER_MODE_KEY, COLLAPSED_CHAT_POSITION_KEY, MAX_ATTACHMENTS, SINGLE_VIEW_QUERY } from './config';
-import type { AppDialogConfig, BuilderMode, BusyPolicy, Feed, FeedRow, Message, MessageQuota, Me, PendingAttachment, PreviewStatus, Project, ProjectArchiveResponse, ProjectExportResponse, ProjectListResponse, ProjectService, UserNotice } from './domain';
+import type { AppDialogConfig, BuilderMode, BusyPolicy, Feed, FeedRow, HourQuota, Message, Me, PendingAttachment, PreviewStatus, Project, ProjectArchiveResponse, ProjectExportResponse, ProjectListResponse, ProjectService, UserNotice } from './domain';
 import { feedAwaitingAgent, feedHasAssistantAfterLatestUser, feedLiveIdle, feedRows } from './feed';
-import { formatResetCountdown } from './format';
+import { formatBillingDuration, formatResetCountdown } from './format';
 import { I18nProvider, resetCountdownLabels, type TranslationKey, useDocumentTitle, useI18n } from './i18n';
 import { installPwa } from './pwa';
 import { ProfilePanel } from './profile_panel';
@@ -25,6 +25,22 @@ const PULL_REFRESH_MAX = 118;
 const PULL_REFRESH_SETTLE_DELAY_MS = 180;
 const PULL_REFRESH_TIMEOUT_MS = 3500;
 const PENDING_MESSAGE_RECONCILE_MS = 2 * 60_000;
+
+function StatusMark({ working = false }: { working?: boolean }) {
+  return (
+    <span className={`mark small statusMark ${working ? 'working' : ''}`}>
+      {working && (
+        <span className="markMatrixRain" aria-hidden="true">
+          <span>{'10101010\n01010101\n11010110\n00101011\n10110100'}</span>
+          <span>{'01011010\n10100101\n01101001\n10010110\n01010111'}</span>
+          <span>{'11001010\n00110101\n10101001\n01011010\n11100101'}</span>
+        </span>
+      )}
+      <span className="markGlyph">L</span>
+      <span className="brandStatusDot" />
+    </span>
+  );
+}
 
 function App() {
   const [me, setMe] = useState<Me | null>(null);
@@ -77,7 +93,7 @@ function Shell({ me, nav, children }: { me: Me; nav: (to: string) => void; child
     <div className="shell">
       <header className="topbar">
         <button className="brand" onClick={() => nav('/')} aria-label={t('builder.brand.tooltip')}>
-          <span className="mark small statusMark"><span className="markGlyph">L</span><span className="brandStatusDot" /></span>
+          <StatusMark />
         </button>
         <nav>
           <button onClick={() => nav('/')}><MessageSquare size={18} /> {t('nav.builder')}</button>
@@ -196,7 +212,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   });
   const [collapsedChatPosition, setCollapsedChatPosition] = useState(() => initialCollapsedChatPosition());
   const [busyPolicy, setBusyPolicy] = useState<BusyPolicy>('queue');
-  const [messageQuota, setMessageQuota] = useState<MessageQuota | null>(me.messageQuota ?? null);
+  const [hourQuota, setHourQuota] = useState<HourQuota | null>(me.hourQuota ?? null);
   const [quotaNow, setQuotaNow] = useState(Date.now());
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const messagesRef = useRef<HTMLDivElement | null>(null);
@@ -236,8 +252,8 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const projectCapLabel = projectCap == null ? `${quotaProjectCount}` : `${quotaProjectCount}/${projectCap}`;
   const selectedServiceLabel = selectedService?.name ?? '--';
   const hasMultipleServices = (activeProject?.services?.length ?? 0) > 1;
-  const messageQuotaLabel = messageQuota ? `${messageQuota.remaining}/${messageQuota.limit}` : '';
-  const messageQuotaTooltip = messageQuota ? t('builder.messageQuota.tooltip', { paid: messageQuota.paidRemaining ?? 0, reset: formatResetCountdown(messageQuota.resetsAt, quotaNow, resetCountdownLabels(t)) }) : '';
+  const hourQuotaLabel = hourQuota ? `${formatBillingDuration(hourQuota.remainingMs, resetCountdownLabels(t))}/${formatBillingDuration(hourQuota.limitMs, resetCountdownLabels(t))}` : '';
+  const hourQuotaTooltip = hourQuota ? t('builder.hourQuota.tooltip', { paid: formatBillingDuration(hourQuota.paidRemainingMs ?? 0, resetCountdownLabels(t)), reset: formatResetCountdown(hourQuota.resetsAt, quotaNow, resetCountdownLabels(t)) }) : '';
   const githubConnected = Boolean(me.githubConnected);
   const githubNeedsReconnect = Boolean(me.githubNeedsReconnect);
   const projectArchived = activeProject?.status === 'archived';
@@ -262,7 +278,8 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const composerDisabled = !signedIn || projectsLoading || noActiveProject || projectArchived;
   const canSend = signedIn && !composerDisabled && hasDraft && !busy && !messageSubmitting && Boolean(activePreviewURL) && (activeProject?.status === 'ready' || previewReady);
   const hasActiveNotification = rows.some((row) => row.kind === 'notification' && row.active);
-  const brandWorking = agentWorking || hasActiveNotification;
+  const canvasLoading = projectsLoading || isProjectStarting || Boolean(activePreviewURL && previewRuntimeActive && !previewMaintenance && (!previewReady || !iframeLoaded));
+  const brandWorking = agentWorking || hasActiveNotification || canvasLoading;
   const agentActivityActive = Boolean(messageSubmitting || localAgentRunActive || displayFeed?.live?.isProcessing || feedAwaitingAgent(displayFeed) || hasActiveNotification);
   const utilityScreenOpen = showProjects || showProfile || showHelp || showServices;
   const inputPlaceholder = !signedIn
@@ -306,7 +323,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     });
   });
   const refreshQuota = () => api<Me>('/api/me')
-    .then((next) => setMessageQuota(next.messageQuota ?? null))
+    .then((next) => setHourQuota(next.hourQuota ?? null))
     .catch(() => undefined);
   const rememberPendingAgentRun = (projectID: string) => {
     setPendingAgentRuns((current) => ({ ...current, [projectID]: Date.now() }));
@@ -397,8 +414,8 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     }
   }, [profileRoute, signedIn]);
   useEffect(() => {
-    setMessageQuota(me.messageQuota ?? null);
-  }, [me.messageQuota]);
+    setHourQuota(me.hourQuota ?? null);
+  }, [me.hourQuota]);
   useEffect(() => {
     const timer = setInterval(() => setQuotaNow(Date.now()), 30000);
     return () => clearInterval(timer);
@@ -968,7 +985,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const builderChrome = (
     <div className="basicChatChrome">
       <button className="brand chatBrand tooltip tooltipBottom" onClick={() => nav('/')} aria-label={t('builder.brand.tooltip')} data-tip={t('builder.brand.tooltip')}>
-        <span className={`mark small statusMark ${brandWorking ? 'working' : ''}`}><span className="markGlyph">L</span><span className="brandStatusDot" /></span>
+        <StatusMark working={brandWorking} />
       </button>
       {projectTitleButton('chromeProjectTitle', false, true)}
       <nav className="chatNav">
@@ -1055,9 +1072,9 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
             </button>
             <div className="composerTextSlot">
               <textarea ref={textareaRef} value={prompt} onChange={(e) => setPrompt(e.target.value)} onKeyDown={handleComposerKeyDown} placeholder={inputPlaceholder} rows={1} disabled={composerDisabled} />
-              {messageQuota && (
-                <span className="composerQuotaBadge tooltip" tabIndex={0} data-tip={messageQuotaTooltip} aria-label={`${t('builder.messages.left')}: ${messageQuotaLabel}`}>
-                  {messageQuotaLabel}
+              {hourQuota && (
+                <span className="composerQuotaBadge tooltip" tabIndex={0} data-tip={hourQuotaTooltip} aria-label={`${t('builder.hours.left')}: ${hourQuotaLabel}`}>
+                  {hourQuotaLabel}
                 </span>
               )}
             </div>
@@ -1077,7 +1094,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       onKeyDown={handleCollapsedChatKeyDown}
       {...chatDragHandlers}
     >
-      <span className={`mark small statusMark ${brandWorking ? 'working' : ''}`}><span className="markGlyph">L</span><span className="brandStatusDot" /></span>
+      <StatusMark working={brandWorking} />
     </button>
   );
 
@@ -1145,7 +1162,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       ) : (
         <EmptyCanvas title={t('empty.noProjectTitle')} body={t('empty.noProjectBody')} />
       )}
-      {viewMode === 'split' && <div className={`canvasStatus ${agentWorking ? 'working' : ''}`}><span /> {canvasStatusLabel}</div>}
+      {viewMode === 'split' && <div className={`canvasStatus ${brandWorking ? 'working' : ''}`}><span /> {canvasStatusLabel}</div>}
     </>
   );
   const preview = (

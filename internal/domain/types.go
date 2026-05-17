@@ -109,6 +109,20 @@ type ProjectNotificationTiming struct {
 	UpdatedAt      string `json:"updatedAt,omitempty"`
 }
 
+type ProjectWorkSession struct {
+	ProjectID    string `json:"projectId"`
+	UserID       string `json:"userId"`
+	SessionKey   string `json:"sessionKey"`
+	StartedAt    string `json:"startedAt"`
+	CompletedAt  string `json:"completedAt,omitempty"`
+	ElapsedMs    int64  `json:"elapsedMs"`
+	FreeBilledMs int64  `json:"freeBilledMs"`
+	PaidBilledMs int64  `json:"paidBilledMs"`
+	BilledAt     string `json:"billedAt,omitempty"`
+	CreatedAt    string `json:"createdAt"`
+	UpdatedAt    string `json:"updatedAt"`
+}
+
 type SocialConnection struct {
 	ID             string
 	UserID         string
@@ -200,10 +214,10 @@ type AdminUserSummary struct {
 	ProjectLimit       int                      `json:"projectLimit"`
 	PaidProjectSlots   int                      `json:"paidProjectSlots"`
 	ProjectSlotsExpire string                   `json:"projectSlotsExpire,omitempty"`
-	MessageCount       int                      `json:"messageCount"`
-	DailyMessageCount  int                      `json:"dailyMessageCount"`
-	FreeMessageLimit   int                      `json:"freeMessageLimit"`
-	PaidCreditBalance  int                      `json:"paidCreditBalance"`
+	LifetimeWorkMs     int64                    `json:"lifetimeWorkMs"`
+	WindowWorkMs       int64                    `json:"windowWorkMs"`
+	FreeHourLimitMs    int64                    `json:"freeHourLimitMs"`
+	PaidHourBalanceMs  int64                    `json:"paidHourBalanceMs"`
 	GithubConnected    bool                     `json:"githubConnected"`
 	SubscriptionStatus string                   `json:"subscriptionStatus"`
 	PaidTotalCents     int64                    `json:"paidTotalCents"`
@@ -215,9 +229,9 @@ type AdminUserSummary struct {
 }
 
 type AdminProjectSummary struct {
-	Project      Project                `json:"project"`
-	MessageCount int                    `json:"messageCount"`
-	Assignment   AgentAssignmentSummary `json:"assignment"`
+	Project    Project                `json:"project"`
+	WorkMs     int64                  `json:"workMs"`
+	Assignment AgentAssignmentSummary `json:"assignment"`
 }
 
 type AdminUserDetail struct {
@@ -228,14 +242,15 @@ type AdminUserDetail struct {
 }
 
 type AdminUserFilters struct {
-	Query              string
-	Status             string
-	Github             string
-	Billing            string
-	Sort               string
-	Page               int
-	PerPage            int
-	MessageWindowStart time.Time
+	Query            string
+	Status           string
+	Github           string
+	Billing          string
+	Sort             string
+	Page             int
+	PerPage          int
+	UsageWindowStart time.Time
+	UsageWindowEnd   time.Time
 }
 
 func NormalizeEmail(email string) string {
