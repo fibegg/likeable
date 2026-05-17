@@ -390,7 +390,7 @@ html[data-builder-mode="split"] .account {
   gap: 7px;
   min-height: 30px;
   padding: 6px 9px;
-  border-radius: 999px;
+  border-radius: 8px;
 }
 .topbar nav button:hover,
 .account:hover,
@@ -417,7 +417,7 @@ html[data-builder-mode="split"] .account {
   overflow: hidden;
 }
 .account span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.account button { display: grid; place-items: center; padding: 4px; border-radius: 999px; }
+.account button { display: grid; place-items: center; padding: 4px; border-radius: 8px; }
 .account button.languageToggle,
 .languageToggle {
   display: inline-flex;
@@ -477,7 +477,7 @@ html[data-builder-mode="split"] .account {
   width: 24px;
   height: 24px;
   border: 0;
-  border-radius: 999px;
+  border-radius: 8px;
   background: transparent;
   color: var(--muted);
   cursor: pointer;
@@ -991,8 +991,8 @@ html[data-builder-mode="split"] .account {
   height: 36px;
   min-width: 36px;
   min-height: 36px;
-  border: 1px solid transparent;
-  border-radius: 999px;
+  border: 0;
+  border-radius: 8px;
   background: transparent;
   color: var(--muted);
   cursor: pointer;
@@ -1007,13 +1007,13 @@ html[data-builder-mode="split"] .account {
 .chromePill {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
-  min-height: 40px;
-  padding: 2px;
-  border: 1px solid rgba(199, 137, 45, .34);
-  border-radius: 999px;
-  background: rgba(7, 14, 17, .62);
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .24);
+  gap: 4px;
+  min-height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
   overflow: visible;
 }
 .chromePill .chromeIconButton {
@@ -1067,7 +1067,7 @@ html[data-builder-mode="split"] .account {
 .chatNav button:hover,
 .chromeIconButton:hover {
   color: var(--text);
-  border-color: var(--line);
+  border-color: transparent;
   background: rgba(7, 14, 17, .72);
 }
 .chromeIconButton.stopAgentButton {
@@ -1087,8 +1087,9 @@ html[data-builder-mode="split"] .account {
 .chromeIconButton.selected,
 .iconButton.selected {
   color: var(--amber);
-  border-color: rgba(223, 154, 47, .58);
-  background: rgba(213, 141, 45, .12);
+  border-color: transparent;
+  background: transparent;
+  box-shadow: inset 0 -2px 0 rgba(223, 154, 47, .68);
 }
 .splitToggle {
   color: rgba(216, 228, 231, .58);
@@ -1238,8 +1239,8 @@ html[data-builder-mode="split"] .account {
   flex: 0 0 auto;
   width: 28px;
   height: 28px;
-  border: 1px solid transparent;
-  border-radius: 999px;
+  border: 0;
+  border-radius: 8px;
   color: rgba(216, 228, 231, .5);
   display: inline-flex;
   align-items: center;
@@ -1249,7 +1250,7 @@ html[data-builder-mode="split"] .account {
 .projectExternalLink:hover,
 .projectExternalLink:focus-visible {
   color: var(--text);
-  border-color: rgba(199, 137, 45, .28);
+  border-color: transparent;
   background: rgba(213, 141, 45, .06);
 }
 .identityPill {
@@ -1440,12 +1441,13 @@ html[data-builder-mode="split"] .account {
 .iconButton {
   width: 28px;
   height: 28px;
-  border-radius: 999px;
+  border: 0;
+  border-radius: 8px;
   display: grid;
   place-items: center;
   color: var(--amber);
 }
-.iconButton:hover { border-color: var(--line); background: rgba(213, 141, 45, .08); }
+.iconButton:hover { border-color: transparent; background: rgba(213, 141, 45, .08); }
 
 .projectList {
   grid-area: projects;
@@ -2610,6 +2612,38 @@ html[data-builder-mode="split"] .account {
 .chatResizeHandle:hover::after {
   border-color: rgba(223, 154, 47, .72);
   background: rgba(213, 141, 45, .16);
+}
+.chatHeightControls {
+  display: none;
+  position: absolute;
+  z-index: 13;
+  top: -42px;
+  right: max(8px, env(safe-area-inset-right));
+  gap: 2px;
+  pointer-events: auto;
+}
+.chatHeightControls button {
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 8px;
+  background: rgba(5, 11, 14, .76);
+  color: rgba(216, 228, 231, .72);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  touch-action: manipulation;
+}
+.chatHeightControls button:hover,
+.chatHeightControls button:focus-visible {
+  color: var(--text);
+  background: rgba(213, 141, 45, .12);
+}
+html[data-android="true"] .chatHeightControls {
+  display: flex;
+}
+html[data-android="true"] .chatResizeHandle {
+  display: none;
 }
 html.resizingChat,
 html.resizingChat * {

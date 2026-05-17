@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { ChevronDown, CircleHelp, CircleStop, ExternalLink, FolderOpen, Languages, LayoutPanelLeft, Loader2, LogOut, Minimize2, MessageSquare, Paperclip, Send, Settings, UserRound, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, CircleHelp, CircleStop, ExternalLink, FolderOpen, Languages, LayoutPanelLeft, Loader2, LogOut, Minimize2, MessageSquare, Paperclip, Send, Settings, UserRound, X } from 'lucide-react';
 import './styles.css';
 import { Admin } from './admin';
 import { api } from './api';
@@ -26,6 +26,7 @@ const PULL_REFRESH_MAX = 118;
 const PULL_REFRESH_SETTLE_DELAY_MS = 180;
 const PULL_REFRESH_TIMEOUT_MS = 3500;
 const PENDING_MESSAGE_RECONCILE_MS = 2 * 60_000;
+const BASIC_CHAT_HEIGHT_STEP = 112;
 const MATRIX_RAIN_COLUMNS = [
   ['10101010', '01010101', '11010110', '00101011', '10110100', '01011001', '11101010', '00110101', '10010110', '01101011'],
   ['01011010', '10100101', '01101001', '10010110', '01010111', '11010010', '00101101', '10110101', '01001011', '11100100'],
@@ -67,7 +68,11 @@ function googleAuthStartPath() {
 
 function installPlatformFlags() {
   if (typeof navigator === 'undefined') return;
-  document.documentElement.dataset.android = /\bAndroid\b/i.test(navigator.userAgent) ? 'true' : 'false';
+  document.documentElement.dataset.android = isAndroidPlatform() ? 'true' : 'false';
+}
+
+function isAndroidPlatform() {
+  return typeof navigator !== 'undefined' && /\bAndroid\b/i.test(navigator.userAgent);
 }
 
 function App() {
@@ -238,7 +243,10 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const [basicChatCollapsed, setBasicChatCollapsed] = useState(() => localStorage.getItem(BASIC_CHAT_COLLAPSED_KEY) === 'true');
   const [basicChatHeight, setBasicChatHeight] = useState(() => {
     const stored = Number(localStorage.getItem(BASIC_CHAT_HEIGHT_KEY));
-    return Number.isFinite(stored) && stored > 0 ? clampBasicChatHeight(stored) : defaultBasicChatHeight();
+    if (Number.isFinite(stored) && stored > 0) {
+      return isAndroidPlatform() ? stored : clampBasicChatHeight(stored);
+    }
+    return defaultBasicChatHeight();
   });
   const [collapsedChatPosition, setCollapsedChatPosition] = useState(() => initialCollapsedChatPosition());
   const [busyPolicy, setBusyPolicy] = useState<BusyPolicy>('queue');
@@ -339,6 +347,15 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
 
   useDocumentTitle(pageTitle);
 
+  const updateBasicChatHeight = (next: number | ((height: number) => number)) => {
+    setBasicChatHeight((current) => {
+      const value = typeof next === 'function' ? next(current) : next;
+      const clamped = clampBasicChatHeight(value);
+      localStorage.setItem(BASIC_CHAT_HEIGHT_KEY, String(Math.round(clamped)));
+      return clamped;
+    });
+  };
+
   const loadProjects = () => api<ProjectListResponse>('/api/projects').then((r) => {
     const nextProjects = Array.isArray(r.projects) ? r.projects : [];
     const nextProjectIDs = new Set(nextProjects.map((project) => project.id));
@@ -404,7 +421,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     const query = window.matchMedia(SINGLE_VIEW_QUERY);
     const update = () => {
       setSingleView(query.matches);
-      setBasicChatHeight((height) => clampBasicChatHeight(height));
+      if (!isAndroidPlatform()) updateBasicChatHeight((height) => height);
     };
     update();
     query.addEventListener('change', update);
@@ -421,7 +438,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   }, [collapsedChatPosition]);
   useEffect(() => {
     const resize = () => {
-      setBasicChatHeight((height) => clampBasicChatHeight(height));
+      if (!isAndroidPlatform()) updateBasicChatHeight((height) => height);
       setCollapsedChatPosition((position) => clampCollapsedChatPosition(position));
     };
     const visualViewport = window.visualViewport;
@@ -809,7 +826,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     document.documentElement.classList.add('resizingChat');
     const onMove = (moveEvent: PointerEvent) => {
       moveEvent.preventDefault();
-      setBasicChatHeight(clampBasicChatHeight(startHeight + startY - moveEvent.clientY));
+      updateBasicChatHeight(startHeight + startY - moveEvent.clientY);
     };
     const onUp = () => {
       document.documentElement.classList.remove('resizingChat');
@@ -820,6 +837,12 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     addEventListener('pointermove', onMove);
     addEventListener('pointerup', onUp);
     addEventListener('pointercancel', onUp);
+  };
+  const resizeBasicChatBy = (delta: number) => {
+    updateBasicChatHeight((height) => height + delta);
+  };
+  const stopExternalLinkPropagation = (event: React.SyntheticEvent<HTMLAnchorElement>) => {
+    event.stopPropagation();
   };
   const startCollapsedChatDrag = (event: React.PointerEvent<HTMLButtonElement>) => {
     if (viewMode !== 'overlay' || !effectiveChatCollapsed || chatCollapsedForTutorial) return;
@@ -1013,6 +1036,8 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
             target="_blank"
             rel="noopener noreferrer"
             data-no-pull-refresh="true"
+            onPointerDown={stopExternalLinkPropagation}
+            onClick={stopExternalLinkPropagation}
             aria-label={t('builder.preview.open')}
             data-tip={t('builder.preview.open')}
           >
@@ -1071,6 +1096,8 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
               target="_blank"
               rel="noopener noreferrer"
               data-no-pull-refresh="true"
+              onPointerDown={stopExternalLinkPropagation}
+              onClick={stopExternalLinkPropagation}
               aria-label={t('builder.preview.open')}
               data-tip={t('builder.preview.open')}
             >
@@ -1232,6 +1259,12 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
             ? collapsedChatStyle(collapsedChatPosition)
             : ({ '--basic-chat-height': `${basicChatHeight}px` } as React.CSSProperties)}
         >
+          {!effectiveChatCollapsed && (
+            <div className="chatHeightControls" data-no-pull-refresh="true" aria-label={t('builder.resizeChat')}>
+              <button type="button" onClick={() => resizeBasicChatBy(BASIC_CHAT_HEIGHT_STEP)} aria-label={t('builder.expandChat')}><ChevronUp size={17} /></button>
+              <button type="button" onClick={() => resizeBasicChatBy(-BASIC_CHAT_HEIGHT_STEP)} aria-label={t('builder.resizeChat')}><ChevronDown size={17} /></button>
+            </div>
+          )}
           {!effectiveChatCollapsed && <div className="chatResizeHandle" aria-label={t('builder.resizeChat')} onPointerDown={startBasicChatResize} />}
           {effectiveChatCollapsed ? minimizedChatBar : chat}
         </div>
