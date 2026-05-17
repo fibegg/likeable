@@ -6,8 +6,10 @@ const BASIC_CHAT_DEFAULT_MAX_HEIGHT = 640;
 const BASIC_CHAT_DESKTOP_EDGE_GUARD = 28;
 const BASIC_CHAT_MOBILE_TOP_GUARD = 118;
 const KEYBOARD_INSET_THRESHOLD = 80;
+const KEYBOARD_RECOVERY_MS = 1800;
 
 let stableViewportHeight = 0;
+let preserveStableViewportUntil = 0;
 
 export function singleViewScreen() {
   return typeof window !== 'undefined' && window.matchMedia(SINGLE_VIEW_QUERY).matches;
@@ -54,7 +56,7 @@ export function installViewportCssVars() {
     if (frame) cancelAnimationFrame(frame);
     frame = requestAnimationFrame(update);
     timers.forEach((timer) => window.clearTimeout(timer));
-    timers = [80, 240, 480].map((delay) => window.setTimeout(update, delay));
+    timers = [80, 240, 480, 900, 1500].map((delay) => window.setTimeout(update, delay));
   };
 
   scheduleUpdate();
@@ -100,13 +102,21 @@ function currentLayoutViewportHeight() {
   if (typeof window === 'undefined') return 0;
   const height = window.innerHeight;
   const visualHeight = window.visualViewport?.height ?? height;
+  const currentHeight = Math.max(height, visualHeight);
   const focused = textInputFocused();
   if (!stableViewportHeight) {
-    stableViewportHeight = Math.max(height, visualHeight);
-  } else if (!focused) {
-    stableViewportHeight = Math.max(height, visualHeight);
-  } else if (height > stableViewportHeight) {
-    stableViewportHeight = height;
+    stableViewportHeight = currentHeight;
+  } else if (currentHeight > stableViewportHeight) {
+    stableViewportHeight = currentHeight;
+  } else {
+    const now = Date.now();
+    const viewportShrunkFromStable = stableViewportHeight - currentHeight > KEYBOARD_INSET_THRESHOLD;
+    if (focused && viewportShrunkFromStable) {
+      preserveStableViewportUntil = now + KEYBOARD_RECOVERY_MS;
+    }
+    if (!viewportShrunkFromStable || now >= preserveStableViewportUntil) {
+      stableViewportHeight = currentHeight;
+    }
   }
   return stableViewportHeight;
 }
