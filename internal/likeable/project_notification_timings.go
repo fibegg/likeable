@@ -71,8 +71,6 @@ func (s *Server) syncProjectNotificationTimingsAt(ctx context.Context, project *
 					completedAt = parsed
 				}
 			}
-		} else if i+1 >= len(rows) && shouldContinue {
-			continue
 		} else if parsed, ok := parseProjectNotificationTime(row.Time); ok && parsed.After(completedAt) {
 			completedAt = parsed
 		}

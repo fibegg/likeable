@@ -2186,6 +2186,76 @@ func TestProjectNotificationTimingsPersistAcrossRefresh(t *testing.T) {
 	}
 }
 
+func TestProjectNotificationTimingsCompleteFinishedLastRowWhileQueued(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "likeable.db")
+	appStore, err := store.Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer appStore.Close()
+
+	server := &Server{store: appStore, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	user, _ := appStore.UpsertUser(t.Context(), "a@example.com", "A", "")
+	project := &Project{
+		ID:             "project-notification-timings-queued",
+		UserID:         user.ID,
+		Title:          "Notification timings queued",
+		ConversationID: "conv-notification-timings-queued",
+		AgentID:        "agent-1",
+		PreviewURL:     "http://preview.example.test",
+		Status:         "ready",
+	}
+	if err := appStore.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+
+	userAt := time.Date(2026, 5, 12, 11, 0, 0, 0, time.UTC)
+	if _, err := appStore.AddMessageAt(t.Context(), project.ID, "user", "make changes", userAt.Format(time.RFC3339Nano)); err != nil {
+		t.Fatal(err)
+	}
+	local, err := appStore.MessagesForProject(t.Context(), project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	firstLive := &fibe.ConversationLiveState{
+		ConversationID: project.ConversationID,
+		IsProcessing:   true,
+		StreamText:     likeableNotificationStart + "Inspecting the app" + likeableNotificationEnd,
+		QueuedTurns:    1,
+		StartedAt:      userAt.Add(time.Second).Format(time.RFC3339Nano),
+	}
+	if _, _, err := server.syncProjectNotificationTimingsAt(t.Context(), project, local, nil, nil, firstLive, userAt.Add(11*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+
+	finalLive := &fibe.ConversationLiveState{
+		ConversationID: project.ConversationID,
+		IsProcessing:   false,
+		StreamText: likeableNotificationStart + "Inspecting the app" + likeableNotificationEnd +
+			likeableNotificationStart + "Updating files" + likeableNotificationEnd +
+			likeableNotificationStart + "Refreshing the canvas" + likeableNotificationEnd +
+			likeableNotificationStart + "Checking the preview" + likeableNotificationEnd +
+			likeableNotificationStart + "Canvas updated" + likeableNotificationEnd,
+		QueuedTurns: 1,
+		StartedAt:   userAt.Add(time.Second).Format(time.RFC3339Nano),
+	}
+	timings, shouldContinue, err := server.syncProjectNotificationTimingsAt(t.Context(), project, local, nil, nil, finalLive, userAt.Add(2*time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !shouldContinue {
+		t.Fatal("sync should keep monitoring while another turn is queued")
+	}
+	finalID := notificationTurnKey(userAt) + "-notification-4"
+	if timings[finalID].CompletedAt == "" {
+		t.Fatalf("%s completed_at is empty, want finished Canvas updated row completed despite queued turn", finalID)
+	}
+	if got, want := timings[finalID].ElapsedMs, int64(109_000); got != want {
+		t.Fatalf("final elapsed=%d, want total turn elapsed %d", got, want)
+	}
+}
+
 func TestProjectFeedRefreshesTransformedServiceLayout(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {

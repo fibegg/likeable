@@ -15,6 +15,7 @@
   --cyan: #aef4ff;
   --amber: #d58d2d;
   --green: #65c98f;
+  --matrix-green: #37ff78;
   --danger: #ff695d;
   --app-viewport-height: 100dvh;
   --app-viewport-width: 100vw;
@@ -106,33 +107,43 @@ button, a, input, select, [role="button"] { touch-action: manipulation; }
   z-index: 2;
 }
 .statusMark.working {
-  border-color: rgba(174, 244, 255, .58);
-  color: rgba(174, 244, 255, .95);
-  background: rgba(174, 244, 255, .075);
-  box-shadow: inset 0 0 16px rgba(174, 244, 255, .08), 0 0 18px rgba(174, 244, 255, .12);
+  border-color: rgba(55, 255, 120, .68);
+  color: rgba(221, 255, 229, .98);
+  background: rgba(4, 16, 10, .82);
+  box-shadow: inset 0 0 16px rgba(55, 255, 120, .13), 0 0 18px rgba(55, 255, 120, .18);
 }
-.statusMark.working::before {
-  content: "10101010\A01011001\A11001010\A00110101\A10100110\A01010101\A11100100\A00101101\A10101010\A01011001\A11001010\A00110101\A10100110\A01010101\A11100100\A00101101";
+.statusMark.working::before,
+.statusMark.working::after {
+  content: "10101010\A01010101\A11101010\A00110101\A10100110\A01011001\A11001010\A00101101\A10101010\A01010101\A11101010\A00110101\A10100110\A01011001\A11001010\A00101101";
   position: absolute;
-  inset: -170% -70%;
+  inset: -150% -64%;
   z-index: 0;
-  color: rgba(174, 244, 255, .38);
+  color: rgba(55, 255, 120, .62);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   font-size: 5px;
   font-weight: 900;
   letter-spacing: 0;
   line-height: 7px;
-  opacity: .46;
+  opacity: .68;
   text-align: left;
+  text-shadow: 0 0 5px rgba(55, 255, 120, .6);
   white-space: pre;
-  animation: matrixDrift 1.8s linear infinite;
+  animation: matrixFall 1.05s linear infinite;
+}
+.statusMark.working::after {
+  --matrix-x: 7px;
+  content: "01011001\A10100110\A00101101\A11001010\A01010101\A10101010\A00110101\A11101010\A01011001\A10100110\A00101101\A11001010\A01010101\A10101010\A00110101\A11101010";
+  color: rgba(178, 255, 195, .44);
+  opacity: .5;
+  animation-duration: 1.35s;
+  animation-delay: -.55s;
 }
 .minimizedChatBar.working {
-  border-color: rgba(174, 244, 255, .82);
-  background: rgba(5, 17, 21, .92);
+  border-color: rgba(55, 255, 120, .82);
+  background: rgba(4, 15, 9, .94);
   box-shadow:
-    0 0 0 1px rgba(174, 244, 255, .18),
-    0 0 26px rgba(174, 244, 255, .3),
+    0 0 0 1px rgba(55, 255, 120, .18),
+    0 0 26px rgba(55, 255, 120, .28),
     0 16px 46px rgba(0, 0, 0, .44);
   animation: collapsedButtonGlow 1.45s ease-in-out infinite;
 }
@@ -142,20 +153,19 @@ button, a, input, select, [role="button"] { touch-action: manipulation; }
   border-radius: 6px;
   font-size: 13px;
 }
-.minimizedChatBar.working .statusMark::before {
+.minimizedChatBar.working .statusMark::before,
+.minimizedChatBar.working .statusMark::after {
   inset: -190% -80%;
-  color: rgba(174, 244, 255, .7);
   font-size: 6px;
   line-height: 7px;
-  opacity: .86;
   animation-duration: .95s;
 }
 .minimizedChatBar.working .markGlyph {
-  text-shadow: 0 0 9px rgba(174, 244, 255, .72);
+  text-shadow: 0 0 9px rgba(55, 255, 120, .86);
 }
 .statusMark.working .brandStatusDot {
-  background: var(--cyan);
-  box-shadow: 0 0 13px rgba(174, 244, 255, .9);
+  background: var(--matrix-green);
+  box-shadow: 0 0 13px rgba(55, 255, 120, .92);
   animation: workPulse 1.5s ease-in-out infinite;
 }
 
@@ -2658,9 +2668,9 @@ html.draggingCollapsedChat * {
   50% { opacity: 1; transform: translateY(-4px); }
 }
 
-@keyframes matrixDrift {
-  from { transform: translate3d(0, -34%, 0) rotate(-12deg); }
-  to { transform: translate3d(0, 0, 0) rotate(-12deg); }
+@keyframes matrixFall {
+  from { transform: translate3d(var(--matrix-x, 0), -36%, 0); }
+  to { transform: translate3d(var(--matrix-x, 0), 0, 0); }
 }
 
 @keyframes collapsedButtonGlow {
@@ -2686,6 +2696,7 @@ html.draggingCollapsedChat * {
 
 @media (prefers-reduced-motion: reduce) {
   .statusMark.working::before,
+  .statusMark.working::after,
   .statusMark.working .brandStatusDot,
   .minimizedChatBar.working {
     animation: none;
