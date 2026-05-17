@@ -158,6 +158,7 @@ function useOnlineStatus() {
 function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void; me: Me; profileRoute?: boolean }) {
   const { t } = useI18n();
   const signedIn = Boolean(me.user);
+  const userID = me.user?.id ?? '';
   const googleReady = me.auth?.googleConfigured !== false;
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeID, setActiveID] = useState<string>('');
@@ -166,6 +167,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const [busy, setBusy] = useState(false);
   const [messageSubmitting, setMessageSubmitting] = useState(false);
   const [projectsLoaded, setProjectsLoaded] = useState(false);
+  const [projectsLoadedUserID, setProjectsLoadedUserID] = useState('');
   const [pendingAgentRuns, setPendingAgentRuns] = useState<Record<string, number>>({});
   const [pendingMessagesByProject, setPendingMessagesByProject] = useState<Record<string, Message[]>>({});
   const [projectCap, setProjectCap] = useState<number | null>(null);
@@ -204,8 +206,12 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     return localStorage.getItem(BUILDER_MODE_KEY) === 'split' ? 'split' : 'overlay';
   });
   const viewMode: BuilderMode = singleView ? 'overlay' : mode;
-  const active = useMemo(() => projects.find((p) => p.id === activeID), [projects, activeID]);
-  const activeProject = feed?.project?.id === activeID ? feed.project : active;
+  const projectsLoadedForCurrentUser = signedIn && projectsLoaded && projectsLoadedUserID === userID;
+  const currentProjects = projectsLoadedForCurrentUser ? projects : [];
+  const active = useMemo(() => currentProjects.find((p) => p.id === activeID), [currentProjects, activeID]);
+  const activeProjectCandidate = feed?.project?.id === activeID ? feed.project : active;
+  const activeProjectInCurrentList = Boolean(activeProjectCandidate?.id && currentProjects.some((project) => project.id === activeProjectCandidate.id));
+  const activeProject = projectsLoadedForCurrentUser && activeProjectInCurrentList ? activeProjectCandidate : undefined;
   const activePendingMessages = activeID ? pendingMessagesByProject[activeID] ?? [] : [];
   const displayFeed = useMemo(() => feedWithPendingMessages(feed, activeProject, activeID, activePendingMessages), [feed, activeProject, activeID, activePendingMessages]);
   const selectedService = useMemo(() => selectedProjectService(activeProject), [activeProject]);
@@ -225,7 +231,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const lastRow = rows.at(-1);
   const lastRowSignature = lastRow ? `${lastRow.id}:${lastRow.body}` : '';
   const modeLabel = viewMode === 'overlay' ? t('builder.mode.basic') : t('builder.mode.split');
-  const quotaProjectCount = projects.filter((project) => project.status !== 'archived' && project.status !== 'deleting').length;
+  const quotaProjectCount = currentProjects.filter((project) => project.status !== 'archived' && project.status !== 'deleting').length;
   const projectCapLabel = projectCap == null ? `${quotaProjectCount}` : `${quotaProjectCount}/${projectCap}`;
   const selectedServiceLabel = selectedService?.name ?? '--';
   const hasMultipleServices = (activeProject?.services?.length ?? 0) > 1;
@@ -234,8 +240,8 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const githubConnected = Boolean(me.githubConnected);
   const githubNeedsReconnect = Boolean(me.githubNeedsReconnect);
   const projectArchived = activeProject?.status === 'archived';
-  const projectsLoading = signedIn && !projectsLoaded;
-  const noActiveProject = signedIn && projectsLoaded && !activeProject;
+  const projectsLoading = signedIn && !projectsLoadedForCurrentUser;
+  const noActiveProject = signedIn && projectsLoadedForCurrentUser && !activeProject;
   const isProjectStarting = activeProject?.status === 'creating' || activeProject?.status === 'launching';
   const previewRuntimeActive = activeProject?.status === 'ready';
   const previewMaintenance = Boolean(activePreviewURL && previewRuntimeActive && previewStatus?.maintenance);
@@ -243,7 +249,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const previewDisplayable = Boolean(activePreviewURL && previewRuntimeActive && (previewReady || previewMaintenance));
   const projectHasMessages = (displayFeed?.localMessages?.length ?? 0) > 0 || (displayFeed?.messages?.length ?? 0) > 0;
   const onboardingDismissed = Boolean(activeProject?.id && dismissedOnboardingProjects[activeProject.id]);
-  const initialOnboardingEligible = signedIn && Boolean(activeProject) && projects.length <= 1 && !projectHasMessages && !onboardingDismissed && (isProjectStarting || activeProject?.status === 'ready');
+  const initialOnboardingEligible = signedIn && Boolean(activeProject) && currentProjects.length <= 1 && !projectHasMessages && !onboardingDismissed && (isProjectStarting || activeProject?.status === 'ready');
   const showOnboardingWizard = signedIn && Boolean(activeProject) && (manualOnboardingOpen || initialOnboardingEligible);
   const onboardingReady = Boolean(activeProject?.status === 'ready' && activePreviewURL && previewReady);
   const chatCollapsedForTutorial = viewMode === 'overlay' && showOnboardingWizard;
@@ -286,8 +292,11 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
 
   const loadProjects = () => api<ProjectListResponse>('/api/projects').then((r) => {
     const nextProjects = Array.isArray(r.projects) ? r.projects : [];
+    const nextProjectIDs = new Set(nextProjects.map((project) => project.id));
     setProjects(nextProjects);
+    setFeed((current) => current?.project?.id && nextProjectIDs.has(current.project.id) ? current : null);
     setProjectCap(typeof r.projectCap === 'number' ? r.projectCap : null);
+    setProjectsLoadedUserID(userID);
     setProjectsLoaded(true);
     setActiveID((current) => {
       if (current && nextProjects.some((project) => project.id === current)) return current;
@@ -314,6 +323,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       setActiveID('');
       setFeed(null);
       setProjectsLoaded(false);
+      setProjectsLoadedUserID('');
       setPendingAgentRuns({});
       setPendingMessagesByProject({});
       setShowProjects(false);
@@ -323,13 +333,15 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       return;
     }
     setProjectsLoaded(false);
+    setProjectsLoadedUserID('');
     void loadProjects().catch(() => {
       setProjects([]);
       setActiveID('');
+      setProjectsLoadedUserID(userID);
       setProjectsLoaded(true);
     });
     void refreshQuota();
-  }, [signedIn]);
+  }, [signedIn, me.user?.id]);
   useEffect(() => {
     localStorage.setItem(BUILDER_MODE_KEY, mode);
   }, [mode]);
@@ -1001,7 +1013,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       </a>
       {projectTitleButton('chatProjectTitle', true, true)}
       {builderChrome}
-      {showProjects && <ProjectList projects={projects} activeID={activeID} projectCap={projectCap} busy={busy} exportingID={exportingID} controllingID={controllingProjectID} onSelect={(id) => { setActiveID(id); setShowProjects(false); }} onNew={() => setConfirmNewProject(true)} onRename={renameProject} onDelete={setDeleteTarget} onExport={requestProjectExport} onControlPlayground={controlProjectPlayground} onClose={() => setShowProjects(false)} />}
+      {showProjects && <ProjectList projects={currentProjects} activeID={activeID} projectCap={projectCap} busy={busy} exportingID={exportingID} controllingID={controllingProjectID} onSelect={(id) => { setActiveID(id); setShowProjects(false); }} onNew={() => setConfirmNewProject(true)} onRename={renameProject} onDelete={setDeleteTarget} onExport={requestProjectExport} onControlPlayground={controlProjectPlayground} onClose={() => setShowProjects(false)} />}
       {showProfile && <ProfilePanel me={me} onClose={closeProfilePanel} onOpenTutorial={openOnboardingTutorial} />}
       {showHelp && <HelpPanel markdown={t('help.markdown')} onClose={() => setShowHelp(false)} />}
       {showServices && activeProject?.services && <ServicePanel services={activeProject.services} selectedName={selectedService?.name} busy={busy} onSelect={(service) => void selectService(service)} onClose={() => setShowServices(false)} />}
@@ -1121,7 +1133,11 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
           />
           <CanvasLoader title={t('builder.preview.connectingTitle')} body={connectingCanvasBody} />
         </>
-      ) : <EmptyCanvas />}
+      ) : activeProject ? (
+        <CanvasLoader title={previewTitle} body={previewBody} />
+      ) : (
+        <EmptyCanvas title={t('empty.noProjectTitle')} body={t('empty.noProjectBody')} />
+      )}
       {viewMode === 'split' && <div className={`canvasStatus ${agentWorking ? 'working' : ''}`}><span /> {canvasStatusLabel}</div>}
     </>
   );
