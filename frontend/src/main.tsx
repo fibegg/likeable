@@ -7,6 +7,7 @@ import { api } from './api';
 import { AgentNotificationRow, AppDialog, CanvasLoader, ConfirmDeleteProject, ConfirmExportProject, ConfirmNewProject, DeleteAllAccountDialog, EmptyCanvas, HelpPanel, OnboardingGallery, ProjectList, ServicePanel, UserMessageRow } from './builder_components';
 import { BASIC_CHAT_COLLAPSED_KEY, BASIC_CHAT_HEIGHT_KEY, BUILDER_MODE_KEY, COLLAPSED_CHAT_POSITION_KEY, MAX_ATTACHMENTS, SINGLE_VIEW_QUERY } from './config';
 import type { AppDialogConfig, BuilderMode, BusyPolicy, Feed, FeedRow, HourQuota, Message, Me, PendingAttachment, PreviewStatus, Project, ProjectArchiveResponse, ProjectExportResponse, ProjectListResponse, ProjectService, UserNotice } from './domain';
+import { openExternalLinkFromTap } from './external_links';
 import { feedAwaitingAgent, feedHasAssistantAfterLatestUser, feedLiveIdle, feedRows } from './feed';
 import { formatBillingDuration, formatResetCountdown } from './format';
 import { I18nProvider, resetCountdownLabels, type TranslationKey, useDocumentTitle, useI18n } from './i18n';
@@ -25,15 +26,20 @@ const PULL_REFRESH_MAX = 118;
 const PULL_REFRESH_SETTLE_DELAY_MS = 180;
 const PULL_REFRESH_TIMEOUT_MS = 3500;
 const PENDING_MESSAGE_RECONCILE_MS = 2 * 60_000;
+const MATRIX_RAIN_COLUMNS = [
+  ['10101010', '01010101', '11010110', '00101011', '10110100', '01011001', '11101010', '00110101', '10010110', '01101011'],
+  ['01011010', '10100101', '01101001', '10010110', '01010111', '11010010', '00101101', '10110101', '01001011', '11100100'],
+  ['11001010', '00110101', '10101001', '01011010', '11100101', '00101011', '10011100', '01110101', '10100110', '01011001']
+].map((lines) => `${lines.join('\n')}\n${lines.join('\n')}`);
 
 function StatusMark({ working = false }: { working?: boolean }) {
   return (
     <span className={`mark small statusMark ${working ? 'working' : ''}`}>
       {working && (
         <span className="markMatrixRain" aria-hidden="true">
-          <span>{'10101010\n01010101\n11010110\n00101011\n10110100'}</span>
-          <span>{'01011010\n10100101\n01101001\n10010110\n01010111'}</span>
-          <span>{'11001010\n00110101\n10101001\n01011010\n11100101'}</span>
+          {MATRIX_RAIN_COLUMNS.map((column, index) => (
+            <span key={index}>{column}</span>
+          ))}
         </span>
       )}
       <span className="markGlyph">L</span>
@@ -970,6 +976,9 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     ]);
   };
   const pullRefresh = usePullToRefresh(signedIn, refreshBuilder);
+  const openPreviewExternally = (event: React.MouseEvent<HTMLAnchorElement>) => {
+    openExternalLinkFromTap(event, activePreviewURL);
+  };
   const serviceSelectorButton = () => hasMultipleServices ? (
     <button
       className={`${showServices ? 'serviceSelectorButton selected' : 'serviceSelectorButton'} serviceSelectorInTitle`}
@@ -996,7 +1005,18 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
           <span className="projectIdleStop tooltip" tabIndex={0} data-tip={idleStopTooltip} aria-label={idleStopTooltip}>{idleStopCountdown}</span>
         )}
         {showIdleStop && activeProject?.status === 'ready' && activePreviewURL && (
-          <a className="projectExternalLink tooltip" href={activePreviewURL} target="_blank" rel="noreferrer" aria-label={t('builder.preview.open')} data-tip={t('builder.preview.open')}><ExternalLink size={15} /></a>
+          <a
+            className="projectExternalLink tooltip"
+            href={activePreviewURL}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={openPreviewExternally}
+            data-no-pull-refresh="true"
+            aria-label={t('builder.preview.open')}
+            data-tip={t('builder.preview.open')}
+          >
+            <ExternalLink size={15} />
+          </a>
         )}
       </span>
     </div>
@@ -1044,7 +1064,16 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
           </button>
           {modeToggle}
           {activeProject?.status === 'ready' && activePreviewURL && (
-            <a className="chromeIconButton desktopPreviewExternalLink tooltip tooltipBottom" href={activePreviewURL} target="_blank" rel="noreferrer" aria-label={t('builder.preview.open')} data-tip={t('builder.preview.open')}>
+            <a
+              className="chromeIconButton desktopPreviewExternalLink tooltip tooltipBottom"
+              href={activePreviewURL}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={openPreviewExternally}
+              data-no-pull-refresh="true"
+              aria-label={t('builder.preview.open')}
+              data-tip={t('builder.preview.open')}
+            >
               <ExternalLink size={16} />
             </a>
           )}
@@ -1503,11 +1532,17 @@ function usePullToRefresh(enabled: boolean, onRefresh: () => Promise<void> | voi
     window.addEventListener('touchmove', move, { passive: false });
     window.addEventListener('touchend', finish, { passive: true });
     window.addEventListener('touchcancel', reset, { passive: true });
+    window.addEventListener('blur', reset);
+    window.addEventListener('pagehide', clearRefreshState);
+    document.addEventListener('visibilitychange', clearRefreshState);
     return () => {
       window.removeEventListener('touchstart', start);
       window.removeEventListener('touchmove', move);
       window.removeEventListener('touchend', finish);
       window.removeEventListener('touchcancel', reset);
+      window.removeEventListener('blur', reset);
+      window.removeEventListener('pagehide', clearRefreshState);
+      document.removeEventListener('visibilitychange', clearRefreshState);
       clearResetTimer();
     };
   }, [enabled]);
@@ -1517,7 +1552,7 @@ function usePullToRefresh(enabled: boolean, onRefresh: () => Promise<void> | voi
 
 function canPullRefreshFrom(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false;
-  if (target.closest('textarea, input, select, [contenteditable="true"]')) return false;
+  if (target.closest('a, button, textarea, input, select, summary, [contenteditable="true"], [role="button"], [role="menuitem"], [role="radio"], [role="dialog"], [data-no-pull-refresh="true"]')) return false;
   if (window.scrollY > 1) return false;
 
   let node: HTMLElement | null = target;

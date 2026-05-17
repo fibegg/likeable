@@ -129,7 +129,7 @@ button, a, input, select, [role="button"] { touch-action: manipulation; }
 }
 .markMatrixRain span {
   position: absolute;
-  top: -145%;
+  top: 0;
   width: 33%;
   color: rgba(61, 255, 127, .92);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
@@ -141,7 +141,8 @@ button, a, input, select, [role="button"] { touch-action: manipulation; }
   text-align: center;
   text-shadow: 0 0 5px rgba(55, 255, 120, .9);
   white-space: pre;
-  animation: matrixFall 760ms linear infinite;
+  will-change: transform;
+  animation: matrixFall 1200ms linear infinite;
 }
 .markMatrixRain span:nth-child(1) {
   left: 0;
@@ -150,14 +151,14 @@ button, a, input, select, [role="button"] { touch-action: manipulation; }
   left: 33%;
   color: rgba(185, 255, 199, .72);
   opacity: .68;
-  animation-duration: 980ms;
-  animation-delay: -300ms;
+  animation-duration: 1520ms;
+  animation-delay: -460ms;
 }
 .markMatrixRain span:nth-child(3) {
   left: 66%;
   opacity: .78;
-  animation-duration: 860ms;
-  animation-delay: -540ms;
+  animation-duration: 1360ms;
+  animation-delay: -780ms;
 }
 .minimizedChatBar.working {
   border-color: rgba(55, 255, 120, .82);
@@ -2694,8 +2695,8 @@ html.draggingCollapsedChat * {
 }
 
 @keyframes matrixFall {
-  from { transform: translate3d(0, -18%, 0); }
-  to { transform: translate3d(0, 66%, 0); }
+  from { transform: translate3d(0, -50%, 0); }
+  to { transform: translate3d(0, 0, 0); }
 }
 
 @keyframes collapsedButtonGlow {
@@ -3796,8 +3797,13 @@ html.draggingCollapsedChat * {
     width: 100%;
     height: min(var(--basic-chat-height, var(--mobile-chat-available-height)), var(--mobile-chat-available-height));
     min-height: 0;
-    transform: none;
+    transform: translateZ(0);
     max-height: var(--mobile-chat-available-height);
+    isolation: isolate;
+    contain: layout paint;
+    background: #060c0f;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
   }
   .overlayChat:not(.collapsed):not(.minimized):focus-within {
     height: var(--mobile-chat-available-height);
@@ -3817,7 +3823,12 @@ html.draggingCollapsedChat * {
     border-width: 1px 0 0 0;
     overflow: hidden;
     backdrop-filter: none;
-    background: rgba(6, 12, 15, .92);
+    background: #060c0f;
+  }
+  .overlayChat:not(.collapsed):not(.minimized) .messages {
+    background:
+      linear-gradient(180deg, rgba(9, 17, 20, .98), rgba(5, 11, 14, .99)),
+      #060c0f;
   }
   .overlayChat:not(.collapsed):not(.minimized) .chatPane.screenOpen {
     grid-template-rows: auto auto minmax(0, 1fr);
@@ -3839,7 +3850,7 @@ html.draggingCollapsedChat * {
     padding: 9px 10px;
     border-width: 0 0 1px;
     border-radius: 0;
-    background: rgba(7, 14, 17, .46);
+    background: rgba(7, 14, 17, .96);
   }
   .overlayChat .composer {
     padding: 0;
