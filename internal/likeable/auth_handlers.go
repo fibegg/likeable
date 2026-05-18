@@ -25,6 +25,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 			"auth": map[string]any{
 				"googleConfigured": s.googleConfigured(r.Context()),
 				"devAuth":          s.config.DevAuth,
+				"devEmail":         firstNonEmpty(s.config.AdminEmail, "admin@example.com"),
 				"signupMode":       s.signupMode(cfg),
 			},
 			"billingProducts": s.billingProducts(r.Context()),

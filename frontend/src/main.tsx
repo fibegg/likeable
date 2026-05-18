@@ -66,6 +66,11 @@ function googleAuthStartPath() {
   return inAppBrowser ? '/api/auth/google/start?browser_hint=in_app' : '/api/auth/google/start';
 }
 
+function devAuthStartPath(me: Me) {
+  const email = me.auth?.devEmail?.trim() || 'admin@example.com';
+  return `/api/dev/login?email=${encodeURIComponent(email)}`;
+}
+
 function installPlatformFlags() {
   if (typeof navigator === 'undefined' || typeof document === 'undefined') return;
   const syncStandalone = () => {
@@ -160,7 +165,7 @@ function Shell({ me, nav, children }: { me: Me; nav: (to: string) => void; child
           ) : (
             <>
               <a className={!googleReady ? 'disabled' : ''} href={googleAuthHref}>{t('auth.signIn')}</a>
-              {me.auth?.devAuth && <button onClick={() => fetch('/api/dev/login?email=admin@example.com', { method: 'POST' }).then(() => location.reload())}>{t('auth.dev')}</button>}
+              {me.auth?.devAuth && <button onClick={() => fetch(devAuthStartPath(me), { method: 'POST' }).then(() => location.reload())}>{t('auth.dev')}</button>}
             </>
           )}
         </div>
@@ -1106,7 +1111,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
           {!me.user && (
             <>
               <a className={`chromeAuthLink ${!googleReady ? 'disabled' : ''}`} href={googleAuthHref}>{t('auth.signIn')}</a>
-              {me.auth?.devAuth && <button className="chromeAuthLink chromeAuthButton" onClick={() => fetch('/api/dev/login?email=admin@example.com', { method: 'POST' }).then(() => location.reload())}>{t('auth.dev')}</button>}
+              {me.auth?.devAuth && <button className="chromeAuthLink chromeAuthButton" onClick={() => fetch(devAuthStartPath(me), { method: 'POST' }).then(() => location.reload())}>{t('auth.dev')}</button>}
             </>
           )}
           <button
