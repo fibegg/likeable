@@ -71,6 +71,18 @@ function devAuthStartPath(me: Me) {
   return `/api/dev/login?email=${encodeURIComponent(email)}`;
 }
 
+function devAuthIsPrimary(me: Me, googleReady: boolean) {
+  return Boolean(me.auth?.devAuth && !googleReady);
+}
+
+async function startDevAuth(me: Me) {
+  const response = await fetch(devAuthStartPath(me), { method: 'POST' });
+  if (!response.ok) {
+    throw new Error('dev sign in failed');
+  }
+  location.reload();
+}
+
 function installPlatformFlags() {
   if (typeof navigator === 'undefined' || typeof document === 'undefined') return;
   const syncStandalone = () => {
@@ -133,6 +145,7 @@ function Shell({ me, nav, children }: { me: Me; nav: (to: string) => void; child
   const [notices, setNotices] = useState<UserNotice[]>(me.notices ?? []);
   const online = useOnlineStatus();
   const googleReady = me.auth?.googleConfigured !== false;
+  const useDevAuthPrimary = devAuthIsPrimary(me, googleReady);
   const googleAuthHref = googleAuthStartPath();
   useEffect(() => setNotices(me.notices ?? []), [me.notices]);
   const notice = notices[0];
@@ -164,8 +177,14 @@ function Shell({ me, nav, children }: { me: Me; nav: (to: string) => void; child
             </>
           ) : (
             <>
-              <a className={!googleReady ? 'disabled' : ''} href={googleAuthHref}>{t('auth.signIn')}</a>
-              {me.auth?.devAuth && <button onClick={() => fetch(devAuthStartPath(me), { method: 'POST' }).then(() => location.reload())}>{t('auth.dev')}</button>}
+              {useDevAuthPrimary ? (
+                <button onClick={() => void startDevAuth(me)}>{t('auth.signIn')}</button>
+              ) : (
+                <>
+                  <a className={!googleReady ? 'disabled' : ''} href={googleAuthHref}>{t('auth.signIn')}</a>
+                  {me.auth?.devAuth && <button onClick={() => void startDevAuth(me)}>{t('auth.dev')}</button>}
+                </>
+              )}
             </>
           )}
         </div>
@@ -232,6 +251,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const signedIn = Boolean(me.user);
   const userID = me.user?.id ?? '';
   const googleReady = me.auth?.googleConfigured !== false;
+  const useDevAuthPrimary = devAuthIsPrimary(me, googleReady);
   const googleAuthHref = googleAuthStartPath();
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeID, setActiveID] = useState<string>('');
@@ -1110,8 +1130,14 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
         <div className="chromePill actionChromePill">
           {!me.user && (
             <>
-              <a className={`chromeAuthLink ${!googleReady ? 'disabled' : ''}`} href={googleAuthHref}>{t('auth.signIn')}</a>
-              {me.auth?.devAuth && <button className="chromeAuthLink chromeAuthButton" onClick={() => fetch(devAuthStartPath(me), { method: 'POST' }).then(() => location.reload())}>{t('auth.dev')}</button>}
+              {useDevAuthPrimary ? (
+                <button className="chromeAuthLink chromeAuthButton" onClick={() => void startDevAuth(me)}>{t('auth.signIn')}</button>
+              ) : (
+                <>
+                  <a className={`chromeAuthLink ${!googleReady ? 'disabled' : ''}`} href={googleAuthHref}>{t('auth.signIn')}</a>
+                  {me.auth?.devAuth && <button className="chromeAuthLink chromeAuthButton" onClick={() => void startDevAuth(me)}>{t('auth.dev')}</button>}
+                </>
+              )}
             </>
           )}
           <button
