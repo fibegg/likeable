@@ -2299,10 +2299,21 @@ html[data-builder-mode="split"] .account {
   backdrop-filter: blur(18px);
   padding: 6px 12px;
 }
+.notificationRow.warning .notificationBubble {
+  border-color: rgba(255, 184, 97, .38);
+  background:
+    linear-gradient(90deg, rgba(255, 184, 97, .12), rgba(255, 105, 93, .06)),
+    rgba(15, 11, 7, .82);
+  color: rgba(255, 225, 188, .9);
+}
 .notificationSpinner {
   flex: 0 0 auto;
   color: rgba(174, 244, 255, .82);
   animation: loaderSpin .82s linear infinite;
+}
+.notificationWarning {
+  flex: 0 0 auto;
+  color: rgba(255, 184, 97, .96);
 }
 .notificationText {
   min-width: 0;

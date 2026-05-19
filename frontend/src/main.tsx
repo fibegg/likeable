@@ -7,7 +7,7 @@ import { api } from './api';
 import { AgentNotificationRow, AppDialog, CanvasLoader, ConfirmDeleteProject, ConfirmExportProject, ConfirmNewProject, DeleteAllAccountDialog, EmptyCanvas, HelpPanel, OnboardingGallery, ProjectList, ServicePanel, UserMessageRow } from './builder_components';
 import { BASIC_CHAT_COLLAPSED_KEY, BASIC_CHAT_HEIGHT_KEY, BUILDER_MODE_KEY, COLLAPSED_CHAT_POSITION_KEY, MAX_ATTACHMENTS, SINGLE_VIEW_QUERY } from './config';
 import type { AppDialogConfig, BuilderMode, BusyPolicy, Feed, FeedRow, HourQuota, Message, Me, PendingAttachment, PreviewStatus, Project, ProjectArchiveResponse, ProjectExportResponse, ProjectListResponse, ProjectService, UserNotice } from './domain';
-import { feedAwaitingAgent, feedHasAssistantAfterLatestUser, feedLiveIdle, feedRows } from './feed';
+import { agentResponseDelayStatus, feedAwaitingAgent, feedHasAssistantAfterLatestUser, feedLiveIdle, feedRows } from './feed';
 import { formatBillingDuration, formatResetCountdown } from './format';
 import { I18nProvider, resetCountdownLabels, type TranslationKey, useDocumentTitle, useI18n } from './i18n';
 import { installPwa } from './pwa';
@@ -314,6 +314,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const activePreviewURL = selectedService?.url ?? activeProject?.previewUrl ?? '';
   const rawRows = useMemo(() => feedRows(displayFeed, quotaNow), [displayFeed, quotaNow]);
   const rows = useMemo(() => normalizeActiveNotificationRows(rawRows), [rawRows]);
+  const agentDelayStatus = useMemo(() => agentResponseDelayStatus(displayFeed, quotaNow), [displayFeed, quotaNow]);
   const pendingAgentStartedAt = activeProject?.id ? pendingAgentRuns[activeProject.id] : undefined;
   const pendingAgentAge = typeof pendingAgentStartedAt === 'number' ? Date.now() - pendingAgentStartedAt : null;
   const localAgentRunActive = Boolean(
@@ -322,8 +323,9 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     && !feedHasAssistantAfterLatestUser(displayFeed)
     && (pendingAgentAge < LOCAL_AGENT_IDLE_GRACE_MS || !feedLiveIdle(displayFeed))
   );
-  const agentWorking = Boolean(signedIn && activeProject?.status === 'ready' && activePreviewURL && (messageSubmitting || localAgentRunActive || displayFeed?.live?.isProcessing || feedAwaitingAgent(displayFeed)));
+  const agentWorking = Boolean(signedIn && activeProject?.status === 'ready' && activePreviewURL && (messageSubmitting || localAgentRunActive || displayFeed?.live?.isProcessing || feedAwaitingAgent(displayFeed) || agentDelayStatus?.active));
   const agentWorkingLabel = messageSubmitting ? t('builder.agent.transmitting') : t('builder.agent.synthesizing');
+  const agentDelayLabel = agentDelayStatus?.phase === 'stalled' ? t('builder.agent.noActivity') : t('builder.agent.waiting');
   const lastRow = rows.at(-1);
   const lastRowSignature = lastRow ? `${lastRow.id}:${lastRow.body}` : '';
   const modeLabel = viewMode === 'overlay' ? t('builder.mode.basic') : t('builder.mode.split');
@@ -359,7 +361,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const hasActiveNotification = rows.some((row) => row.kind === 'notification' && row.active);
   const canvasLoading = projectsLoading || isProjectStarting || Boolean(activePreviewURL && previewRuntimeActive && !previewMaintenance && (!previewReady || !iframeLoaded));
   const brandWorking = agentWorking || hasActiveNotification || canvasLoading;
-  const agentActivityActive = Boolean(messageSubmitting || localAgentRunActive || displayFeed?.live?.isProcessing || feedAwaitingAgent(displayFeed) || hasActiveNotification);
+  const agentActivityActive = Boolean(messageSubmitting || localAgentRunActive || displayFeed?.live?.isProcessing || feedAwaitingAgent(displayFeed) || agentDelayStatus?.active || hasActiveNotification);
   const utilityScreenOpen = showProjects || showProfile || showHelp || showServices;
   const inputPlaceholder = !signedIn
     ? t('builder.placeholder.signIn')
@@ -1191,7 +1193,8 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
               ? <AgentNotificationRow key={row.id} body={row.body || agentWorkingLabel} active={row.active} elapsedMs={row.elapsedMs} elapsedStartedAt={row.elapsedStartedAt} />
               : <UserMessageRow key={row.id} row={row} />
             )}
-            {agentWorking && !hasActiveNotification && <AgentNotificationRow body={agentWorkingLabel} active />}
+            {agentDelayStatus && !hasActiveNotification && <AgentNotificationRow body={agentDelayLabel} active={agentDelayStatus.active} tone={agentDelayStatus.tone} />}
+            {agentWorking && !agentDelayStatus && !hasActiveNotification && <AgentNotificationRow body={agentWorkingLabel} active />}
           </div>
           {draggingFiles && <div className="dropOverlay"><Paperclip size={24} /> {t('builder.dropFiles')}</div>}
           <div className={`composer ${attachments.length > 0 ? 'hasAttachments' : ''}`}>

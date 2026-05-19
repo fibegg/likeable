@@ -1,6 +1,6 @@
 import { useEffect, useState, type MouseEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, ChevronLeft, ChevronRight, CircleHelp, Download, FileOutput, GitBranch, Loader2, MessageSquare, Minimize2, MoreHorizontal, Paperclip, Pencil, Play, Plus, RotateCcw, Sparkles, Square, Trash2, X } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, CircleAlert, CircleHelp, Download, FileOutput, GitBranch, Loader2, MessageSquare, Minimize2, MoreHorizontal, Paperclip, Pencil, Play, Plus, RotateCcw, Sparkles, Square, Trash2, X } from 'lucide-react';
 import type { AppDialogConfig, MessageAttachment, Project, ProjectService, UserFeedRow } from './domain';
 import { formatElapsedDuration, formatMessageTime } from './format';
 import { elapsedDurationLabels, statusLabel, useI18n } from './i18n';
@@ -395,7 +395,7 @@ function isPreviewableImage(contentType: string, filename: string): boolean {
   ].includes(contentType) || /\.(avif|bmp|gif|ico|jpe?g|png|svg|webp)$/.test(filename);
 }
 
-export function AgentNotificationRow({ body, active, elapsedMs, elapsedStartedAt }: { body: string; active?: boolean; elapsedMs?: number; elapsedStartedAt?: string }) {
+export function AgentNotificationRow({ body, active, elapsedMs, elapsedStartedAt, tone }: { body: string; active?: boolean; elapsedMs?: number; elapsedStartedAt?: string; tone?: 'warning' }) {
   const { t } = useI18n();
   const [liveNow, setLiveNow] = useState(Date.now());
   const text = body.trim() || (active ? t('notification.receiving') : t('notification.canvasUpdated'));
@@ -409,9 +409,9 @@ export function AgentNotificationRow({ body, active, elapsedMs, elapsedStartedAt
   const liveElapsedMs = !Number.isNaN(liveStartedAt) ? Math.max(0, liveNow - liveStartedAt) : undefined;
   const elapsed = formatElapsedDuration(liveElapsedMs ?? elapsedMs, elapsedDurationLabels(t));
   return (
-    <div className={`notificationRow ${active ? 'active' : ''}`} aria-live="polite">
+    <div className={`notificationRow ${active ? 'active' : ''} ${tone === 'warning' ? 'warning' : ''}`} aria-live="polite">
       <div className="notificationBubble">
-        {active ? <Loader2 className="notificationSpinner" size={14} /> : <Check className="notificationDone" size={14} />}
+        {active ? <Loader2 className="notificationSpinner" size={14} /> : tone === 'warning' ? <CircleAlert className="notificationWarning" size={14} /> : <Check className="notificationDone" size={14} />}
         <span className="notificationText">{text}{elapsed && <small className="notificationElapsed">{elapsed}</small>}</span>
       </div>
     </div>

@@ -4,6 +4,11 @@ import type { AgentActivity, AgentMessage, Feed, FeedRow, Message, MessageAttach
 const TURN_TIME_SLOP_MS = 5000;
 const RECENT_UNANSWERED_TURN_MS = 30 * 60_000;
 const RECENT_ACTIVITY_WORKING_MS = 15 * 60_000;
+const AGENT_WAITING_HINT_MS = 10_000;
+const AGENT_STALLED_HINT_MS = 90_000;
+const AGENT_STALE_WARNING_MAX_MS = 24 * 60 * 60_000;
+
+export type AgentResponseDelayStatus = { phase: 'waiting' | 'stalled'; active: boolean; tone?: 'warning' };
 
 export function feedRows(feed: Feed | null, now = Date.now()): FeedRow[] {
   if (!feed) return [];
@@ -233,6 +238,25 @@ export function feedAwaitingAgent(feed: Feed | null): boolean {
   }
 
   return Date.now() - latestUser < RECENT_UNANSWERED_TURN_MS;
+}
+
+export function agentResponseDelayStatus(feed: Feed | null, now = Date.now()): AgentResponseDelayStatus | null {
+  if (!feed) return null;
+  if (feed.live?.isProcessing) return null;
+  const latestUser = feedLatestUserTimestamp(feed);
+  if (latestUser == null) return null;
+  if (feedHasAssistantAfterLatestUser(feed)) return null;
+
+  const age = now - latestUser;
+  if (age < AGENT_WAITING_HINT_MS || age > AGENT_STALE_WARNING_MAX_MS) return null;
+
+  const latestActivity = latestTimestamp((feed.activity ?? []).map(agentActivityTime));
+  if (latestActivity != null && latestActivity >= latestUser - TURN_TIME_SLOP_MS && now - latestActivity < RECENT_ACTIVITY_WORKING_MS) {
+    return null;
+  }
+
+  if (age < AGENT_STALLED_HINT_MS) return { phase: 'waiting', active: true };
+  return { phase: 'stalled', active: false, tone: 'warning' };
 }
 
 export function feedLiveIdle(feed: Feed | null): boolean {
