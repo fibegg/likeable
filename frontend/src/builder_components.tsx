@@ -476,10 +476,6 @@ export function CanvasLoader({ title, body, tone }: { title: string; body: strin
 function CanvasFrameDecor({ loading }: { loading?: boolean } = {}) {
   return (
     <>
-      <div className="corner tl" />
-      <div className="corner tr" />
-      <div className="corner bl" />
-      <div className="corner br" />
       <div className="stars" />
       <div className={`canvasSignalField ${loading ? 'loading' : ''}`} aria-hidden="true">
         <span />
