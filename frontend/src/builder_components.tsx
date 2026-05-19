@@ -6,7 +6,7 @@ import { formatElapsedDuration, formatMessageTime } from './format';
 import { elapsedDurationLabels, statusLabel, useI18n } from './i18n';
 
 export function ProjectList({ projects, activeID, projectCap, busy, exportingID, controllingID, onSelect, onNew, onRename, onDelete, onExport, onControlPlayground, onClose }: { projects: Project[]; activeID: string; projectCap: number | null; busy: boolean; exportingID: string; controllingID: string; onSelect: (id: string) => void; onNew: () => void; onRename: (project: Project, title: string) => Promise<void>; onDelete: (project: Project) => void; onExport: (project: Project) => void; onControlPlayground: (project: Project, action: 'start' | 'stop' | 'restart') => Promise<void>; onClose: () => void }) {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const [editingID, setEditingID] = useState('');
   const [draftTitle, setDraftTitle] = useState('');
   const [menuID, setMenuID] = useState('');
@@ -38,6 +38,13 @@ export function ProjectList({ projects, activeID, projectCap, busy, exportingID,
   const canStartPlayground = (project: Project) => project.status === 'stopped';
   const canStopPlayground = (project: Project) => project.status === 'ready';
   const canRestartPlayground = (project: Project) => project.status === 'ready';
+  const projectRowMeta = (project: Project) => {
+    const serviceCount = project.services?.length ?? 0;
+    const updatedTime = formatMessageTime(project.updatedAt, locale);
+    return updatedTime
+      ? t('projects.rowMeta.updated', { services: serviceCount, time: updatedTime })
+      : t('projects.rowMeta.servicesOnly', { services: serviceCount });
+  };
   return (
     <div className="projectList">
       <div className="inlinePanelHeader projectPanelHeader">
@@ -71,10 +78,17 @@ export function ProjectList({ projects, activeID, projectCap, busy, exportingID,
               </form>
             ) : (
               <>
+                <span className={`projectRowMark ${project.status}`} aria-hidden="true">
+                  {(project.title.trim()[0] || 'L').toUpperCase()}
+                </span>
                 <button className="projectSelect" onClick={() => onSelect(project.id)}>
-                  <span>{project.title}</span>
-                  <em>{statusLabel(project.status, t)}</em>
+                  <span className="projectSelectTitleLine">
+                    <span>{project.title}</span>
+                    {project.id === activeID && <strong className="projectCurrentBadge">{t('service.current')}</strong>}
+                  </span>
+                  <small className="projectSelectMeta">{projectRowMeta(project)}</small>
                 </button>
+                <em className={`projectStatusChip ${project.status}`}>{statusLabel(project.status, t)}</em>
                 <div className="projectRowActions">
                   <button
                     className="projectRowIcon"
@@ -136,6 +150,10 @@ export function HelpPanel({ markdown, onClose }: { markdown: string; onClose: ()
 
 export function ServicePanel({ services, selectedName, busy, onSelect, onClose }: { services: ProjectService[]; selectedName?: string; busy: boolean; onSelect: (service: ProjectService) => void; onClose: () => void }) {
   const { t } = useI18n();
+  const serviceMeta = (service: ProjectService) => {
+    const visibility = service.visibility || (!service.authRequired ? t('service.public') : '');
+    return [service.type, visibility, service.authRequired ? t('service.authRequired') : ''].filter(Boolean).join(' · ');
+  };
   return (
     <section className="inlinePanel serviceInline">
       <div className="inlinePanelHeader">
@@ -155,7 +173,13 @@ export function ServicePanel({ services, selectedName, busy, onSelect, onClose }
             aria-checked={service.name === selectedName}
             onClick={() => onSelect(service)}
           >
-            <span>{service.name}</span>
+            <span className="serviceOptionLead">
+              <span className={`serviceOptionDot ${service.name === selectedName ? 'selected' : ''}`} aria-hidden="true" />
+              <span className="serviceOptionCopy">
+                <span>{service.name}</span>
+                <small>{serviceMeta(service)}</small>
+              </span>
+            </span>
             {service.name === selectedName && <em>{t('service.current')}</em>}
           </button>
         ))}

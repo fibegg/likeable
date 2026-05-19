@@ -4756,6 +4756,194 @@ body {
   background: rgba(212, 149, 60, .09);
 }
 
+.projectRow {
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 10px;
+  padding: 10px 12px;
+}
+
+.projectRowMark {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  border: 1px solid var(--border-default);
+  border-radius: 7px;
+  display: inline-grid;
+  place-items: center;
+  background: linear-gradient(180deg, rgba(212, 149, 60, .16), rgba(212, 149, 60, .055));
+  color: var(--amber-bright);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.projectRowMark.archived,
+.projectRowMark.deleting {
+  border-color: var(--border-hairline);
+  background: var(--bg-overlay);
+  color: var(--text-tertiary);
+}
+
+.projectSelect {
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  padding: 0;
+}
+
+.projectSelectTitleLine {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.projectSelectTitleLine > span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 13.5px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.projectCurrentBadge {
+  flex: 0 0 auto;
+  color: var(--amber-bright);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+.projectSelectMeta {
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-tertiary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: .06em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.projectRows em.projectStatusChip {
+  min-height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: var(--bg-overlay);
+  color: var(--text-secondary);
+  font-size: 9.5px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.projectRows em.projectStatusChip.ready {
+  border-color: rgba(94, 212, 168, .28);
+  background: rgba(94, 212, 168, .1);
+  color: var(--ok);
+}
+
+.projectRows em.projectStatusChip.launching,
+.projectRows em.projectStatusChip.creating,
+.projectRows em.projectStatusChip.processing {
+  border-color: rgba(232, 181, 111, .3);
+  background: rgba(232, 181, 111, .1);
+  color: var(--warn);
+}
+
+.projectRows em.projectStatusChip.archived {
+  border-color: rgba(110, 216, 232, .25);
+  background: rgba(110, 216, 232, .075);
+  color: var(--cyan-dim);
+}
+
+.projectRows em.projectStatusChip.error {
+  border-color: rgba(255, 122, 122, .28);
+  background: rgba(255, 122, 122, .08);
+  color: var(--danger);
+}
+
+.projectRow > .projectRowActions {
+  flex-wrap: nowrap;
+}
+
+.projectRow > .projectRowActions .projectRowIcon,
+.projectRow > .projectRowActions .projectDelete {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+}
+
+.serviceOptionLead {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.serviceOption .serviceOptionLead,
+.serviceOption .serviceOptionCopy,
+.serviceOption .serviceOptionDot {
+  max-width: none;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+.serviceOptionDot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border-radius: 999px;
+  background: var(--text-tertiary);
+}
+
+.serviceOptionDot.selected {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px rgba(94, 212, 168, .13);
+}
+
+.serviceOptionCopy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.serviceOption .serviceOptionCopy > span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 13.5px;
+  font-weight: 680;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.serviceOptionCopy small {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-tertiary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: .06em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
 .newProjectRow {
   border-style: dashed;
   border-color: var(--border-default);
