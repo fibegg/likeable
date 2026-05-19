@@ -1947,6 +1947,81 @@ esac
 	}
 }
 
+func TestProjectFeedPreservesUserFacingAgentLiveErrors(t *testing.T) {
+	dir := t.TempDir()
+	cliPath := filepath.Join(dir, "fibe")
+	script := `#!/bin/sh
+case "$*" in
+  *"agents messages"*)
+    echo '{"content":[]}'
+    ;;
+  *"agents activity"*)
+    echo '{"content":[]}'
+    ;;
+  *"agents live-state"*)
+    echo '{"conversationId":"conv-auth","isProcessing":true,"streamText":"Invalid API key - Fix external API key"}'
+    ;;
+  *)
+    echo "unexpected command: $*" >&2
+    exit 64
+    ;;
+esac
+`
+	if err := os.WriteFile(cliPath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url": "server.test:3000",
+		"fibe_api_key":  "test-key",
+		"fibe_cli_path": cliPath,
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	user, _ := store.UpsertUser(t.Context(), "a@example.com", "A", "")
+	if err := store.CreateSession(t.Context(), user.ID, "token-a", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{
+		ID:             "project-feed-auth-error",
+		UserID:         user.ID,
+		Title:          "Auth Error",
+		ConversationID: "conv-auth",
+		AgentID:        "agent-1",
+		PlaygroundID:   "123",
+		PreviewURL:     "http://preview.example.test",
+		Status:         "ready",
+	}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/projects/project-feed-auth-error/feed", nil)
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "token-a"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("feed returned %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Live struct {
+			StreamText string `json:"streamText"`
+		} `json:"live"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	wantLive := likeableNotificationStart + "Build agent authentication failed. Check the Fibe agent provider key, then try again." + likeableNotificationEnd
+	if body.Live.StreamText != wantLive {
+		t.Fatalf("live stream=%q, want %q", body.Live.StreamText, wantLive)
+	}
+}
+
 func TestProjectNotificationRowsUseCamelCaseAgentTimestamps(t *testing.T) {
 	firstUserAt := time.Date(2026, 5, 17, 12, 0, 0, 0, time.UTC)
 	secondUserAt := firstUserAt.Add(5 * time.Minute)

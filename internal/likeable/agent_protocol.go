@@ -42,7 +42,15 @@ func sanitizeAgentProtocolLiveState(live *fibegateway.ConversationLiveState) {
 	if live == nil || live.StreamText == "" {
 		return
 	}
-	live.StreamText = notificationProtocolOnly(live.StreamText)
+	if filtered := notificationProtocolOnly(live.StreamText); filtered != "" {
+		live.StreamText = filtered
+		return
+	}
+	if message := agentLiveStateErrorNotification(live.StreamText); message != "" {
+		live.StreamText = likeableNotificationStart + message + likeableNotificationEnd
+		return
+	}
+	live.StreamText = ""
 }
 
 func notificationProtocolOnly(value string) string {
@@ -65,4 +73,22 @@ func notificationProtocolOnly(value string) string {
 		cursor = end
 	}
 	return builder.String()
+}
+
+func agentLiveStateErrorNotification(value string) string {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	if normalized == "" {
+		return ""
+	}
+	switch {
+	case strings.Contains(normalized, "invalid api key"),
+		strings.Contains(normalized, "external api key"),
+		strings.Contains(normalized, "authentication_error"),
+		strings.Contains(normalized, "provider key"):
+		return "Build agent authentication failed. Check the Fibe agent provider key, then try again."
+	case strings.Contains(normalized, "rate limit"):
+		return "The build agent is rate limited. Try again shortly."
+	default:
+		return ""
+	}
 }
