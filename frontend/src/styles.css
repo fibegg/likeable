@@ -650,6 +650,58 @@ html[data-builder-mode="split"] .account {
 }
 .reticle::before { width: 92px; height: 1px; left: -17px; top: 28px; }
 .reticle::after { width: 1px; height: 92px; left: 28px; top: -17px; }
+.canvasSignalField {
+  position: absolute;
+  inset: 12% 9% auto auto;
+  width: min(32vw, 360px);
+  height: 150px;
+  opacity: .42;
+  pointer-events: none;
+}
+.canvasSignalField span {
+  position: absolute;
+  border: 1px solid rgba(174, 244, 255, .16);
+  border-radius: 999px;
+  background: rgba(174, 244, 255, .035);
+  box-shadow: 0 0 34px rgba(174, 244, 255, .08);
+}
+.canvasSignalField span:nth-child(1) {
+  width: 150px;
+  height: 150px;
+  right: 0;
+  top: 0;
+}
+.canvasSignalField span:nth-child(2) {
+  width: 86px;
+  height: 86px;
+  right: 112px;
+  top: 28px;
+}
+.canvasSignalField span:nth-child(3) {
+  width: 42px;
+  height: 42px;
+  right: 206px;
+  top: 54px;
+  background: rgba(213, 141, 45, .055);
+  border-color: rgba(213, 141, 45, .2);
+}
+.canvasSignalField.loading span {
+  animation: signalBreathe 2.8s ease-in-out infinite;
+}
+.canvasSignalField.loading span:nth-child(2) {
+  animation-delay: .22s;
+}
+.canvasSignalField.loading span:nth-child(3) {
+  animation-delay: .42s;
+}
+.canvasHorizon {
+  position: absolute;
+  inset: auto 9% 12% 9%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(174, 244, 255, .18), rgba(213, 141, 45, .18), transparent);
+  opacity: .72;
+  pointer-events: none;
+}
 .emptyCopy {
   position: relative;
   z-index: 1;
@@ -675,6 +727,35 @@ html[data-builder-mode="split"] .account {
 }
 .canvasLoader .emptyCopy { transform: translateY(-2vh); }
 .canvasLoader.error .emptyCopy h1 { color: #ffb2aa; }
+.loaderTelemetry {
+  position: absolute;
+  left: 50%;
+  top: calc(50% + 50px);
+  z-index: 1;
+  width: min(240px, 48vw);
+  display: grid;
+  gap: 6px;
+  transform: translateX(-50%);
+  opacity: .64;
+  pointer-events: none;
+}
+.loaderTelemetry span {
+  height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, rgba(174, 244, 255, .72), rgba(213, 141, 45, .6), transparent);
+  transform-origin: left;
+  animation: telemetrySweep 1.6s ease-in-out infinite;
+}
+.loaderTelemetry span:nth-child(2) {
+  width: 78%;
+  justify-self: center;
+  animation-delay: .18s;
+}
+.loaderTelemetry span:nth-child(3) {
+  width: 54%;
+  justify-self: center;
+  animation-delay: .34s;
+}
 .onboardingGallery {
   z-index: 2;
   place-items: center;
@@ -765,9 +846,16 @@ html[data-builder-mode="split"] .account {
     rgba(4, 10, 13, .76);
   box-shadow: 0 18px 58px rgba(0, 0, 0, .28);
   display: grid;
-  align-content: stretch;
+  grid-template-columns: minmax(0, 1fr) minmax(190px, .48fr);
+  align-items: stretch;
   gap: 8px;
   padding: 14px;
+}
+.onboardingSlideCopy {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 8px;
 }
 .onboardingSlideKicker {
   display: flex;
@@ -829,6 +917,91 @@ html[data-builder-mode="split"] .account {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 7px;
   margin-top: 2px;
+}
+.onboardingBlueprint {
+  position: relative;
+  min-height: 220px;
+  overflow: hidden;
+  border: 1px solid rgba(174, 244, 255, .13);
+  border-radius: 8px;
+  background:
+    linear-gradient(rgba(174, 244, 255, .055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(174, 244, 255, .055) 1px, transparent 1px),
+    radial-gradient(circle at 50% 42%, rgba(174, 244, 255, .11), transparent 38%),
+    rgba(2, 8, 11, .45);
+  background-size: 24px 24px, 24px 24px, auto, auto;
+}
+.blueprintNode,
+.blueprintLine,
+.blueprintPane {
+  position: absolute;
+  display: block;
+}
+.blueprintNode {
+  width: 20px;
+  height: 20px;
+  border: 1px solid rgba(174, 244, 255, .42);
+  border-radius: 999px;
+  background: rgba(174, 244, 255, .09);
+  box-shadow: 0 0 24px rgba(174, 244, 255, .14);
+}
+.blueprintNode.primary {
+  left: 50%;
+  top: 28px;
+  width: 32px;
+  height: 32px;
+  border-color: rgba(223, 154, 47, .54);
+  background: rgba(213, 141, 45, .12);
+}
+.blueprintNode.secondary {
+  left: 18%;
+  top: 52%;
+}
+.blueprintNode.tertiary {
+  right: 20%;
+  top: 62%;
+}
+.blueprintLine {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(174, 244, 255, .32), transparent);
+  transform-origin: left center;
+}
+.blueprintLine.a {
+  left: 23%;
+  top: 45%;
+  width: 46%;
+  transform: rotate(-20deg);
+}
+.blueprintLine.b {
+  left: 29%;
+  top: 63%;
+  width: 44%;
+  transform: rotate(12deg);
+}
+.blueprintLine.c {
+  left: 52%;
+  top: 40%;
+  width: 31%;
+  transform: rotate(42deg);
+}
+.blueprintPane {
+  border: 1px solid rgba(213, 141, 45, .2);
+  border-radius: 8px;
+  background: rgba(213, 141, 45, .055);
+}
+.blueprintPane.large {
+  left: 14%;
+  bottom: 18px;
+  width: 42%;
+  height: 54px;
+}
+.blueprintPane.small {
+  right: 12%;
+  bottom: 42px;
+  width: 28%;
+  height: 36px;
+  border-color: rgba(174, 244, 255, .18);
+  background: rgba(174, 244, 255, .045);
 }
 .onboardingCard {
   min-width: 0;
@@ -2830,6 +3003,17 @@ html.draggingCollapsedChat * {
   50% { transform: scale(1.06); }
 }
 
+@keyframes signalBreathe {
+  0%, 100% { opacity: .42; transform: scale(.94); }
+  50% { opacity: .9; transform: scale(1.04); }
+}
+
+@keyframes telemetrySweep {
+  0% { opacity: .18; transform: scaleX(.24); }
+  45% { opacity: .78; transform: scaleX(1); }
+  100% { opacity: .12; transform: scaleX(.36); }
+}
+
 @keyframes miniSlideIn {
   from {
     opacity: 0;
@@ -2849,7 +3033,9 @@ html.draggingCollapsedChat * {
 @media (prefers-reduced-motion: reduce) {
   .statusMark.working .markMatrixRain span,
   .statusMark.working .brandStatusDot,
-  .minimizedChatBar.working {
+  .minimizedChatBar.working,
+  .canvasSignalField.loading span,
+  .loaderTelemetry span {
     animation: none;
   }
 }
@@ -3951,8 +4137,12 @@ html.draggingCollapsedChat * {
     font-size: 9.5px;
   }
   .previewPane.chatExpanded .onboardingDeck {
+    grid-template-columns: 1fr;
     gap: 5px;
     padding: 9px;
+  }
+  .previewPane.chatExpanded .onboardingBlueprint {
+    display: none;
   }
   .previewPane.chatExpanded .onboardingDeck h2 {
     font-size: 18px;
@@ -4282,6 +4472,13 @@ html.draggingCollapsedChat * {
   }
   .onboardingIntro h1 {
     font-size: 29px;
+  }
+  .canvasSignalField,
+  .onboardingBlueprint {
+    display: none;
+  }
+  .onboardingDeck {
+    grid-template-columns: 1fr;
   }
   .onboardingCards {
     grid-template-columns: 1fr;

@@ -446,12 +446,7 @@ export function EmptyCanvas({ title, body }: { title?: string; body?: string } =
   const { t } = useI18n();
   return (
     <div className="emptyPreview">
-      <div className="corner tl" />
-      <div className="corner tr" />
-      <div className="corner bl" />
-      <div className="corner br" />
-      <div className="stars" />
-      <div className="reticle" />
+      <CanvasFrameDecor />
       <div className="emptyCopy">
         <h1>{title ?? t('empty.awaitingTitle')}</h1>
         <p>{body ?? t('empty.awaitingBody')}</p>
@@ -463,17 +458,37 @@ export function EmptyCanvas({ title, body }: { title?: string; body?: string } =
 export function CanvasLoader({ title, body, tone }: { title: string; body: string; tone?: 'error' }) {
   return (
     <div className={`emptyPreview canvasLoader ${tone === 'error' ? 'error' : ''}`}>
-      <div className="corner tl" />
-      <div className="corner tr" />
-      <div className="corner bl" />
-      <div className="corner br" />
-      <div className="stars" />
+      <CanvasFrameDecor loading />
       <div className="loaderRing" />
+      <div className="loaderTelemetry" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+      </div>
       <div className="emptyCopy">
         <h1>{title}</h1>
         <p>{body}</p>
       </div>
     </div>
+  );
+}
+
+function CanvasFrameDecor({ loading }: { loading?: boolean } = {}) {
+  return (
+    <>
+      <div className="corner tl" />
+      <div className="corner tr" />
+      <div className="corner bl" />
+      <div className="corner br" />
+      <div className="stars" />
+      <div className={`canvasSignalField ${loading ? 'loading' : ''}`} aria-hidden="true">
+        <span />
+        <span />
+        <span />
+      </div>
+      <div className="reticle" />
+      <div className="canvasHorizon" aria-hidden="true" />
+    </>
   );
 }
 
@@ -559,11 +574,7 @@ export function OnboardingGallery({ ready, onUsePrompt, onStart, onDismiss }: { 
   const nextSlide = () => setSlide((current) => (current + 1) % slides.length);
   return (
     <div className="emptyPreview onboardingGallery">
-      <div className="corner tl" />
-      <div className="corner tr" />
-      <div className="corner bl" />
-      <div className="corner br" />
-      <div className="stars" />
+      <CanvasFrameDecor loading={!ready} />
       <div className="onboardingContent">
         <button className="onboardingClose" onClick={onDismiss} aria-label={t('onboarding.close')}><X size={15} /></button>
         <div className={`onboardingStatus ${ready ? 'ready' : 'loading'}`}>
@@ -576,28 +587,40 @@ export function OnboardingGallery({ ready, onUsePrompt, onStart, onDismiss }: { 
           <p>{t('onboarding.body')}</p>
         </div>
         <div className="onboardingDeck" aria-live="polite">
-          <div className="onboardingSlideKicker">
-            {active.icon}
-            <span>{t('onboarding.slideCount', { current: slide + 1, total: slides.length })}</span>
-          </div>
-          <h2>{active.title}</h2>
-          <p>{active.body}</p>
-          <ul>
-            {active.bullets.map((bullet) => <li key={bullet}>{bullet}</li>)}
-          </ul>
-          {active.suggestions && (
-            <div className="onboardingCards" aria-label={t('onboarding.suggestions')}>
-              {examples.map((example) => (
-                <button className="onboardingCard" key={example.title} onClick={() => onUsePrompt(example.prompt)}>
-                  <Sparkles size={15} />
-                  <span>
-                    <strong>{example.title}</strong>
-                    <em>{example.body}</em>
-                  </span>
-                </button>
-              ))}
+          <div className="onboardingSlideCopy">
+            <div className="onboardingSlideKicker">
+              {active.icon}
+              <span>{t('onboarding.slideCount', { current: slide + 1, total: slides.length })}</span>
             </div>
-          )}
+            <h2>{active.title}</h2>
+            <p>{active.body}</p>
+            <ul>
+              {active.bullets.map((bullet) => <li key={bullet}>{bullet}</li>)}
+            </ul>
+            {active.suggestions && (
+              <div className="onboardingCards" aria-label={t('onboarding.suggestions')}>
+                {examples.map((example) => (
+                  <button className="onboardingCard" key={example.title} onClick={() => onUsePrompt(example.prompt)}>
+                    <Sparkles size={15} />
+                    <span>
+                      <strong>{example.title}</strong>
+                      <em>{example.body}</em>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="onboardingBlueprint" aria-hidden="true">
+            <span className="blueprintNode primary" />
+            <span className="blueprintNode secondary" />
+            <span className="blueprintNode tertiary" />
+            <span className="blueprintLine a" />
+            <span className="blueprintLine b" />
+            <span className="blueprintLine c" />
+            <span className="blueprintPane large" />
+            <span className="blueprintPane small" />
+          </div>
         </div>
         <div className="onboardingFooter">
           <div className="onboardingNav">
