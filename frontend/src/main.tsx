@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { ChevronDown, CircleHelp, CircleStop, ExternalLink, FolderOpen, Languages, LayoutPanelLeft, Loader2, LogOut, Minimize2, MessageSquare, Paperclip, Send, Settings, UserRound, X } from 'lucide-react';
+import { BookOpen, ChevronDown, CircleHelp, CircleStop, ExternalLink, FolderOpen, ImagePlus, Languages, LayoutPanelLeft, Loader2, LogOut, Minimize2, MessageSquare, Paperclip, Send, Settings, Sparkles, UserRound, X } from 'lucide-react';
 import './styles.css';
 import { Admin } from './admin';
 import { api } from './api';
@@ -387,6 +387,33 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
         : activeProject?.title
           ? projectPageTitle(activeProject.title, selectedService?.name, t)
           : t('app.title');
+  const studioState = projectArchived
+    ? 'archived'
+    : agentActivityActive
+      ? 'building'
+      : previewMaintenance
+        ? 'maintenance'
+        : activeProject?.status === 'stopped'
+          ? 'stopped'
+          : activeProject?.status === 'ready' && previewReady
+            ? 'live'
+            : isProjectStarting || canvasLoading
+              ? 'starting'
+              : activeProject?.status === 'error'
+                ? 'error'
+                : 'idle';
+  const studioNextActionLabel = agentActivityActive
+    ? t('builder.stopAgent')
+    : projectArchived
+      ? t('projects.export.title')
+      : noActiveProject
+        ? t('projects.new')
+        : t('builder.nextAction.prompt');
+  const studioNowMeta = agentActivityActive
+    ? agentWorkingLabel
+    : selectedService?.name
+      ? `${canvasStatusLabel} · ${selectedService.name}`
+      : canvasStatusLabel;
 
   useDocumentTitle(pageTitle);
 
@@ -1044,6 +1071,22 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     setShowServices(false);
     if (location.pathname.startsWith('/profile')) nav('/');
   };
+  const runStudioNextAction = () => {
+    if (agentActivityActive) {
+      void interruptAgent();
+      return;
+    }
+    if (projectArchived && activeProject) {
+      requestProjectExport(activeProject);
+      return;
+    }
+    if (noActiveProject) {
+      setConfirmNewProject(true);
+      return;
+    }
+    setBasicChatCollapsed(false);
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  };
   const refreshBuilder = async () => {
     if (!signedIn) return;
     await Promise.all([
@@ -1188,6 +1231,17 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       {showServices && activeProject?.services && <ServicePanel services={activeProject.services} selectedName={selectedService?.name} busy={busy} onSelect={(service) => void selectService(service)} onClose={() => setShowServices(false)} />}
       {!utilityScreenOpen && (
         <>
+          <div className={`studioNowStrip ${studioState}`}>
+            <div className="studioNowStatus">
+              <span className="studioStatusDot" />
+              <strong>{studioNowMeta}</strong>
+              {idleStopCountdown && !agentActivityActive && <span>{t('builder.idleStop.label', { time: idleStopCountdown })}</span>}
+            </div>
+            <span className="studioNextEyebrow">{t('builder.nextAction.eyebrow')}</span>
+            <button className={agentActivityActive ? 'studioNextAction danger' : 'studioNextAction'} type="button" onClick={runStudioNextAction}>
+              {studioNextActionLabel}
+            </button>
+          </div>
           <div className="messages" ref={messagesRef}>
             {rows.map((row) => row.kind === 'notification'
               ? <AgentNotificationRow key={row.id} body={row.body || agentWorkingLabel} active={row.active} elapsedMs={row.elapsedMs} elapsedStartedAt={row.elapsedStartedAt} />
@@ -1227,6 +1281,11 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
             <button className={`sendButton ${messageSubmitting ? 'working' : ''}`} disabled={!canSend} onClick={createOrSend}>
               {messageSubmitting ? <Loader2 className="spinIcon" size={22} /> : <Send size={22} />}
             </button>
+            <div className="composerPromptTools">
+              <button type="button" onClick={() => textareaRef.current?.focus()} disabled={composerDisabled}><Sparkles size={13} /> {t('builder.promptTools.improve')}</button>
+              <button type="button" onClick={() => fileInputRef.current?.click()} disabled={composerDisabled || attachments.length >= MAX_ATTACHMENTS}><ImagePlus size={13} /> {t('builder.promptTools.reference')}</button>
+              <button type="button" onClick={openOnboardingTutorial} disabled={!signedIn}><BookOpen size={13} /> {t('builder.promptTools.starters')}</button>
+            </div>
           </div>
         </>
       )}

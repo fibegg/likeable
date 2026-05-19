@@ -4299,3 +4299,546 @@ html.draggingCollapsedChat * {
     font-size: 16px !important;
   }
 }
+
+/* ============================================
+   LIKEABLE V2 · studio shell overrides
+   Keeps the existing React/API behavior and applies the v2 design language.
+   ============================================ */
+:root {
+  --bg-base: #06090c;
+  --bg-canvas: #050a0d;
+  --bg-vignette: #03060a;
+  --bg-surface: rgba(8, 16, 22, .94);
+  --bg-elevated: rgba(14, 27, 34, .88);
+  --bg-inset: rgba(5, 12, 16, .94);
+  --bg-overlay: rgba(18, 32, 41, .86);
+  --border-hairline: rgba(174, 245, 255, .06);
+  --border-subtle: rgba(212, 149, 60, .13);
+  --border-default: rgba(212, 149, 60, .24);
+  --border-strong: rgba(212, 149, 60, .46);
+  --text-primary: #e6edf2;
+  --text-secondary: #8d99a3;
+  --text-tertiary: #5a6770;
+  --amber-bright: #e8b56f;
+  --amber-fg: #1a1108;
+  --cyan-dim: #6ed8e8;
+  --ok: #5ed4a8;
+  --warn: #e8b56f;
+  --danger: #ff7a7a;
+  --info: #7ec8ff;
+  --bg: var(--bg-base);
+  --bg-2: var(--bg-canvas);
+  --panel: var(--bg-surface);
+  --panel-solid: #081016;
+  --line: var(--border-subtle);
+  --line-strong: var(--border-default);
+  --text: var(--text-primary);
+  --muted: var(--text-secondary);
+  --cyan: #aef5ff;
+  --amber: #d4953c;
+  --green: var(--ok);
+  --composer-bg: linear-gradient(180deg, rgba(8, 15, 20, .96), rgba(4, 8, 11, .98));
+}
+
+body {
+  background:
+    radial-gradient(120% 90% at 50% 50%, transparent 0%, transparent 58%, var(--bg-vignette) 100%),
+    radial-gradient(rgba(174, 245, 255, .11) 1px, transparent 1.4px) 0 0/24px 24px,
+    var(--bg-base);
+}
+
+.shell,
+.workspace,
+.builder {
+  background:
+    radial-gradient(120% 90% at 50% 50%, transparent 0%, transparent 62%, var(--bg-vignette) 100%),
+    radial-gradient(rgba(174, 245, 255, .08) 1px, transparent 1.4px) 0 0/24px 24px,
+    var(--bg-base);
+}
+
+.topbar {
+  padding: 0 12px;
+}
+
+.topbar nav,
+.account {
+  min-height: 40px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: rgba(8, 16, 22, .72);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .04), 0 14px 34px rgba(0, 0, 0, .28);
+  backdrop-filter: blur(18px);
+}
+
+.topbar nav button,
+.account button,
+.account a,
+.languageToggle {
+  color: var(--text-secondary);
+}
+
+.topbar nav button:hover,
+.account button:hover,
+.account a:hover,
+.languageToggle:hover {
+  color: var(--amber-bright);
+  background: rgba(212, 149, 60, .08);
+}
+
+.markMatrixRain {
+  display: none;
+}
+
+.mark {
+  border-color: var(--border-default);
+  background: linear-gradient(180deg, rgba(212, 149, 60, .18), rgba(212, 149, 60, .055));
+  color: var(--amber-bright);
+}
+
+.statusMark.working {
+  border-color: rgba(94, 212, 168, .48);
+  background: rgba(8, 24, 18, .82);
+  color: #c9ffe7;
+}
+
+.previewPane {
+  background:
+    radial-gradient(circle at 50% 110%, rgba(174, 245, 255, .08), transparent 35%),
+    var(--bg-canvas);
+}
+
+.previewContent {
+  background: transparent;
+}
+
+.previewPane iframe {
+  border-radius: 14px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, .32);
+}
+
+.overlayChat:not(.collapsed):not(.minimized) {
+  width: min(880px, calc(100vw - 48px));
+}
+
+.overlayChat .chatPane {
+  border-radius: 18px;
+  overflow: hidden;
+  border: 1px solid var(--border-default);
+  box-shadow: 0 30px 82px rgba(0, 0, 0, .58), 0 0 0 1px rgba(174, 245, 255, .035);
+}
+
+.chatPane {
+  grid-template-rows: auto auto auto auto auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    "powered"
+    "projectTitle"
+    "chrome"
+    "projects"
+    "status"
+    "messages"
+    "composer";
+  background: linear-gradient(180deg, rgba(14, 25, 31, .9), rgba(7, 13, 17, .96));
+  border-color: var(--border-default);
+  backdrop-filter: blur(22px);
+}
+
+.poweredBy {
+  min-height: 20px;
+  border-bottom-color: var(--border-hairline);
+  background: rgba(255, 255, 255, .018);
+  color: var(--text-tertiary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  letter-spacing: .14em;
+}
+
+.poweredBy span {
+  color: var(--amber-bright);
+}
+
+.basicChatChrome {
+  padding: 10px 12px;
+  border-bottom-color: var(--border-hairline);
+  background: rgba(7, 14, 18, .48);
+}
+
+.projectTitleControl {
+  border-color: var(--border-subtle);
+  background: rgba(18, 32, 41, .52);
+}
+
+.projectTitleButton,
+.projectTitleCount,
+.serviceSelectorButton,
+.chromeIconButton {
+  color: var(--text-secondary);
+}
+
+.projectTitleButton:hover,
+.projectTitleCount:hover,
+.serviceSelectorButton:hover,
+.chromeIconButton:hover,
+.chromeIconButton.selected,
+.serviceSelectorButton.selected {
+  color: var(--amber-bright);
+  border-color: var(--border-default);
+  background: rgba(212, 149, 60, .09);
+}
+
+.projectTitleMain {
+  color: var(--text-primary);
+  font-weight: 650;
+}
+
+.studioNowStrip {
+  grid-area: status;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border-hairline);
+  background: rgba(5, 12, 16, .38);
+}
+
+.studioNowStatus {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.studioNowStatus strong {
+  min-width: 0;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.studioNowStatus span:not(.studioStatusDot) {
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+.studioStatusDot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--text-tertiary);
+}
+
+.studioNowStrip.live .studioStatusDot { background: var(--ok); box-shadow: 0 0 0 3px rgba(94, 212, 168, .14); }
+.studioNowStrip.building .studioStatusDot,
+.studioNowStrip.starting .studioStatusDot { background: var(--amber-bright); animation: workPulse 1.5s ease-in-out infinite; }
+.studioNowStrip.archived .studioStatusDot { background: var(--cyan-dim); }
+.studioNowStrip.error .studioStatusDot { background: var(--danger); }
+
+.studioNextEyebrow {
+  margin-left: auto;
+  color: var(--text-tertiary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 10px;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+}
+
+.studioNextAction {
+  min-height: 28px;
+  border: 1px solid var(--border-default);
+  border-radius: 999px;
+  background: rgba(212, 149, 60, .08);
+  color: var(--amber-bright);
+  padding: 0 12px;
+  cursor: pointer;
+  font-weight: 650;
+  font-size: 12px;
+}
+
+.studioNextAction:hover {
+  background: rgba(212, 149, 60, .14);
+  border-color: var(--border-strong);
+}
+
+.studioNextAction.danger {
+  color: var(--danger);
+  border-color: rgba(255, 122, 122, .34);
+  background: rgba(255, 122, 122, .08);
+}
+
+.messages {
+  background:
+    linear-gradient(180deg, rgba(5, 11, 14, .24), rgba(5, 11, 14, .56)),
+    transparent;
+}
+
+.messageCard {
+  margin-left: auto;
+  max-width: min(78%, 680px);
+  border-color: var(--border-default);
+  background: linear-gradient(180deg, rgba(212, 149, 60, .13), rgba(212, 149, 60, .08));
+  border-radius: 14px 14px 5px 14px;
+}
+
+.messageMeta {
+  color: var(--amber-bright);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  letter-spacing: .11em;
+}
+
+.messageBody {
+  color: var(--text-primary);
+  font-size: 13.5px;
+  line-height: 1.48;
+}
+
+.notificationBubble {
+  border: 1px solid rgba(94, 212, 168, .22);
+  background: rgba(94, 212, 168, .09);
+  color: var(--text-primary);
+  box-shadow: none;
+}
+
+.notificationRow.warning .notificationBubble {
+  border-color: rgba(232, 181, 111, .3);
+  background: rgba(232, 181, 111, .1);
+}
+
+.composer {
+  padding: 10px;
+  border-top-color: var(--border-hairline);
+  background: var(--composer-bg);
+}
+
+.composer textarea {
+  border-color: var(--border-default);
+  border-radius: 14px;
+  background: var(--bg-inset);
+  color: var(--text-primary);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .035);
+  font-size: 14px;
+  font-weight: 520;
+}
+
+.composer textarea:focus {
+  border-color: rgba(232, 181, 111, .74);
+  box-shadow: 0 0 0 4px rgba(212, 149, 60, .08), inset 0 1px 0 rgba(255, 255, 255, .04);
+}
+
+.composerPromptTools {
+  grid-column: 2 / 4;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex-wrap: wrap;
+  margin-top: -2px;
+}
+
+.composerPromptTools button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 24px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  padding: 0 9px;
+  cursor: pointer;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.composerPromptTools button svg {
+  flex: 0 0 auto;
+}
+
+.composerPromptTools button:hover:not(:disabled) {
+  color: var(--amber-bright);
+  background: rgba(212, 149, 60, .08);
+}
+
+.composerPromptTools button:disabled {
+  opacity: .42;
+  cursor: default;
+}
+
+.attachButton,
+.sendButton,
+.primaryButton,
+.dangerButton,
+.ghostButton {
+  border-radius: 12px;
+}
+
+.sendButton,
+.primaryButton {
+  border-color: var(--border-default);
+  background: linear-gradient(180deg, rgba(232, 181, 111, .22), rgba(212, 149, 60, .13));
+  color: var(--amber-bright);
+}
+
+.sendButton:not(:disabled):hover,
+.primaryButton:not(:disabled):hover {
+  border-color: var(--border-strong);
+  background: linear-gradient(180deg, rgba(232, 181, 111, .32), rgba(212, 149, 60, .2));
+}
+
+.projectList,
+.inlinePanel {
+  background: linear-gradient(180deg, rgba(14, 25, 31, .9), rgba(8, 14, 18, .96));
+}
+
+.projectRow,
+.serviceOption,
+.profileCard,
+.adminCard,
+.customerRow,
+.customerDetail,
+.customerList,
+.adminProjectRow,
+.recoveryRow,
+.poolRow {
+  border-color: var(--border-subtle);
+  background: rgba(10, 20, 26, .72);
+}
+
+.projectRow.selected,
+.serviceOption.selected,
+.customerRow.selected {
+  border-color: var(--border-strong);
+  background: rgba(212, 149, 60, .09);
+}
+
+.newProjectRow {
+  border-style: dashed;
+  border-color: var(--border-default);
+  background: transparent;
+  color: var(--amber-bright);
+}
+
+.profileGrid {
+  gap: 12px;
+}
+
+.profileAvatar {
+  border-color: var(--border-strong);
+  background: linear-gradient(135deg, var(--amber-bright), var(--amber));
+  color: var(--amber-fg);
+}
+
+.profileConnected,
+.accessBadge,
+.customerBadges i {
+  border-color: var(--border-subtle);
+  background: rgba(18, 32, 41, .72);
+}
+
+.adminPanel {
+  background: transparent;
+}
+
+.panelTitleRow h2,
+.adminCardHeader h3,
+.profileArchives h3,
+.profileMailbox h3 {
+  color: var(--text-primary);
+}
+
+.configLabel input,
+.adminTextarea,
+.adminSelect,
+.dialogInput,
+.dangerConfirmInput {
+  border-color: var(--border-subtle);
+  background: var(--bg-inset);
+  color: var(--text-primary);
+}
+
+.configLabel input:focus,
+.adminTextarea:focus,
+.adminSelect:focus,
+.dialogInput:focus,
+.dangerConfirmInput:focus {
+  border-color: var(--border-strong);
+  box-shadow: 0 0 0 4px rgba(212, 149, 60, .08);
+}
+
+.modalScrim {
+  background: rgba(1, 4, 7, .68);
+  backdrop-filter: blur(18px);
+}
+
+.confirmDialog,
+.attachmentPreviewDialog {
+  border-color: var(--border-default);
+  background: linear-gradient(180deg, rgba(14, 25, 31, .98), rgba(7, 13, 17, .98));
+  box-shadow: var(--shadow-lg);
+}
+
+@media (max-width: 920px) {
+  .overlayChat:not(.collapsed):not(.minimized) .chatPane {
+    grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "powered"
+      "projectTitle"
+      "status"
+      "messages"
+      "composer";
+    border-radius: 20px 20px 0 0;
+    background: rgba(8, 16, 22, .94);
+  }
+
+  .studioNowStrip {
+    padding: 7px 12px;
+    gap: 8px;
+  }
+
+  .studioNowStatus strong {
+    max-width: 42vw;
+  }
+
+  .studioNextEyebrow {
+    display: none;
+  }
+
+  .studioNextAction {
+    min-height: 26px;
+    padding: 0 10px;
+    font-size: 11.5px;
+  }
+
+  .messageCard {
+    max-width: 92%;
+  }
+
+  .composerPromptTools {
+    grid-column: 1 / -1;
+    padding-left: 50px;
+    padding-right: 4px;
+  }
+}
+
+@media (max-width: 560px) {
+  .studioNowStatus span:not(.studioStatusDot) {
+    display: none;
+  }
+
+  .studioNowStatus strong {
+    max-width: 52vw;
+  }
+
+  .composerPromptTools {
+    padding-left: 0;
+  }
+
+  .composerPromptTools button {
+    font-size: 11px;
+    padding: 0 7px;
+  }
+}

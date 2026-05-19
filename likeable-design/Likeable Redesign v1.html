@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Likeable · Redesign v2</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="tokens.css">
+<style>
+  html, body { margin: 0; padding: 0; min-height: 100%; font-family: var(--font-sans); background: #0a0c10; }
+  body { color: #e7ebf1; }
+</style>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" src="design-canvas.jsx"></script>
+<script type="text/babel" src="components.jsx"></script>
+<script type="text/babel" src="artboards/builder-desktop.jsx"></script>
+<script type="text/babel" src="artboards/states.jsx"></script>
+<script type="text/babel" src="artboards/mobile-profile-admin.jsx"></script>
+<script type="text/babel" src="artboards/foundations.jsx"></script>
+
+<script type="text/babel">
+const { DesignCanvas, DCSection, DCArtboard } = window;
+
+// Wrap each component in a div that constrains the artboard size.
+const Frame = ({ children, light }) => (
+  <div className={`lk-app ${light ? 'is-light' : ''}`} style={{ width: '100%', height: '100%' }}>
+    {children}
+  </div>
+);
+
+function App() {
+  return (
+    <DesignCanvas>
+      <DCSection id="hero" title="Likeable v2" subtitle="Concept, rationale, and the visual system that anchors the redesign.">
+        <DCArtboard id="rationale" label="Concept & rationale" width={920} height={760}>
+          <window.Rationale />
+        </DCArtboard>
+      </DCSection>
+
+      <DCSection id="desktop" title="Desktop builder" subtitle="The studio shell — left build panel, center preview, right context drawer.">
+        <DCArtboard id="builder-default" label="01 · Builder · agent working" width={1440} height={900}>
+          <window.BuilderDesktop />
+        </DCArtboard>
+        <DCArtboard id="empty" label="02 · Empty first playground" width={1440} height={900}>
+          <window.EmptyPlayground />
+        </DCArtboard>
+        <DCArtboard id="starting" label="03 · Playground starting" width={1440} height={900}>
+          <window.PlaygroundStarting />
+        </DCArtboard>
+        <DCArtboard id="error" label="04 · Build failed + recovery" width={1440} height={900}>
+          <window.ErrorStates />
+        </DCArtboard>
+        <DCArtboard id="projects" label="05 · Project list" width={1440} height={900}>
+          <window.ProjectList />
+        </DCArtboard>
+      </DCSection>
+
+      <DCSection id="dialogs" title="Dialogs & panels" subtitle="Service map, export, system notices.">
+        <DCArtboard id="services" label="Multi-service selector" width={620} height={520}>
+          <window.MultiServicePanel />
+        </DCArtboard>
+        <DCArtboard id="export" label="Export dialog" width={760} height={780}>
+          <window.ExportDialog />
+        </DCArtboard>
+        <DCArtboard id="maintenance" label="Maintenance + archived" width={1100} height={520}>
+          <window.MaintenanceStates />
+        </DCArtboard>
+      </DCSection>
+
+      <DCSection id="mobile" title="Mobile builder" subtitle="390px width — preview first, chat sheet with snap points.">
+        <DCArtboard id="m-builder" label="Builder · preview + sheet" width={390} height={844}>
+          <window.MobileBuilder />
+        </DCArtboard>
+        <DCArtboard id="m-chat" label="Chat expanded" width={390} height={844}>
+          <window.MobileChatExpanded />
+        </DCArtboard>
+      </DCSection>
+
+      <DCSection id="profile" title="Profile" subtitle="Identity, quota, billing, archives.">
+        <DCArtboard id="profile-main" label="Profile · quota & billing" width={1440} height={900}>
+          <window.ProfileScreen />
+        </DCArtboard>
+      </DCSection>
+
+      <DCSection id="admin" title="Admin" subtitle="Priority inbox, agent pool, notices.">
+        <DCArtboard id="admin-main" label="Operations dashboard" width={1440} height={900}>
+          <window.AdminDashboard />
+        </DCArtboard>
+      </DCSection>
+
+      <DCSection id="signed-out" title="Sign-in" subtitle="Signed-out state — what happens after sign-in is explicit.">
+        <DCArtboard id="signedout" label="Signed-out" width={1440} height={820}>
+          <window.SignedOut />
+        </DCArtboard>
+      </DCSection>
+
+      <DCSection id="foundations" title="Foundations" subtitle="Tokens, components, and interaction notes.">
+        <DCArtboard id="tokens" label="Design tokens" width={1140} height={1080}>
+          <window.Tokens />
+        </DCArtboard>
+        <DCArtboard id="components" label="Component inventory" width={1140} height={1700}>
+          <window.Components />
+        </DCArtboard>
+        <DCArtboard id="interactions" label="Interaction notes — critical flows" width={1000} height={920}>
+          <window.InteractionNotes />
+        </DCArtboard>
+      </DCSection>
+    </DesignCanvas>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

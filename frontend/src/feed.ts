@@ -16,6 +16,8 @@ export function feedRows(feed: Feed | null, now = Date.now()): FeedRow[] {
   for (const msg of feed.localMessages ?? []) {
     if (msg.role !== 'user') continue;
     const normalized = normalizeLocalMessage(msg);
+    normalized.body = stripInternalLikeableMarkers(normalized.body);
+    if (!normalized.body.trim() && normalized.attachments.length === 0) continue;
     rows.push({ kind: 'user', id: msg.id, role: 'user', body: normalized.body, attachments: normalized.attachments, time: msg.createdAt });
   }
   rows.push(...notificationFeedRows(feed));
@@ -37,6 +39,25 @@ function normalizeLocalMessage(msg: Message): { body: string; attachments: Messa
     if (filename) attachments.push({ id: `legacy-${msg.id}-${attachments.length}`, filename });
   }
   return { body: msg.body.slice(0, splitIndex).trim(), attachments };
+}
+
+function stripInternalLikeableMarkers(value: string): string {
+  if (!value.includes('[[LIKEABLE')) return value;
+  let out = '';
+  let cursor = 0;
+  while (cursor < value.length) {
+    const start = value.indexOf(LIKEABLE_NOTIFICATION_START, cursor);
+    if (start === -1) {
+      const rest = value.slice(cursor).replace(/\[\[LIKEABLE_[^\]]*]]/g, '');
+      out += rest;
+      break;
+    }
+    out += value.slice(cursor, start);
+    const contentStart = start + LIKEABLE_NOTIFICATION_START.length;
+    const end = value.indexOf(LIKEABLE_NOTIFICATION_END, contentStart);
+    cursor = end === -1 ? value.length : end + LIKEABLE_NOTIFICATION_END.length;
+  }
+  return out.replace(/\n{3,}/g, '\n\n').trim();
 }
 
 function notificationFeedRows(feed: Feed): NotificationFeedRow[] {

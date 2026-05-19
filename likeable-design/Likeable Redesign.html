@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Likeable · v2 redesign</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@200;300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="tokens.css">
+<style>
+  html, body { margin: 0; padding: 0; min-height: 100%; font-family: var(--font-sans); background: #06090c; color: #e6edf2; }
+</style>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" src="design-canvas.jsx"></script>
+<script type="text/babel" src="components.jsx"></script>
+<script type="text/babel" src="artboards/builder-desktop.jsx"></script>
+<script type="text/babel" src="artboards/states.jsx"></script>
+<script type="text/babel" src="artboards/mobile-profile-admin.jsx"></script>
+<script type="text/babel" src="artboards/foundations.jsx"></script>
+
+<script type="text/babel">
+const { DesignCanvas, DCSection, DCArtboard } = window;
+
+function App() {
+  return (
+    <DesignCanvas>
+      <DCSection id="overview" title="Likeable v2 · redesign" subtitle="Cinematic studio shell — preserved DNA, fixed UX.">
+        <DCArtboard id="rationale" label="Concept & rationale" width={960} height={680}>
+          <window.Rationale />
+        </DCArtboard>
+      </DCSection>
+
+      <DCSection id="builder" title="Desktop builder" subtitle="Glass chat over a full-bleed preview — the brand identity, made readable.">
+        <DCArtboard id="b-ready" label="01 · Builder · ready (default)" width={1440} height={900}>
+          <window.BuilderReady />
+        </DCArtboard>
+        <DCArtboard id="b-building" label="02 · Agent working · timeline" width={1440} height={900}>
+          <window.BuilderBuilding />
+        </DCArtboard>
+        <DCArtboard id="b-split" label="03 · Split mode (alt layout)" width={1440} height={900}>
+          <window.BuilderSplit />
+        </DCArtboard>
+        <DCArtboard id="b-empty" label="04 · New playground · empty" width={1440} height={900}>
+          <window.BuilderEmpty />
+        </DCArtboard>
+        <DCArtboard id="b-archived" label="05 · Playground archived" width={1440} height={900}>
+          <window.BuilderArchived />
+        </DCArtboard>
+        <DCArtboard id="b-error" label="06 · Build failed + recoveries" width={1440} height={900}>
+          <window.ErrorStates />
+        </DCArtboard>
+      </DCSection>
+
+      <DCSection id="flows" title="Flows & dialogs" subtitle="Playgrounds list, service map, export, onboarding, sign-in, starting.">
+        <DCArtboard id="f-projects" label="Playgrounds (dropdown)" width={900} height={620}>
+          <window.ProjectList />
+        </DCArtboard>
+        <DCArtboard id="f-services" label="Multi-service selector" width={760} height={580}>
+          <window.ServiceSelector />
+        </DCArtboard>
+        <DCArtboard id="f-export" label="Export · ZIP / GitHub disconnected" width={780} height={780}>
+          <window.ExportDialog />
+        </DCArtboard>
+        <DCArtboard id="f-onboarding" label="Onboarding · first playground" width={1200} height={780}>
+          <window.OnboardingWizard />
+        </DCArtboard>
+        <DCArtboard id="f-signin" label="Signed-out · what happens next" width={1440} height={820}>
+          <window.SignedOut />
+        </DCArtboard>
+        <DCArtboard id="f-starting" label="Playground starting" width={1200} height={780}>
+          <window.PlaygroundStarting />
+        </DCArtboard>
+      </DCSection>
+
+      <DCSection id="mobile" title="Mobile builder" subtitle="390 × 844 — preview-first, chat bottom sheet with snap points.">
+        <DCArtboard id="m-ready" label="Builder · preview + sheet (peek)" width={390} height={844}>
+          <window.MobileBuilder />
+        </DCArtboard>
+        <DCArtboard id="m-chat" label="Chat expanded · agent working" width={390} height={844}>
+          <window.MobileChatExpanded />
+        </DCArtboard>
+      </DCSection>
+
+      <DCSection id="account" title="Profile & admin" subtitle="Quota, GitHub, support, customers, integrations.">
+        <DCArtboard id="a-profile" label="Profile · build hours, GitHub, support" width={1440} height={900}>
+          <window.ProfileScreen />
+        </DCArtboard>
+        <DCArtboard id="a-admin" label="Admin · operations dashboard" width={1440} height={900}>
+          <window.AdminDashboard />
+        </DCArtboard>
+      </DCSection>
+
+      <DCSection id="foundations" title="Foundations" subtitle="Tokens, components, interaction notes.">
+        <DCArtboard id="d-tokens" label="Design tokens" width={1140} height={1280}>
+          <window.Tokens />
+        </DCArtboard>
+        <DCArtboard id="d-components" label="Component inventory" width={1140} height={1400}>
+          <window.Components />
+        </DCArtboard>
+        <DCArtboard id="d-interactions" label="Interaction notes" width={1020} height={1080}>
+          <window.InteractionNotes />
+        </DCArtboard>
+      </DCSection>
+    </DesignCanvas>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
