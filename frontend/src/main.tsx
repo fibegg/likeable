@@ -8,8 +8,8 @@ import { AgentNotificationRow, AppDialog, CanvasLoader, ConfirmDeleteProject, Co
 import { BASIC_CHAT_COLLAPSED_KEY, BASIC_CHAT_HEIGHT_KEY, BUILDER_MODE_KEY, COLLAPSED_CHAT_POSITION_KEY, MAX_ATTACHMENTS, SINGLE_VIEW_QUERY } from './config';
 import type { AppDialogConfig, BuilderMode, BusyPolicy, Feed, FeedRow, HourQuota, Message, Me, PendingAttachment, PreviewStatus, Project, ProjectArchiveResponse, ProjectExportResponse, ProjectListResponse, ProjectService, UserNotice } from './domain';
 import { agentResponseDelayStatus, feedAwaitingAgent, feedHasAssistantAfterLatestUser, feedLiveIdle, feedRows } from './feed';
-import { formatBillingDuration, formatResetCountdown } from './format';
-import { I18nProvider, resetCountdownLabels, type TranslationKey, useDocumentTitle, useI18n } from './i18n';
+import { formatBillingDuration, formatMessageTime, formatResetCountdown } from './format';
+import { I18nProvider, resetCountdownLabels, statusLabel, type TranslationKey, useDocumentTitle, useI18n } from './i18n';
 import { installPwa } from './pwa';
 import { ProfilePanel } from './profile_panel';
 import { clampBasicChatHeight, currentViewportHeight, currentViewportWidth, defaultBasicChatHeight, installViewportCssVars, singleViewScreen } from './viewport';
@@ -247,7 +247,7 @@ function useOnlineStatus() {
 }
 
 function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void; me: Me; profileRoute?: boolean }) {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const signedIn = Boolean(me.user);
   const userID = me.user?.id ?? '';
   const googleReady = me.auth?.googleConfigured !== false;
@@ -333,6 +333,12 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const projectCapLabel = projectCap == null ? `${quotaProjectCount}` : `${quotaProjectCount}/${projectCap}`;
   const selectedServiceLabel = selectedService?.name ?? '--';
   const hasMultipleServices = (activeProject?.services?.length ?? 0) > 1;
+  const projectUpdatedTime = activeProject?.updatedAt ? formatMessageTime(activeProject.updatedAt, locale) : '';
+  const projectChromeMeta = activeProject
+    ? projectUpdatedTime
+      ? t('builder.projectMeta.updated', { status: statusLabel(activeProject.status, t), time: projectUpdatedTime })
+      : statusLabel(activeProject.status, t)
+    : '';
   const hourQuotaLabel = hourQuota ? `${formatBillingDuration(hourQuota.remainingMs, resetCountdownLabels(t))}/${formatBillingDuration(hourQuota.limitMs, resetCountdownLabels(t))}` : '';
   const hourQuotaTooltip = hourQuota ? t('builder.hourQuota.tooltip', { paid: formatBillingDuration(hourQuota.paidRemainingMs ?? 0, resetCountdownLabels(t)), reset: formatResetCountdown(hourQuota.resetsAt, quotaNow, resetCountdownLabels(t)) }) : '';
   const githubConnected = Boolean(me.githubConnected);
@@ -1110,14 +1116,18 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       aria-label={t('service.selector', { name: selectedService?.name ?? selectedServiceLabel })}
       aria-expanded={showServices}
     >
-      <span>{selectedServiceLabel}</span>
+      <span className="serviceSelectorDot" aria-hidden="true" />
+      <span className="serviceSelectorName">{selectedServiceLabel}</span>
       <ChevronDown size={13} />
     </button>
   ) : null;
   const projectTitleButton = (slotClass: string, showIdleStop = false, showServiceSelector = false) => (
     <div className={`projectTitleControl ${slotClass}`}>
       <button className="projectTitleButton tooltip tooltipBottom" onClick={openProjectsPanel} disabled={!signedIn} aria-label={t('projects.title')} data-tip={signedIn ? t('builder.projects.tooltip') : t('auth.signInToCreateProjects')}>
-        <span className="projectTitleMain">{activeProject?.title ?? (signedIn ? t('builder.project.new') : t('auth.signInToBuild'))}</span>
+        <span className="projectTitleText">
+          <span className="projectTitleMain">{activeProject?.title ?? (signedIn ? t('builder.project.new') : t('auth.signInToBuild'))}</span>
+          {projectChromeMeta && <span className="projectTitleSub">{projectChromeMeta}</span>}
+        </span>
       </button>
       {showServiceSelector && serviceSelectorButton()}
       <span className="projectTitleMeta">

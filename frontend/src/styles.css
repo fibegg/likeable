@@ -4489,6 +4489,47 @@ body {
   font-weight: 650;
 }
 
+.projectTitleText {
+  min-width: 0;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.projectTitleSub {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-tertiary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 9.5px;
+  font-weight: 650;
+  letter-spacing: .08em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.serviceSelectorButton .serviceSelectorDot {
+  width: 6px;
+  height: 6px;
+  min-width: 6px;
+  max-width: none;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--ok);
+  box-shadow: 0 0 0 3px rgba(94, 212, 168, .12);
+  overflow: visible;
+}
+
+.serviceSelectorButton .serviceSelectorName {
+  min-width: 0;
+  max-width: min(20vw, 148px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .studioNowStrip {
   grid-area: status;
   display: flex;
@@ -4821,6 +4862,10 @@ body {
     grid-column: 1 / -1;
     padding-left: 50px;
     padding-right: 4px;
+  }
+
+  .projectTitleSub {
+    display: none;
   }
 }
 
