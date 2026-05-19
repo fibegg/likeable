@@ -5597,6 +5597,7 @@ body {
 }
 
 .modalScrim {
+  z-index: 90;
   background: rgba(1, 4, 7, .68);
   backdrop-filter: blur(18px);
 }
