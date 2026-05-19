@@ -5,7 +5,7 @@ import { api } from './api';
 import { AppDialog, Metric } from './builder_components';
 import { ADMIN_CONFIG_SECTIONS } from './config';
 import type { AdminConfigEntry, AdminConfigResponse, AdminProjectSummary, AdminRecoveryResponse, AdminUserDetail, AdminUserSummary, AdminUsersResponse, AgentAssignmentSummary, AgentPoolOption, AgentPoolStat, AppDialogConfig, PoolRow } from './domain';
-import { formatBillingDuration, formatMessageTime, formatShortDate } from './format';
+import { formatBillingDuration, formatMessageTime, formatShortDate, userInitials } from './format';
 import { resetCountdownLabels, statusLabel, TranslationKey, useDocumentTitle, useI18n } from './i18n';
 
 function AdminCustomersPanel() {
@@ -80,6 +80,9 @@ function AdminCustomersPanel() {
     if (summary.paidHourBalanceMs < 0) return `${workDuration(summary.paidHourBalanceMs)} ${t('common.debt')}`;
     return summary.paidTotalCents > 0 ? t('common.paid') : t('common.unpaid');
   };
+  const restrictedUsers = users.filter((summary) => summary.user.accessStatus === 'restricted').length;
+  const githubMissingUsers = users.filter((summary) => !summary.githubConnected).length;
+  const paidUsers = users.filter((summary) => summary.paidTotalCents > 0 || summary.paidHourBalanceMs > 0).length;
 
   useEffect(() => {
     const container = noticeListRef.current;
@@ -206,6 +209,23 @@ function AdminCustomersPanel() {
         <h3>{t('admin.customers.title')}</h3>
         <p>{t('admin.customers.body')}</p>
       </div>
+      <div className="adminOpsGrid">
+        <div>
+          <span>{t('admin.ops.customers')}</span>
+          <strong>{total}</strong>
+          <em>{t('admin.ops.pageLoaded', { count: users.length })}</em>
+        </div>
+        <div>
+          <span>{t('admin.ops.restricted')}</span>
+          <strong>{restrictedUsers}</strong>
+          <em>{t('admin.ops.activeVisible', { count: Math.max(0, users.length - restrictedUsers) })}</em>
+        </div>
+        <div>
+          <span>{t('admin.ops.githubMissing')}</span>
+          <strong>{githubMissingUsers}</strong>
+          <em>{t('admin.ops.paidVisible', { count: paidUsers })}</em>
+        </div>
+      </div>
       <div className="customerFilters">
         <label className="configLabel">
           <span>{t('admin.search')}</span>
@@ -252,7 +272,8 @@ function AdminCustomersPanel() {
         <div className="customerList" aria-busy={loading}>
           {users.map((summary) => (
             <button className={`customerRow ${selectedUserID === summary.user.id ? 'selected' : ''} ${summary.user.accessStatus === 'restricted' ? 'restricted' : ''}`} key={summary.user.id} onClick={() => void loadDetail(summary.user.id)}>
-              <span>
+              <span className="customerAvatar" aria-hidden="true">{userInitials(summary.user)}</span>
+              <span className="customerIdentity">
                 <strong>{summary.user.email}</strong>
                 <em>{summary.user.name || summary.user.id}</em>
               </span>

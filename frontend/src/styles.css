@@ -3120,16 +3120,22 @@ html.draggingCollapsedChat * {
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
+  width: 100%;
   max-width: 1180px;
+  min-width: 0;
 }
 .panelTitleRow h2 { margin: 0; }
 .adminStack {
   display: grid;
   gap: 14px;
+  width: 100%;
   max-width: 1180px;
+  min-width: 0;
   margin: 18px 0;
 }
 .adminCard {
+  width: 100%;
+  max-width: 100%;
   min-width: 0;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -3213,6 +3219,8 @@ html.draggingCollapsedChat * {
 .poolRow input,
 .adminTextarea,
 .adminSelect {
+  min-width: 0;
+  width: 100%;
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 11px;
@@ -3233,6 +3241,50 @@ html.draggingCollapsedChat * {
   grid-template-columns: minmax(220px, 1.4fr) repeat(4, minmax(128px, .7fr));
   gap: 10px;
   margin-bottom: 12px;
+}
+.adminOpsGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.adminOpsGrid > div {
+  min-width: 0;
+  max-width: 100%;
+  border: 1px solid rgba(212, 149, 60, .14);
+  border-radius: 9px;
+  background:
+    radial-gradient(circle at 90% 10%, rgba(174, 245, 255, .045), transparent 38%),
+    rgba(10, 20, 26, .62);
+  padding: 11px 12px;
+}
+.adminOpsGrid span,
+.adminOpsGrid em {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-tertiary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 9.5px;
+  font-style: normal;
+  font-weight: 750;
+  letter-spacing: .08em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.adminOpsGrid strong {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  font-size: 26px;
+  font-weight: 280;
+  letter-spacing: 0;
+  line-height: 1;
+}
+.adminOpsGrid em {
+  display: block;
+  margin-top: 5px;
 }
 .customersLayout {
   display: grid;
@@ -3256,6 +3308,7 @@ html.draggingCollapsedChat * {
   overflow: auto;
 }
 .customerRow {
+  width: 100%;
   min-width: 0;
   border: 1px solid rgba(199, 137, 45, .2);
   border-radius: 8px;
@@ -3263,7 +3316,7 @@ html.draggingCollapsedChat * {
   color: var(--text);
   cursor: pointer;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 10px;
   padding: 9px 10px;
@@ -3276,7 +3329,20 @@ html.draggingCollapsedChat * {
 .customerRow.restricted {
   border-color: rgba(255, 105, 93, .34);
 }
-.customerRow span:first-child,
+.customerAvatar {
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--border-default);
+  border-radius: 999px;
+  display: inline-grid;
+  place-items: center;
+  background: linear-gradient(135deg, var(--amber-bright), var(--amber));
+  color: var(--amber-fg);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  font-weight: 850;
+}
+.customerIdentity,
 .adminProjectRow span,
 .customerDetailHeader > div {
   min-width: 0;
@@ -3306,6 +3372,7 @@ html.draggingCollapsedChat * {
   white-space: nowrap;
 }
 .customerStats {
+  min-width: 0;
   display: grid;
   justify-items: end;
   gap: 2px;
@@ -3318,6 +3385,7 @@ html.draggingCollapsedChat * {
   font-size: 11px;
 }
 .customerBadges {
+  min-width: 0;
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
@@ -4084,8 +4152,20 @@ html.draggingCollapsedChat * {
   .poolRow {
     grid-template-columns: 1fr;
   }
+  .adminPanel {
+    padding-right: max(14px, env(safe-area-inset-right));
+    padding-left: max(14px, env(safe-area-inset-left));
+  }
+  .panelTitleRow,
+  .adminStack,
+  .adminCard,
+  .customerList,
+  .customerDetail {
+    max-width: 100%;
+  }
   .customerFilters,
-  .customersLayout {
+  .customersLayout,
+  .adminOpsGrid {
     grid-template-columns: 1fr;
   }
   .customerMetricGrid {
@@ -4124,7 +4204,11 @@ html.draggingCollapsedChat * {
     gap: 0;
   }
   .customerRow {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+  }
+  .customerAvatar {
+    align-self: start;
   }
   .adminProjectRow {
     grid-template-columns: minmax(0, 1fr);
@@ -4135,6 +4219,8 @@ html.draggingCollapsedChat * {
   }
   .customerStats,
   .customerBadges {
+    grid-column: 1 / -1;
+    max-width: 100%;
     justify-items: start;
     justify-content: flex-start;
   }
