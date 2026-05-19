@@ -420,6 +420,11 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     : selectedService?.name
       ? `${canvasStatusLabel} · ${selectedService.name}`
       : canvasStatusLabel;
+  const composerModeHint = agentActivityActive
+    ? busyPolicy === 'queue'
+      ? t('builder.composerHint.agentQueue')
+      : t('builder.composerHint.agentSteer')
+    : t('builder.composerHint.ready');
 
   useDocumentTitle(pageTitle);
 
@@ -1295,6 +1300,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
               <button type="button" onClick={() => textareaRef.current?.focus()} disabled={composerDisabled}><Sparkles size={13} /> {t('builder.promptTools.improve')}</button>
               <button type="button" onClick={() => fileInputRef.current?.click()} disabled={composerDisabled || attachments.length >= MAX_ATTACHMENTS}><ImagePlus size={13} /> {t('builder.promptTools.reference')}</button>
               <button type="button" onClick={openOnboardingTutorial} disabled={!signedIn}><BookOpen size={13} /> {t('builder.promptTools.starters')}</button>
+              <span className={`composerModeHint ${agentActivityActive ? 'active' : ''}`} aria-live="polite">{composerModeHint}</span>
             </div>
           </div>
         </>

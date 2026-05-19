@@ -5013,15 +5013,30 @@ body {
 }
 
 .composer {
+  gap: 8px;
+  margin: 10px;
   padding: 10px;
-  border-top-color: var(--border-hairline);
-  background: var(--composer-bg);
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  background:
+    linear-gradient(180deg, rgba(8, 18, 24, .94), rgba(4, 9, 12, .98));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .035),
+    0 14px 34px rgba(0, 0, 0, .2);
+}
+
+.overlayChat .composer,
+.chatPane .composer {
+  border-radius: 16px;
 }
 
 .composer textarea {
-  border-color: var(--border-default);
+  min-height: 48px;
+  border-color: rgba(174, 245, 255, .08);
   border-radius: 14px;
-  background: var(--bg-inset);
+  background:
+    radial-gradient(circle at 100% 50%, rgba(174, 245, 255, .035), transparent 32%),
+    rgba(4, 10, 13, .9);
   color: var(--text-primary);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, .035);
   font-size: 14px;
@@ -5070,6 +5085,45 @@ body {
 .composerPromptTools button:disabled {
   opacity: .42;
   cursor: default;
+}
+
+.composerModeHint {
+  margin-left: auto;
+  min-height: 24px;
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  overflow: hidden;
+  color: var(--text-tertiary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: .08em;
+  line-height: 1;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.composerModeHint.active {
+  border: 1px solid rgba(232, 181, 111, .24);
+  border-radius: 999px;
+  background: rgba(232, 181, 111, .08);
+  color: var(--amber-bright);
+  padding: 0 9px;
+}
+
+.composer .attachButton {
+  border-color: var(--border-subtle);
+  background: rgba(18, 32, 41, .62);
+  color: var(--text-secondary);
+}
+
+.composer .attachButton:hover {
+  border-color: var(--border-default);
+  color: var(--amber-bright);
+  background: rgba(212, 149, 60, .08);
 }
 
 .attachButton,
@@ -5413,6 +5467,10 @@ body {
     grid-column: 1 / -1;
     padding-left: 50px;
     padding-right: 4px;
+  }
+
+  .composerModeHint {
+    display: none;
   }
 
   .projectTitleSub {
