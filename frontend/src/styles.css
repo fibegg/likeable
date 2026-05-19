@@ -5234,34 +5234,63 @@ body {
   grid-column: 2 / 4;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   min-width: 0;
   flex-wrap: wrap;
-  margin-top: -2px;
+  margin-top: 0;
+  padding: 4px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 14px;
+  background:
+    linear-gradient(90deg, rgba(18, 32, 41, .58), rgba(7, 14, 18, .46)),
+    rgba(4, 10, 13, .5);
 }
 
 .composerPromptTools button {
+  min-width: 0;
+  max-width: 100%;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  min-height: 24px;
-  border: 0;
-  border-radius: 999px;
+  justify-content: center;
+  gap: 6px;
+  min-height: 28px;
+  border: 1px solid transparent;
+  border-radius: 10px;
   background: transparent;
   color: var(--text-secondary);
-  padding: 0 9px;
+  padding: 0 10px;
   cursor: pointer;
-  font-size: 11.5px;
-  font-weight: 600;
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 680;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .composerPromptTools button svg {
   flex: 0 0 auto;
+  color: var(--text-tertiary);
 }
 
-.composerPromptTools button:hover:not(:disabled) {
+.composerToolLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composerPromptTools button:hover:not(:disabled),
+.composerPromptTools button:focus-visible:not(:disabled) {
+  border-color: var(--border-default);
   color: var(--amber-bright);
-  background: rgba(212, 149, 60, .08);
+  background: rgba(212, 149, 60, .1);
+  outline: none;
+}
+
+.composerPromptTools button:hover:not(:disabled) svg,
+.composerPromptTools button:focus-visible:not(:disabled) svg {
+  color: var(--amber-bright);
 }
 
 .composerPromptTools button:disabled {
@@ -5271,8 +5300,10 @@ body {
 
 .composerModeHint {
   margin-left: auto;
-  min-height: 24px;
+  min-height: 28px;
   max-width: 100%;
+  border: 1px solid transparent;
+  border-radius: 10px;
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
@@ -5283,17 +5314,16 @@ body {
   font-weight: 750;
   letter-spacing: .08em;
   line-height: 1;
+  padding: 0 8px;
   text-overflow: ellipsis;
   text-transform: uppercase;
   white-space: nowrap;
 }
 
 .composerModeHint.active {
-  border: 1px solid rgba(232, 181, 111, .24);
-  border-radius: 999px;
+  border-color: rgba(232, 181, 111, .24);
   background: rgba(232, 181, 111, .08);
   color: var(--amber-bright);
-  padding: 0 9px;
 }
 
 .composer .attachButton {
@@ -6003,8 +6033,7 @@ body {
 
   .composerPromptTools {
     grid-column: 1 / -1;
-    padding-left: 50px;
-    padding-right: 4px;
+    padding: 4px;
   }
 
   .composerModeHint {
@@ -6026,11 +6055,36 @@ body {
   }
 
   .composerPromptTools {
-    padding-left: 0;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 4px;
   }
 
   .composerPromptTools button {
-    font-size: 11px;
-    padding: 0 7px;
+    min-height: 30px;
+    gap: 4px;
+    padding: 0 6px;
+    font-size: 10.5px;
+  }
+
+  .composerPromptTools button svg {
+    width: 12px;
+    height: 12px;
+  }
+}
+
+@media (max-width: 420px) {
+  .composerPromptTools button {
+    min-height: 32px;
+    padding: 0;
+  }
+
+  .composerToolLabel {
+    display: none;
+  }
+
+  .composerPromptTools button svg {
+    width: 15px;
+    height: 15px;
   }
 }

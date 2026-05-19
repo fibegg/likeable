@@ -1299,9 +1299,9 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
               {messageSubmitting ? <Loader2 className="spinIcon" size={22} /> : <Send size={22} />}
             </button>
             <div className="composerPromptTools">
-              <button type="button" onClick={() => textareaRef.current?.focus()} disabled={composerDisabled}><Sparkles size={13} /> {t('builder.promptTools.improve')}</button>
-              <button type="button" onClick={() => fileInputRef.current?.click()} disabled={composerDisabled || attachments.length >= MAX_ATTACHMENTS}><ImagePlus size={13} /> {t('builder.promptTools.reference')}</button>
-              <button type="button" onClick={openOnboardingTutorial} disabled={!signedIn}><BookOpen size={13} /> {t('builder.promptTools.starters')}</button>
+              <button type="button" onClick={() => textareaRef.current?.focus()} disabled={composerDisabled} aria-label={t('builder.promptTools.improve')} title={t('builder.promptTools.improve')}><Sparkles size={13} /> <span className="composerToolLabel">{t('builder.promptTools.improve')}</span></button>
+              <button type="button" onClick={() => fileInputRef.current?.click()} disabled={composerDisabled || attachments.length >= MAX_ATTACHMENTS} aria-label={t('builder.promptTools.reference')} title={t('builder.promptTools.reference')}><ImagePlus size={13} /> <span className="composerToolLabel">{t('builder.promptTools.reference')}</span></button>
+              <button type="button" onClick={openOnboardingTutorial} disabled={!signedIn} aria-label={t('builder.promptTools.starters')} title={t('builder.promptTools.starters')}><BookOpen size={13} /> <span className="composerToolLabel">{t('builder.promptTools.starters')}</span></button>
               <span className={`composerModeHint ${agentActivityActive ? 'active' : ''}`} aria-live="polite">{composerModeHint}</span>
             </div>
           </div>
