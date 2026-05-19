@@ -123,6 +123,8 @@ export function ProfilePanel({ me, onClose, onOpenTutorial }: { me: Me; onClose:
   const limitHours = formatBillingDuration(quota?.limitMs ?? 0, resetCountdownLabels(t));
   const paidHours = formatBillingDuration(quota?.paidRemainingMs ?? 0, resetCountdownLabels(t));
   const lifetimeHours = formatBillingDuration(quota?.lifetimeUsedMs ?? 0, resetCountdownLabels(t));
+  const quotaUsedPercent = quota?.limitMs ? Math.min(100, Math.max(0, ((quota.usedMs ?? 0) / quota.limitMs) * 100)) : 0;
+  const projectSlotPercent = projectQuota?.limit ? Math.min(100, Math.max(0, (projectQuota.used / projectQuota.limit) * 100)) : 0;
   return (
     <section className="inlinePanel profileInline">
       <div className="inlinePanelHeader">
@@ -162,10 +164,15 @@ export function ProfilePanel({ me, onClose, onOpenTutorial }: { me: Me; onClose:
             <BookOpen size={16} /> {t('profile.tutorialOpen')}
           </button>
         </div>
-        <div className="profileCard profileActionCard">
+        <div className="profileCard profileActionCard profileHoursCard">
           <div>
             <span className="profileLabel">{t('profile.hours')}</span>
             <strong>{quota ? t('profile.freeInWindow', { remaining: remainingHours, limit: limitHours, hours: quotaWindowHours }) : t('profile.freeQuota')}</strong>
+            <div className="profileQuotaReadout">
+              <span>{remainingHours}</span>
+              <small>{t('profile.quotaReadout.limit', { limit: limitHours })}</small>
+            </div>
+            <div className="profileMeter" aria-hidden="true"><span style={{ width: `${quotaUsedPercent}%` }} /></div>
             <em>{t('profile.quotaDetail', { paid: paidHours, reset: quotaResetLabel, lifetime: lifetimeHours })}</em>
           </div>
           {availableHourPacks.length > 0 && (
@@ -177,11 +184,13 @@ export function ProfilePanel({ me, onClose, onOpenTutorial }: { me: Me; onClose:
               ))}
             </div>
           )}
+          {availableHourPacks.length === 0 && <span className="profileMutedBadge">{t('profile.paidPacksUnavailable')}</span>}
         </div>
-        <div className="profileCard profileActionCard">
+        <div className="profileCard profileActionCard profileSlotsCard">
           <div>
             <span className="profileLabel">{t('profile.projects')}</span>
             <strong>{projectQuota ? t('profile.projectSlots', { used: projectQuota.used, limit: projectQuota.limit }) : t('profile.projectQuota')}</strong>
+            {projectQuota && <div className="profileMeter compact" aria-hidden="true"><span style={{ width: `${projectSlotPercent}%` }} /></div>}
             <em>{t('profile.projectSlotDetail', { paid: projectQuota?.paidSlots ?? 0, reset: projectQuota?.nextExpiresAt ? ` · ${t('common.nextReset', { date: formatShortDate(projectQuota.nextExpiresAt, locale) })}` : '' })}</em>
           </div>
           {projectQuotaPurchasable && (
@@ -189,6 +198,7 @@ export function ProfilePanel({ me, onClose, onOpenTutorial }: { me: Me; onClose:
               {busyPack === -1 ? <Loader2 size={16} className="spin" /> : <FolderOpen size={16} />} {t('profile.addSlot')}
             </button>
           )}
+          {!projectQuotaPurchasable && <span className="profileMutedBadge">{t('profile.projectSlotsUnavailable')}</span>}
         </div>
         <div className="profileCard profileActionCard">
           <div>

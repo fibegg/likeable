@@ -1993,6 +1993,86 @@ html[data-builder-mode="split"] .account {
 .packButtons .primaryButton {
   min-width: 74px;
 }
+
+.profileHoursCard,
+.profileSlotsCard {
+  align-items: stretch;
+}
+
+.profileHoursCard > div,
+.profileSlotsCard > div {
+  gap: 7px;
+}
+
+.profileQuotaReadout {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.profileQuotaReadout span {
+  color: var(--amber-bright);
+  font-variant-numeric: tabular-nums;
+  font-size: 30px;
+  font-weight: 260;
+  letter-spacing: 0;
+  line-height: 1;
+}
+
+.profileQuotaReadout small {
+  color: var(--text-tertiary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.profileMeter {
+  width: min(340px, 100%);
+  height: 7px;
+  overflow: hidden;
+  border: 1px solid rgba(212, 149, 60, .16);
+  border-radius: 999px;
+  background: rgba(5, 12, 16, .86);
+}
+
+.profileMeter.compact {
+  height: 6px;
+}
+
+.profileMeter span {
+  display: block;
+  height: 100%;
+  min-width: 6px;
+  max-width: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--amber), var(--amber-bright));
+  box-shadow: 0 0 18px rgba(212, 149, 60, .24);
+}
+
+.profileSlotsCard .profileMeter span {
+  background: linear-gradient(90deg, var(--cyan-dim), var(--ok));
+  box-shadow: 0 0 18px rgba(94, 212, 168, .18);
+}
+
+.profileMutedBadge {
+  flex: 0 0 auto;
+  align-self: center;
+  border: 1px dashed var(--border-subtle);
+  border-radius: 999px;
+  background: rgba(18, 32, 41, .48);
+  color: var(--text-tertiary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 9.5px;
+  font-weight: 750;
+  letter-spacing: .08em;
+  padding: 7px 9px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
 .profileArchives {
   display: grid;
   gap: 10px;
