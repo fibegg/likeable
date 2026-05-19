@@ -3211,30 +3211,42 @@ html.draggingCollapsedChat * {
 .attachmentPreviewScrim {
   z-index: 82;
   background:
-    radial-gradient(circle at 50% 45%, rgba(174, 244, 255, .08), transparent 34%),
-    rgba(0, 0, 0, .68);
+    radial-gradient(circle at 50% 42%, rgba(174, 245, 255, .1), transparent 34%),
+    radial-gradient(circle at 76% 22%, rgba(212, 149, 60, .12), transparent 28%),
+    rgba(1, 4, 7, .74);
 }
 .attachmentPreviewDialog {
   position: relative;
-  width: min(980px, calc(100vw - 32px));
-  max-height: min(860px, calc(100vh - 32px));
+  width: min(1040px, calc(100vw - 32px));
+  max-height: min(880px, calc(100vh - 32px));
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  border: 1px solid rgba(174, 244, 255, .22);
-  border-radius: 10px;
+  border: 1px solid var(--border-default);
+  border-radius: 18px;
   background:
-    radial-gradient(circle at 82% 22%, rgba(223, 154, 47, .08), transparent 40%),
-    rgba(4, 10, 12, .98);
-  box-shadow: 0 32px 110px rgba(0, 0, 0, .62);
-  padding: 18px;
+    radial-gradient(circle at 82% 18%, rgba(174, 245, 255, .055), transparent 36%),
+    linear-gradient(180deg, rgba(14, 25, 31, .98), rgba(5, 11, 14, .985));
+  box-shadow:
+    0 34px 120px rgba(0, 0, 0, .68),
+    inset 0 1px 0 rgba(255, 255, 255, .035);
+  overflow: hidden;
+  padding: 0;
+}
+.attachmentPreviewDialog .dialogClose {
+  right: 14px;
+  top: 14px;
+  border-color: var(--border-subtle);
+  background: rgba(5, 12, 16, .72);
 }
 .attachmentPreviewHeader {
   min-width: 0;
-  padding: 0 42px 14px 0;
+  border-bottom: 1px solid var(--border-hairline);
+  background: rgba(7, 14, 18, .54);
+  padding: 16px 58px 15px 18px;
 }
 .attachmentPreviewHeader h2 {
   margin: 6px 0 0;
-  color: var(--text);
+  color: var(--text-primary);
   font-size: 18px;
   font-weight: 650;
   line-height: 1.25;
@@ -3242,17 +3254,21 @@ html.draggingCollapsedChat * {
 }
 .attachmentPreviewBody {
   min-height: min(62vh, 620px);
-  border: 1px solid rgba(132, 147, 154, .22);
-  border-radius: 8px;
+  margin: 14px;
+  border: 1px solid rgba(174, 245, 255, .09);
+  border-radius: 14px;
   display: grid;
   place-items: center;
   overflow: hidden;
-  background: rgba(2, 7, 9, .78);
+  background:
+    radial-gradient(rgba(174, 245, 255, .075) 1px, transparent 1.4px) 0 0/22px 22px,
+    rgba(2, 7, 9, .78);
 }
 .attachmentPreviewBody > img {
   max-width: 100%;
   max-height: min(62vh, 620px);
   object-fit: contain;
+  border-radius: 10px;
 }
 .attachmentPreviewBody iframe {
   width: 100%;
@@ -3265,7 +3281,7 @@ html.draggingCollapsedChat * {
   display: grid;
   justify-items: center;
   gap: 10px;
-  padding: 38px 22px;
+  padding: 42px 22px;
   color: rgba(216, 228, 231, .72);
   text-align: center;
 }
@@ -3288,10 +3304,15 @@ html.draggingCollapsedChat * {
 .attachmentPreviewActions {
   display: flex;
   justify-content: flex-end;
-  margin-top: 12px;
+  border-top: 1px solid var(--border-hairline);
+  background: rgba(5, 12, 16, .46);
+  padding: 12px 14px;
 }
 .attachmentPreviewActions .ghostButton {
   min-height: 38px;
+  border-color: var(--border-default);
+  background: rgba(18, 32, 41, .62);
+  color: var(--amber-bright);
 }
 .deleteAllDialog strong {
   color: #ffd0cb;
@@ -4602,13 +4623,18 @@ html.draggingCollapsedChat * {
   .attachmentPreviewDialog {
     width: 100%;
     max-height: calc(var(--app-viewport-height, 100dvh) - 20px);
-    padding: 12px;
+    border-radius: 16px;
   }
   .attachmentPreviewHeader {
-    padding-right: 36px;
+    padding: 13px 46px 12px 13px;
+  }
+  .attachmentPreviewHeader h2 {
+    font-size: 15px;
   }
   .attachmentPreviewBody {
+    margin: 10px;
     min-height: min(58dvh, 520px);
+    border-radius: 12px;
   }
   .attachmentPreviewBody > img {
     max-height: min(58dvh, 520px);
