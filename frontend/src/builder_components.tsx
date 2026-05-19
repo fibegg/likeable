@@ -435,8 +435,14 @@ export function AgentNotificationRow({ body, active, elapsedMs, elapsedStartedAt
   return (
     <div className={`notificationRow ${active ? 'active' : ''} ${tone === 'warning' ? 'warning' : ''}`} aria-live="polite">
       <div className="notificationBubble">
-        {active ? <Loader2 className="notificationSpinner" size={14} /> : tone === 'warning' ? <CircleAlert className="notificationWarning" size={14} /> : <Check className="notificationDone" size={14} />}
-        <span className="notificationText">{text}{elapsed && <small className="notificationElapsed">{elapsed}</small>}</span>
+        <span className="notificationMark" aria-hidden="true">L</span>
+        <span className="notificationSignal" aria-hidden="true">
+          {active ? <Loader2 className="notificationSpinner" size={14} /> : tone === 'warning' ? <CircleAlert className="notificationWarning" size={14} /> : <Check className="notificationDone" size={14} />}
+        </span>
+        <span className="notificationCopy">
+          <span className="notificationText">{text}</span>
+          {elapsed && <small className="notificationElapsed">{elapsed}</small>}
+        </span>
       </div>
     </div>
   );
