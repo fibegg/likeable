@@ -420,6 +420,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     : selectedService?.name
       ? `${canvasStatusLabel} · ${selectedService.name}`
       : canvasStatusLabel;
+  const StudioNextIcon = agentActivityActive ? CircleStop : projectArchived || noActiveProject ? FolderOpen : Sparkles;
   const composerModeHint = agentActivityActive
     ? busyPolicy === 'queue'
       ? t('builder.composerHint.agentQueue')
@@ -1254,7 +1255,8 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
             </div>
             <span className="studioNextEyebrow">{t('builder.nextAction.eyebrow')}</span>
             <button className={agentActivityActive ? 'studioNextAction danger' : 'studioNextAction'} type="button" onClick={runStudioNextAction}>
-              {studioNextActionLabel}
+              <StudioNextIcon size={13} />
+              <span>{studioNextActionLabel}</span>
             </button>
           </div>
           <div className="messages" ref={messagesRef}>

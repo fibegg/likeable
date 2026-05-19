@@ -4899,9 +4899,11 @@ body {
   align-items: center;
   gap: 10px;
   min-width: 0;
-  padding: 8px 14px;
+  padding: 9px 14px;
   border-bottom: 1px solid var(--border-hairline);
-  background: rgba(5, 12, 16, .38);
+  background:
+    linear-gradient(90deg, rgba(174, 245, 255, .025), transparent 36%),
+    rgba(5, 12, 16, .46);
 }
 
 .studioNowStatus {
@@ -4909,8 +4911,14 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  min-height: 28px;
+  border: 1px solid rgba(174, 245, 255, .075);
+  border-radius: 999px;
+  background: rgba(18, 32, 41, .38);
   color: var(--text-secondary);
+  padding: 0 10px 0 9px;
   font-size: 12px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .025);
 }
 
 .studioNowStatus strong {
@@ -4936,6 +4944,22 @@ body {
   background: var(--text-tertiary);
 }
 
+.studioNowStrip.live .studioNowStatus {
+  border-color: rgba(94, 212, 168, .2);
+  background: rgba(94, 212, 168, .075);
+}
+
+.studioNowStrip.building .studioNowStatus,
+.studioNowStrip.starting .studioNowStatus {
+  border-color: rgba(232, 181, 111, .22);
+  background: rgba(232, 181, 111, .075);
+}
+
+.studioNowStrip.error .studioNowStatus {
+  border-color: rgba(255, 122, 122, .22);
+  background: rgba(255, 122, 122, .075);
+}
+
 .studioNowStrip.live .studioStatusDot { background: var(--ok); box-shadow: 0 0 0 3px rgba(94, 212, 168, .14); }
 .studioNowStrip.building .studioStatusDot,
 .studioNowStrip.starting .studioStatusDot { background: var(--amber-bright); animation: workPulse 1.5s ease-in-out infinite; }
@@ -4957,10 +4981,19 @@ body {
   border-radius: 999px;
   background: rgba(212, 149, 60, .08);
   color: var(--amber-bright);
-  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 12px 0 10px;
   cursor: pointer;
   font-weight: 650;
   font-size: 12px;
+  white-space: nowrap;
+}
+
+.studioNextAction svg {
+  flex: 0 0 auto;
 }
 
 .studioNextAction:hover {
@@ -4972,6 +5005,11 @@ body {
   color: var(--danger);
   border-color: rgba(255, 122, 122, .34);
   background: rgba(255, 122, 122, .08);
+}
+
+.studioNextAction.danger:hover {
+  border-color: rgba(255, 122, 122, .5);
+  background: rgba(255, 122, 122, .13);
 }
 
 .messages {
