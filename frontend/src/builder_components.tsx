@@ -694,10 +694,10 @@ export function ConfirmNewProject({ projectCap, projectCount, busy, onCancel, on
   const capReached = projectCap != null && projectCount >= projectCap;
   return (
     <div className="modalScrim">
-      <section className="confirmDialog">
-        <button className="dialogClose" onClick={onCancel}><X size={16} /></button>
+      <section className="confirmDialog newProjectDialog" role="dialog" aria-modal="true" aria-labelledby="new-project-title">
+        <button className="dialogClose" onClick={onCancel} aria-label={t('dialog.close')}><X size={16} /></button>
         <span className="eyebrow">{t('newProject.eyebrow')}</span>
-        <h2>{t('newProject.title')}</h2>
+        <h2 id="new-project-title">{t('newProject.title')}</h2>
         <p>{t('newProject.body')}</p>
         <label className="dialogField">
           <span>{t('builder.project.name')}</span>
@@ -706,7 +706,10 @@ export function ConfirmNewProject({ projectCap, projectCount, busy, onCancel, on
         {projectCap != null && <p className="quotaLine">{t('newProject.quota', { count: projectCount, cap: projectCap })}</p>}
         <div className="dialogActions">
           <button className="ghostButton" onClick={onCancel}>{t('common.cancel')}</button>
-          <button className="primaryButton" disabled={busy || capReached} onClick={() => onConfirm(title)}>{capReached ? t('newProject.capReached') : t('common.create')}</button>
+          <button className="primaryButton" disabled={busy || capReached} onClick={() => onConfirm(title)}>
+            {busy ? <Loader2 className="spinIcon" size={15} /> : <Plus size={15} />}
+            {capReached ? t('newProject.capReached') : t('common.create')}
+          </button>
         </div>
       </section>
     </div>
@@ -717,14 +720,17 @@ export function ConfirmDeleteProject({ project, busy, onCancel, onConfirm }: { p
   const { t } = useI18n();
   return (
     <div className="modalScrim">
-      <section className="confirmDialog">
-        <button className="dialogClose" onClick={onCancel}><X size={16} /></button>
+      <section className="confirmDialog deleteProjectDialog" role="dialog" aria-modal="true" aria-labelledby="delete-project-title">
+        <button className="dialogClose" disabled={busy} onClick={onCancel} aria-label={t('dialog.close')}><X size={16} /></button>
         <span className="eyebrow">{t('deleteProject.eyebrow')}</span>
-        <h2>{t('deleteProject.title')}</h2>
+        <h2 id="delete-project-title">{t('deleteProject.title')}</h2>
         <p>{t('deleteProject.body', { title: project.title })}</p>
         <div className="dialogActions">
           <button className="ghostButton" onClick={onCancel}>{t('common.cancel')}</button>
-          <button className="dangerButton" disabled={busy} onClick={onConfirm}>{t('common.delete')}</button>
+          <button className="dangerButton" disabled={busy} onClick={onConfirm}>
+            {busy ? <Loader2 className="spinIcon" size={15} /> : <Trash2 size={15} />}
+            {t('common.delete')}
+          </button>
         </div>
       </section>
     </div>
@@ -741,10 +747,10 @@ export function ConfirmExportProject({ project, busy, busyMode, githubConnected,
   const githubLabel = !githubConnected ? t('exportProject.connectGithub') : githubNeedsReconnect ? t('exportProject.reconnectGithub') : t('exportProject.exportGithub');
   return (
     <div className="modalScrim">
-      <section className="confirmDialog">
+      <section className="confirmDialog exportProjectDialog" role="dialog" aria-modal="true" aria-labelledby="export-project-title">
         <button className="dialogClose" disabled={busy} onClick={onCancel} aria-label={t('dialog.close')}><X size={16} /></button>
         <span className="eyebrow">{t('exportProject.eyebrow')}</span>
-        <h2>{t('exportProject.title')}</h2>
+        <h2 id="export-project-title">{t('exportProject.title')}</h2>
         <p>{t(archived ? 'exportProject.archivedBody' : 'exportProject.body', { title: project.title })}</p>
         {!archived && (
           <>

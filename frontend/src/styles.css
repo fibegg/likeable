@@ -5608,6 +5608,148 @@ body {
   box-shadow: var(--shadow-lg);
 }
 
+.confirmDialog {
+  width: min(520px, calc(100vw - 32px));
+  border-radius: 18px;
+  border-color: var(--border-default);
+  background:
+    radial-gradient(circle at 82% 18%, rgba(174, 245, 255, .055), transparent 38%),
+    linear-gradient(180deg, rgba(14, 25, 31, .98), rgba(5, 11, 14, .985));
+  box-shadow:
+    0 34px 120px rgba(0, 0, 0, .68),
+    inset 0 1px 0 rgba(255, 255, 255, .035);
+  padding: 20px;
+}
+
+.confirmDialog.newProjectDialog {
+  width: min(480px, calc(100vw - 32px));
+}
+
+.confirmDialog.exportProjectDialog {
+  width: min(560px, calc(100vw - 32px));
+}
+
+.confirmDialog.deleteProjectDialog {
+  border-color: rgba(255, 122, 122, .44);
+}
+
+.confirmDialog.deleteProjectDialog::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 122, 122, .68), transparent);
+  pointer-events: none;
+}
+
+.confirmDialog .dialogClose {
+  border-color: var(--border-subtle);
+  background: rgba(5, 12, 16, .72);
+}
+
+.confirmDialog .eyebrow {
+  color: var(--amber-bright);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: .18em;
+}
+
+.confirmDialog h2 {
+  margin: 9px 44px 10px 0;
+  color: var(--text-primary);
+  font-size: 23px;
+  font-weight: 720;
+  line-height: 1.12;
+}
+
+.confirmDialog.deleteProjectDialog .eyebrow,
+.confirmDialog.deleteProjectDialog h2 {
+  color: #ff958b;
+}
+
+.confirmDialog p {
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.dialogField {
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  background: rgba(8, 18, 24, .52);
+  padding: 10px;
+}
+
+.dialogField > span,
+.dialogCheck span {
+  color: var(--text-secondary);
+}
+
+.dialogInput {
+  border-radius: 10px;
+  background: rgba(4, 10, 13, .92);
+}
+
+.dialogCheck {
+  min-height: 38px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: rgba(18, 32, 41, .5);
+  padding: 0 11px;
+}
+
+.quotaLine {
+  width: fit-content;
+  border: 1px solid rgba(232, 181, 111, .22);
+  border-radius: 999px;
+  background: rgba(232, 181, 111, .08);
+  padding: 5px 9px;
+}
+
+.dialogActions {
+  flex-wrap: wrap;
+  align-items: center;
+  border-top: 1px solid var(--border-hairline);
+  padding-top: 14px;
+}
+
+.dialogActions .ghostButton,
+.dialogActions .primaryButton,
+.dialogActions .dangerButton {
+  min-height: 38px;
+}
+
+.dialogActions .ghostButton {
+  background: rgba(18, 32, 41, .58);
+}
+
+@media (max-width: 560px) {
+  .modalScrim {
+    padding: calc(12px + env(safe-area-inset-top)) calc(12px + env(safe-area-inset-right)) calc(12px + env(safe-area-inset-bottom)) calc(12px + env(safe-area-inset-left));
+  }
+
+  .confirmDialog {
+    width: 100%;
+    border-radius: 16px;
+    padding: 17px;
+  }
+
+  .confirmDialog h2 {
+    font-size: 21px;
+  }
+
+  .dialogActions {
+    justify-content: stretch;
+  }
+
+  .dialogActions .ghostButton,
+  .dialogActions .primaryButton,
+  .dialogActions .dangerButton {
+    flex: 1 1 auto;
+  }
+}
+
 @media (max-width: 920px) {
   .overlayChat:not(.collapsed):not(.minimized) .chatPane {
     grid-template-rows: auto auto auto minmax(0, 1fr) auto;
