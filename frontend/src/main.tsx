@@ -1320,7 +1320,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       </div>
       {viewMode === 'overlay' && (
         <div
-          className={`overlayChat ${effectiveChatCollapsed ? 'collapsed minimized' : ''}`}
+          className={`overlayChat ${utilityScreenOpen ? 'utilityOpen' : ''} ${effectiveChatCollapsed ? 'collapsed minimized' : ''}`}
           style={effectiveChatCollapsed
             ? collapsedChatStyle(collapsedChatPosition)
             : ({ '--basic-chat-height': `${basicChatHeight}px` } as React.CSSProperties)}
