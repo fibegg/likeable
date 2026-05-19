@@ -1507,6 +1507,7 @@ html[data-builder-mode="split"] .account {
   overflow-x: hidden;
   overscroll-behavior: contain;
   display: grid;
+  align-content: start;
   gap: 7px;
 }
 .chatPane.screenOpen .projectList,
