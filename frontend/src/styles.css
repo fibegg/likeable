@@ -4746,6 +4746,7 @@ html.draggingCollapsedChat * {
   --warn: #e8b56f;
   --danger: #ff7a7a;
   --info: #7ec8ff;
+  --shadow-lg: 0 30px 82px rgba(0, 0, 0, .58), 0 0 0 1px rgba(174, 245, 255, .035);
   --bg: var(--bg-base);
   --bg-2: var(--bg-canvas);
   --panel: var(--bg-surface);
@@ -5330,7 +5331,66 @@ body {
 
 .projectList,
 .inlinePanel {
-  background: linear-gradient(180deg, rgba(14, 25, 31, .9), rgba(8, 14, 18, .96));
+  gap: 10px;
+  padding: 12px;
+  background:
+    radial-gradient(circle at 18% -12%, rgba(174, 245, 255, .06), transparent 36%),
+    linear-gradient(180deg, rgba(14, 25, 31, .94), rgba(7, 13, 17, .98));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .035);
+}
+
+.inlinePanelHeader {
+  min-height: 45px;
+  padding: 0 2px 9px;
+  border-bottom: 1px solid var(--border-hairline);
+}
+
+.projectPanelHeader {
+  padding-bottom: 9px;
+}
+
+.inlinePanelHeader .eyebrow {
+  color: var(--amber-bright);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 9.5px;
+  font-weight: 850;
+  letter-spacing: .16em;
+}
+
+.inlinePanelHeader strong {
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 720;
+}
+
+.inlinePanelHeader > .projectDelete {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  border: 1px solid var(--border-subtle);
+  background: rgba(18, 32, 41, .62);
+}
+
+.projectRows,
+.serviceRows {
+  gap: 8px;
+  padding-right: 2px;
+  scrollbar-color: rgba(212, 149, 60, .34) transparent;
+  scrollbar-width: thin;
+}
+
+.projectRows::-webkit-scrollbar,
+.serviceRows::-webkit-scrollbar {
+  width: 8px;
+}
+
+.projectRows::-webkit-scrollbar-thumb,
+.serviceRows::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: rgba(212, 149, 60, .36);
+  background-clip: padding-box;
 }
 
 .projectRow,
@@ -5351,14 +5411,32 @@ body {
 .serviceOption.selected,
 .customerRow.selected {
   border-color: var(--border-strong);
-  background: rgba(212, 149, 60, .09);
+  background:
+    linear-gradient(90deg, rgba(212, 149, 60, .13), rgba(174, 245, 255, .035)),
+    rgba(10, 20, 26, .82);
 }
 
 .projectRow {
   align-items: center;
   flex-wrap: nowrap;
   gap: 10px;
+  width: 100%;
+  min-width: 0;
+  min-height: 56px;
   padding: 10px 12px;
+  border-radius: 12px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .025);
+  transition: border-color .16s ease, background .16s ease, box-shadow .16s ease;
+}
+
+.projectRow:hover,
+.projectRow:focus-within,
+.serviceOption:hover,
+.serviceOption:focus-visible {
+  border-color: var(--border-default);
+  background:
+    linear-gradient(90deg, rgba(212, 149, 60, .09), rgba(174, 245, 255, .035)),
+    rgba(13, 26, 33, .78);
 }
 
 .projectRowMark {
@@ -5373,6 +5451,12 @@ body {
   color: var(--amber-bright);
   font-size: 12px;
   font-weight: 750;
+}
+
+.projectRow.selected .projectRowMark {
+  border-color: rgba(94, 212, 168, .28);
+  background: rgba(94, 212, 168, .1);
+  color: var(--ok);
 }
 
 .projectRowMark.archived,
@@ -5411,11 +5495,15 @@ body {
 
 .projectCurrentBadge {
   flex: 0 0 auto;
+  border: 1px solid rgba(212, 149, 60, .18);
+  border-radius: 999px;
+  background: rgba(212, 149, 60, .08);
   color: var(--amber-bright);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 9px;
   font-weight: 750;
   letter-spacing: .1em;
+  padding: 2px 6px;
   text-transform: uppercase;
 }
 
@@ -5434,6 +5522,7 @@ body {
 }
 
 .projectRows em.projectStatusChip {
+  margin-left: auto;
   min-height: 24px;
   padding: 0 8px;
   border: 1px solid var(--border-subtle);
@@ -5472,6 +5561,7 @@ body {
 }
 
 .projectRow > .projectRowActions {
+  gap: 4px;
   flex-wrap: nowrap;
 }
 
@@ -5481,6 +5571,48 @@ body {
   height: 32px;
   min-width: 32px;
   min-height: 32px;
+}
+
+.projectRow > .projectRowActions .projectRowIcon,
+.projectRow > .projectRowActions .projectDelete,
+.inlinePanelHeader > .projectDelete {
+  color: var(--text-secondary);
+}
+
+.projectRow > .projectRowActions .projectRowIcon:hover,
+.projectRow > .projectRowActions .projectDelete:hover,
+.inlinePanelHeader > .projectDelete:hover {
+  border-color: var(--border-default);
+  background: rgba(212, 149, 60, .1);
+  color: var(--amber-bright);
+}
+
+.projectActionMenu {
+  z-index: 70;
+  border-color: var(--border-default);
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(174, 245, 255, .055), transparent 42%),
+    rgba(5, 11, 14, .98);
+  box-shadow: var(--shadow-lg);
+  padding: 6px;
+}
+
+.projectActionMenu button {
+  border-radius: 9px;
+  color: var(--text-secondary);
+}
+
+.projectActionMenu button:hover {
+  color: var(--amber-bright);
+  background: rgba(212, 149, 60, .1);
+}
+
+.serviceOption {
+  min-height: 54px;
+  border-radius: 12px;
+  padding: 10px 12px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .025);
 }
 
 .serviceOptionLead {
@@ -5542,11 +5674,93 @@ body {
   white-space: nowrap;
 }
 
+.serviceOption em {
+  min-height: 22px;
+  border: 1px solid rgba(94, 212, 168, .2);
+  border-radius: 999px;
+  background: rgba(94, 212, 168, .08);
+  color: var(--ok);
+  display: inline-flex;
+  align-items: center;
+  padding: 0 8px;
+}
+
 .newProjectRow {
+  min-height: 44px;
   border-style: dashed;
   border-color: var(--border-default);
+  border-radius: 12px;
   background: transparent;
   color: var(--amber-bright);
+  gap: 7px;
+}
+
+.newProjectRow:hover {
+  border-color: var(--border-strong);
+  background: rgba(212, 149, 60, .08);
+}
+
+@media (max-width: 560px) {
+  .projectList,
+  .inlinePanel {
+    padding: 10px;
+  }
+
+  .projectRow {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 8px 10px;
+    min-height: 96px;
+  }
+
+  .projectRowMark {
+    order: 1;
+    width: 30px;
+    height: 30px;
+    flex-basis: 30px;
+    margin-top: 1px;
+  }
+
+  .projectSelect {
+    order: 2;
+    flex: 1 1 calc(100% - 40px);
+  }
+
+  .projectRows .projectRow > .projectStatusChip {
+    order: 3;
+    flex: 0 0 auto;
+    margin-left: 40px;
+  }
+
+  .projectTitleEdit {
+    flex: 1 1 100%;
+  }
+
+  .projectRows .projectRow > .projectRowActions {
+    order: 3;
+    flex: 0 0 auto;
+    justify-content: flex-end;
+    margin-left: auto;
+    padding-left: 0;
+  }
+
+  .projectSelectTitleLine {
+    align-items: flex-start;
+  }
+
+  .projectCurrentBadge {
+    margin-top: 1px;
+  }
+
+  .serviceOption {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .serviceOption em {
+    margin-left: 18px;
+  }
 }
 
 .profileGrid {
