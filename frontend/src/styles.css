@@ -5052,21 +5052,80 @@ body {
 .messageCard {
   margin-left: auto;
   max-width: min(78%, 680px);
-  border-color: var(--border-default);
-  background: linear-gradient(180deg, rgba(212, 149, 60, .13), rgba(212, 149, 60, .08));
-  border-radius: 14px 14px 5px 14px;
+  border-color: rgba(212, 149, 60, .26);
+  border-right: 2px solid rgba(232, 181, 111, .5);
+  background:
+    linear-gradient(180deg, rgba(212, 149, 60, .15), rgba(212, 149, 60, .075)),
+    rgba(10, 17, 18, .78);
+  border-radius: 14px 14px 6px 14px;
+  box-shadow: 0 16px 34px rgba(0, 0, 0, .16);
+  padding: 10px 12px 11px;
 }
 
 .messageMeta {
+  width: fit-content;
+  justify-self: start;
   color: var(--amber-bright);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 9.5px;
+  font-weight: 850;
   letter-spacing: .11em;
+  border: 1px solid rgba(212, 149, 60, .16);
+  border-radius: 999px;
+  background: rgba(4, 10, 13, .32);
+  padding: 4px 7px;
 }
 
 .messageBody {
   color: var(--text-primary);
-  font-size: 13.5px;
-  line-height: 1.48;
+  font-size: 14px;
+  font-weight: 620;
+  line-height: 1.46;
+}
+
+.messageAttachments {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(210px, 100%), 1fr));
+  gap: 7px;
+  padding-top: 3px;
+}
+
+.messageAttachment {
+  max-width: 100%;
+  min-height: 36px;
+  border-color: rgba(232, 181, 111, .24);
+  border-radius: 10px;
+  background:
+    linear-gradient(90deg, rgba(232, 181, 111, .08), rgba(174, 245, 255, .03)),
+    rgba(5, 13, 16, .64);
+  color: var(--text-secondary);
+}
+
+.messageAttachment:hover {
+  border-color: rgba(232, 181, 111, .42);
+  color: var(--text-primary);
+  background:
+    linear-gradient(90deg, rgba(232, 181, 111, .13), rgba(174, 245, 255, .045)),
+    rgba(6, 15, 18, .76);
+}
+
+.messageAttachment.image {
+  min-height: 54px;
+}
+
+.messageAttachment img {
+  width: 62px;
+  height: 44px;
+}
+
+@media (max-width: 920px) {
+  .messageCard {
+    max-width: 92%;
+  }
+
+  .messageMeta {
+    font-size: 9px;
+  }
 }
 
 .notificationBubble {
