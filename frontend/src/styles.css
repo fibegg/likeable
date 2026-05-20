@@ -5470,6 +5470,215 @@ body {
   box-shadow: 0 0 0 1px rgba(174, 245, 255, .12), var(--shadow-lg);
 }
 
+.emptyPreview {
+  background:
+    radial-gradient(circle at 50% 112%, rgba(94, 212, 168, .13), transparent 35%),
+    linear-gradient(rgba(174, 245, 255, .032) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(174, 245, 255, .032) 1px, transparent 1px),
+    radial-gradient(circle at 78% 18%, rgba(174, 245, 255, .055), transparent 30%),
+    linear-gradient(180deg, #071116, #03070a 64%, #071014);
+  background-size: auto, 100% 4px, 4px 100%, auto, auto;
+}
+
+.emptyPreview::before {
+  inset: auto 0 0;
+  opacity: .32;
+}
+
+.emptyCopy h1 {
+  color: var(--cyan);
+  font-weight: 430;
+  letter-spacing: 0;
+}
+
+.emptyCopy p {
+  color: var(--text-secondary);
+  font-weight: 620;
+}
+
+.onboardingGallery {
+  padding: clamp(14px, 2.8vw, 34px);
+}
+
+.onboardingContent {
+  width: min(900px, 100%);
+  gap: 12px;
+}
+
+.onboardingStatus {
+  border-color: rgba(174, 245, 255, .16);
+  background: rgba(18, 32, 41, .62);
+  color: var(--text-secondary);
+  letter-spacing: .11em;
+}
+
+.onboardingStatus.ready {
+  border-color: rgba(94, 212, 168, .24);
+  background: rgba(94, 212, 168, .09);
+  color: var(--ok);
+}
+
+.onboardingIntro h1 {
+  color: var(--text-primary);
+  font-size: clamp(32px, 4vw, 52px);
+  font-weight: 680;
+  letter-spacing: 0;
+  text-shadow: none;
+}
+
+.onboardingIntro p {
+  color: var(--text-secondary);
+  font-weight: 560;
+}
+
+.onboardingClose {
+  border-color: var(--border-subtle);
+  background: rgba(18, 32, 41, .72);
+  color: var(--text-secondary);
+}
+
+.onboardingClose:hover {
+  border-color: var(--border-default);
+  background: rgba(212, 149, 60, .1);
+  color: var(--amber-bright);
+}
+
+.onboardingDeck {
+  border-color: var(--border-subtle);
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at 82% 12%, rgba(174, 245, 255, .055), transparent 36%),
+    linear-gradient(135deg, rgba(212, 149, 60, .075), rgba(174, 245, 255, .028)),
+    rgba(6, 14, 18, .86);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .035),
+    0 24px 74px rgba(0, 0, 0, .34);
+  gap: 12px;
+  padding: 14px;
+}
+
+.onboardingSlideCopy {
+  gap: 10px;
+  padding: 2px;
+}
+
+.onboardingSlideKicker {
+  color: var(--amber-bright);
+  letter-spacing: .12em;
+}
+
+.onboardingSlideKicker svg {
+  color: var(--amber-bright);
+}
+
+.onboardingDeck h2 {
+  color: var(--text-primary);
+  font-size: clamp(21px, 2.3vw, 28px);
+  font-weight: 720;
+}
+
+.onboardingDeck p {
+  color: var(--text-secondary);
+  font-weight: 560;
+}
+
+.onboardingDeck li {
+  color: var(--text-secondary);
+  font-weight: 580;
+}
+
+.onboardingDeck li::before {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px rgba(94, 212, 168, .1);
+}
+
+.onboardingBlueprint {
+  border-color: rgba(174, 245, 255, .09);
+  border-radius: 14px;
+  background:
+    linear-gradient(rgba(174, 245, 255, .045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(174, 245, 255, .045) 1px, transparent 1px),
+    radial-gradient(circle at 50% 42%, rgba(94, 212, 168, .1), transparent 38%),
+    rgba(2, 8, 11, .54);
+}
+
+.blueprintNode.primary {
+  border-color: rgba(232, 181, 111, .48);
+  background: rgba(232, 181, 111, .1);
+}
+
+.onboardingCard {
+  min-height: 64px;
+  border-color: var(--border-subtle);
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at 100% 0, rgba(174, 245, 255, .055), transparent 34%),
+    rgba(8, 18, 24, .64);
+}
+
+.onboardingCard:hover,
+.onboardingCard:focus-visible {
+  border-color: var(--border-default);
+  background:
+    radial-gradient(circle at 100% 0, rgba(174, 245, 255, .08), transparent 34%),
+    rgba(212, 149, 60, .08);
+  outline: none;
+}
+
+.onboardingCard svg {
+  color: var(--amber-bright);
+}
+
+.onboardingCard strong {
+  color: var(--text-primary);
+  font-weight: 690;
+}
+
+.onboardingCard em {
+  color: var(--text-secondary);
+  font-weight: 560;
+}
+
+.onboardingFooter {
+  min-height: 38px;
+}
+
+.onboardingNav {
+  border: 1px solid var(--border-hairline);
+  border-radius: 999px;
+  background: rgba(5, 12, 16, .58);
+  padding: 3px;
+}
+
+.onboardingNav button {
+  width: 32px;
+  height: 32px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.onboardingNav button:hover,
+.onboardingNav button:focus-visible {
+  border-color: var(--border-default);
+  background: rgba(212, 149, 60, .1);
+  color: var(--amber-bright);
+  outline: none;
+}
+
+.onboardingDots span {
+  background: var(--text-tertiary);
+}
+
+.onboardingDots span.active {
+  background: var(--ok);
+}
+
+.primaryButton.onboardingStart {
+  border-radius: 12px;
+  min-height: 38px;
+}
+
 .projectList,
 .inlinePanel {
   gap: 10px;
@@ -6197,5 +6406,78 @@ body {
   .composerPromptTools button svg {
     width: 15px;
     height: 15px;
+  }
+}
+
+@media (max-width: 920px) {
+  .builder.onboardingActive .overlayChat.collapsed.minimized {
+    display: none;
+  }
+
+  .previewPane.chatExpanded .onboardingContent {
+    width: min(660px, 100%);
+    gap: 8px;
+  }
+
+  .previewPane.chatExpanded .onboardingDeck {
+    border-radius: 14px;
+    padding: 10px;
+  }
+
+  .previewPane.chatExpanded .onboardingDeck h2 {
+    font-size: 19px;
+  }
+
+  .previewPane.chatExpanded .onboardingCard {
+    border-radius: 10px;
+  }
+}
+
+@media (max-width: 560px) {
+  .emptyCopy h1 {
+    font-size: 32px;
+  }
+
+  .onboardingGallery {
+    padding: 10px 10px calc(12px + env(safe-area-inset-bottom));
+  }
+
+  .onboardingContent {
+    gap: 8px;
+  }
+
+  .onboardingDeck {
+    max-height: 100%;
+    overflow: auto;
+    padding: 11px;
+  }
+
+  .onboardingDeck h2 {
+    font-size: 21px;
+  }
+
+  .onboardingDeck p {
+    font-size: 12.5px;
+  }
+
+  .onboardingCards {
+    grid-template-columns: 1fr;
+  }
+
+  .previewPane.chatExpanded .onboardingCards {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .previewPane.chatExpanded .onboardingCard {
+    min-height: 42px;
+    padding: 7px;
+  }
+
+  .onboardingFooter {
+    align-items: stretch;
+  }
+
+  .primaryButton.onboardingStart {
+    min-height: 34px;
   }
 }
