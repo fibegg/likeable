@@ -224,7 +224,8 @@ html[data-builder-mode="split"] .topbar {
 html[data-builder-mode="split"] .topbar nav {
   justify-content: flex-end;
 }
-html[data-builder-mode="split"] .topbar nav button {
+html[data-builder-mode="split"] .topbar nav button,
+html[data-builder-mode="split"] .topbar nav a {
   min-height: 30px;
   padding: 5px 8px;
 }
@@ -360,6 +361,24 @@ html[data-builder-mode="split"] .account {
 .chatBrand.tooltip.tooltipBottom:focus-visible::before {
   transform: translate(0, 0) rotate(45deg);
 }
+.collapseChatButton.tooltip.tooltipBottom::after {
+  left: auto;
+  right: 0;
+  transform: translate(0, -4px);
+}
+.collapseChatButton.tooltip.tooltipBottom::before {
+  left: auto;
+  right: 12px;
+  transform: translate(0, -4px) rotate(45deg);
+}
+.collapseChatButton.tooltip.tooltipBottom:hover::after,
+.collapseChatButton.tooltip.tooltipBottom:focus-visible::after {
+  transform: translate(0, 0);
+}
+.collapseChatButton.tooltip.tooltipBottom:hover::before,
+.collapseChatButton.tooltip.tooltipBottom:focus-visible::before {
+  transform: translate(0, 0) rotate(45deg);
+}
 @media (min-width: 760px) and (hover: hover) and (pointer: fine) {
   .tooltip::after {
     max-width: min(360px, calc(100vw - 48px));
@@ -381,6 +400,7 @@ html[data-builder-mode="split"] .account {
   gap: 8px;
 }
 .topbar nav button,
+.topbar nav a,
 .account button,
 .iconButton,
 .textIconButton,
@@ -390,15 +410,19 @@ html[data-builder-mode="split"] .account {
   color: var(--muted);
   cursor: pointer;
 }
-.topbar nav button {
+.topbar nav button,
+.topbar nav a {
   display: inline-flex;
   align-items: center;
   gap: 7px;
   min-height: 30px;
   padding: 6px 9px;
   border-radius: 8px;
+  text-decoration: none;
 }
 .topbar nav button:hover,
+.topbar nav a:hover,
+.topbar nav a.active,
 .account:hover,
 .account button:hover,
 .collapsedIconButton:hover {
@@ -797,20 +821,53 @@ html[data-builder-mode="split"] .account {
   top: 0;
   right: 0;
   z-index: 2;
-  width: 32px;
-  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
   border: 1px solid rgba(199, 137, 45, .26);
   border-radius: 999px;
   background: rgba(5, 11, 14, .64);
   color: rgba(216, 228, 231, .64);
   cursor: pointer;
-  display: grid;
-  place-items: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 7px 10px;
+  font-size: 12px;
+  font-weight: 760;
+  line-height: 1;
 }
 .onboardingClose:hover {
   color: var(--text);
   border-color: rgba(223, 154, 47, .48);
   background: rgba(213, 141, 45, .08);
+}
+.onboardingClose span {
+  white-space: nowrap;
+}
+.onboardingCueRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 12px;
+}
+.onboardingCueRow span {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(174, 244, 255, .13);
+  border-radius: 999px;
+  background: rgba(4, 13, 17, .58);
+  color: rgba(216, 228, 231, .7);
+  padding: 6px 9px;
+  font-size: 11.5px;
+  font-weight: 760;
+  line-height: 1;
+}
+.onboardingCueRow svg {
+  color: var(--amber);
+  flex: 0 0 auto;
 }
 .onboardingStatus {
   width: fit-content;
@@ -2903,6 +2960,9 @@ html[data-builder-mode="split"] .account {
   max-height: none;
 }
 .overlayChat.minimized { width: auto; max-height: none; }
+.builder.onboardingActive .overlayChat.collapsed.minimized {
+  display: none;
+}
 .chatResizeHandle {
   position: absolute;
   top: -16px;
@@ -4051,7 +4111,8 @@ html.draggingCollapsedChat * {
   .topbar { grid-template-columns: auto 1fr auto; gap: 8px; }
   .linkStatus { display: none; }
   .topbar nav { justify-content: end; overflow-x: auto; }
-  .topbar nav button { font-size: 0; gap: 0; width: 34px; padding: 0; justify-content: center; }
+  .topbar nav button,
+  .topbar nav a { font-size: 0; gap: 0; width: 34px; padding: 0; justify-content: center; }
   .account span { display: none; }
   .account { max-width: none; padding: 5px; }
   html[data-builder-mode="split"] .topbar {
@@ -4492,7 +4553,8 @@ html.draggingCollapsedChat * {
     justify-content: flex-end;
     gap: 4px;
   }
-  html[data-builder-mode="split"] .topbar nav button {
+  html[data-builder-mode="split"] .topbar nav button,
+  html[data-builder-mode="split"] .topbar nav a {
     width: 30px;
     min-height: 30px;
     padding: 0;
@@ -4792,6 +4854,7 @@ body {
 }
 
 .topbar nav button,
+.topbar nav a,
 .account button,
 .account a,
 .languageToggle {
@@ -4799,6 +4862,8 @@ body {
 }
 
 .topbar nav button:hover,
+.topbar nav a:hover,
+.topbar nav a.active,
 .account button:hover,
 .account a:hover,
 .languageToggle:hover {

@@ -578,7 +578,10 @@ export function OnboardingGallery({ ready, onUsePrompt, onStart, onDismiss }: { 
     <div className="emptyPreview onboardingGallery">
       <CanvasFrameDecor loading={!ready} />
       <div className="onboardingContent">
-        <button className="onboardingClose" onClick={onDismiss} aria-label={t('onboarding.close')}><X size={15} /></button>
+        <button className="onboardingClose" onClick={onDismiss} aria-label={t('onboarding.close')}>
+          <X size={15} />
+          <span>{t('onboarding.close')}</span>
+        </button>
         <div className={`onboardingStatus ${ready ? 'ready' : 'loading'}`}>
           {ready ? <Check size={16} /> : <Loader2 size={16} className="spin" />}
           <span>{ready ? t('onboarding.status.ready') : t('onboarding.status.loading')}</span>
@@ -587,6 +590,11 @@ export function OnboardingGallery({ ready, onUsePrompt, onStart, onDismiss }: { 
           <span className="eyebrow">{t('onboarding.eyebrow')}</span>
           <h1>{t('onboarding.title')}</h1>
           <p>{t('onboarding.body')}</p>
+          <div className="onboardingCueRow" aria-label={t('onboarding.actions')}>
+            <span><Sparkles size={14} />{t('onboarding.action.prompt')}</span>
+            <span><Play size={14} />{t('onboarding.action.start')}</span>
+            <span><X size={14} />{t('onboarding.action.close')}</span>
+          </div>
         </div>
         <div className="onboardingDeck" aria-live="polite">
           <div className="onboardingSlideCopy">

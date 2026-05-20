@@ -134,13 +134,13 @@ function App() {
   if (!me) return <div className="loading">{t('app.loading')}</div>;
 
   return (
-    <Shell me={me} nav={nav}>
+    <Shell me={me} route={route} nav={nav}>
       {route.startsWith('/admin') && me.isAdmin ? <Admin /> : <Builder nav={nav} me={me} profileRoute={route.startsWith('/profile')} />}
     </Shell>
   );
 }
 
-function Shell({ me, nav, children }: { me: Me; nav: (to: string) => void; children: React.ReactNode }) {
+function Shell({ me, route, nav, children }: { me: Me; route: string; nav: (to: string) => void; children: React.ReactNode }) {
   const { t } = useI18n();
   const [notices, setNotices] = useState<UserNotice[]>(me.notices ?? []);
   const online = useOnlineStatus();
@@ -149,6 +149,17 @@ function Shell({ me, nav, children }: { me: Me; nav: (to: string) => void; child
   const googleAuthHref = googleAuthStartPath();
   useEffect(() => setNotices(me.notices ?? []), [me.notices]);
   const notice = notices[0];
+  const navigate = (to: string) => (event: React.MouseEvent<HTMLAnchorElement>) => {
+    event.preventDefault();
+    nav(to);
+  };
+  const navClass = (to: string) => {
+    const active = to === '/'
+      ? route === '/'
+      : route === to || route.startsWith(`${to}/`);
+    return active ? 'active' : undefined;
+  };
+  const ariaCurrent = (to: string) => (navClass(to) ? 'page' : undefined);
   const dismissNotice = async (noticeID: string) => {
     setNotices((current) => current.filter((candidate) => candidate.id !== noticeID));
     try {
@@ -164,9 +175,19 @@ function Shell({ me, nav, children }: { me: Me; nav: (to: string) => void; child
           <StatusMark />
         </button>
         <nav>
-          <button onClick={() => nav('/')}><MessageSquare size={18} /> {t('nav.builder')}</button>
-          {me.user && <button onClick={() => nav('/profile')}><UserRound size={18} /> {t('nav.profile')}</button>}
-          {me.isAdmin && <button onClick={() => nav('/admin')}><Settings size={18} /> {t('nav.admin')}</button>}
+          <a className={navClass('/')} href="/" onClick={navigate('/')} aria-current={ariaCurrent('/')}>
+            <MessageSquare size={18} /> {t('nav.builder')}
+          </a>
+          {me.user && (
+            <a className={navClass('/profile')} href="/profile" onClick={navigate('/profile')} aria-current={ariaCurrent('/profile')}>
+              <UserRound size={18} /> {t('nav.profile')}
+            </a>
+          )}
+          {me.isAdmin && (
+            <a className={navClass('/admin')} href="/admin" onClick={navigate('/admin')} aria-current={ariaCurrent('/admin')}>
+              <Settings size={18} /> {t('nav.admin')}
+            </a>
+          )}
         </nav>
         <div className="account">
           <LanguageToggle />
@@ -354,7 +375,8 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const projectHasMessages = (displayFeed?.localMessages?.length ?? 0) > 0 || (displayFeed?.messages?.length ?? 0) > 0;
   const onboardingDismissed = Boolean(activeProject?.id && dismissedOnboardingProjects[activeProject.id]);
   const initialOnboardingEligible = signedIn && Boolean(activeProject) && currentProjects.length <= 1 && !projectHasMessages && !onboardingDismissed && (isProjectStarting || activeProject?.status === 'ready');
-  const showOnboardingWizard = signedIn && Boolean(activeProject) && (manualOnboardingOpen || initialOnboardingEligible);
+  const utilityScreenOpen = showProjects || showProfile || showHelp || showServices;
+  const showOnboardingWizard = signedIn && Boolean(activeProject) && (manualOnboardingOpen || (initialOnboardingEligible && !utilityScreenOpen));
   const onboardingReady = Boolean(activeProject?.status === 'ready' && activePreviewURL && previewReady);
   const chatCollapsedForTutorial = viewMode === 'overlay' && showOnboardingWizard;
   const effectiveChatCollapsed = basicChatCollapsed || chatCollapsedForTutorial;
@@ -368,7 +390,6 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const canvasLoading = projectsLoading || isProjectStarting || Boolean(activePreviewURL && previewRuntimeActive && !previewMaintenance && (!previewReady || !iframeLoaded));
   const brandWorking = agentWorking || hasActiveNotification || canvasLoading;
   const agentActivityActive = Boolean(messageSubmitting || localAgentRunActive || displayFeed?.live?.isProcessing || feedAwaitingAgent(displayFeed) || agentDelayStatus?.active || hasActiveNotification);
-  const utilityScreenOpen = showProjects || showProfile || showHelp || showServices;
   const inputPlaceholder = !signedIn
     ? t('builder.placeholder.signIn')
     : projectsLoading
@@ -1228,7 +1249,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
               <ExternalLink size={16} />
             </a>
           )}
-          {viewMode === 'overlay' && <button className="chromeIconButton tooltip tooltipBottom" onClick={() => setBasicChatCollapsed(true)} aria-label={t('builder.chat.collapse')} data-tip={t('builder.chat.collapse')}><Minimize2 size={16} /></button>}
+          {viewMode === 'overlay' && <button className="chromeIconButton collapseChatButton tooltip tooltipBottom" onClick={() => setBasicChatCollapsed(true)} aria-label={t('builder.chat.collapse')} data-tip={t('builder.chat.collapse')}><Minimize2 size={16} /></button>}
         </div>
       </nav>
     </div>
