@@ -7,7 +7,7 @@ import { api } from './api';
 import { AgentNotificationRow, AppDialog, CanvasLoader, ConfirmDeleteProject, ConfirmExportProject, ConfirmNewProject, DeleteAllAccountDialog, EmptyCanvas, HelpPanel, OnboardingGallery, ProjectList, ServicePanel, UserMessageRow } from './builder_components';
 import { BASIC_CHAT_COLLAPSED_KEY, BASIC_CHAT_HEIGHT_KEY, BUILDER_MODE_KEY, COLLAPSED_CHAT_POSITION_KEY, MAX_ATTACHMENTS, SINGLE_VIEW_QUERY } from './config';
 import type { AppDialogConfig, BuilderMode, BusyPolicy, Feed, FeedRow, HourQuota, Message, Me, PendingAttachment, PreviewStatus, Project, ProjectArchiveResponse, ProjectExportResponse, ProjectListResponse, ProjectService, UserNotice } from './domain';
-import { agentResponseDelayStatus, feedAwaitingAgent, feedHasAssistantAfterLatestUser, feedLiveIdle, feedRows } from './feed';
+import { agentResponseDelayStatus, feedAwaitingAgent, feedHasAssistantAfterLatestUser, feedLiveIdle, feedProjectUpdatedAfterLatestUser, feedRows } from './feed';
 import { formatBillingDuration, formatMessageTime, formatResetCountdown } from './format';
 import { I18nProvider, resetCountdownLabels, statusLabel, type TranslationKey, useDocumentTitle, useI18n } from './i18n';
 import { installPwa } from './pwa';
@@ -27,6 +27,7 @@ const PULL_REFRESH_SETTLE_DELAY_MS = 180;
 const PULL_REFRESH_TIMEOUT_MS = 3500;
 const PENDING_MESSAGE_RECONCILE_MS = 2 * 60_000;
 const BASIC_CHAT_MIN_PERSISTED_HEIGHT = 260;
+const STALE_PROJECT_DELETION_NOTICE_MS = 10 * 60_000;
 const MATRIX_RAIN_COLUMNS = [
   ['10101010', '01010101', '11010110', '00101011', '10110100', '01011001', '11101010', '00110101', '10010110', '01101011'],
   ['01011010', '10100101', '01101001', '10010110', '01010111', '11010010', '00101101', '10110101', '01001011', '11100100'],
@@ -143,12 +144,18 @@ function App() {
 function Shell({ me, route, nav, children }: { me: Me; route: string; nav: (to: string) => void; children: React.ReactNode }) {
   const { t } = useI18n();
   const [notices, setNotices] = useState<UserNotice[]>(me.notices ?? []);
+  const [noticeClock, setNoticeClock] = useState(Date.now());
   const online = useOnlineStatus();
   const googleReady = me.auth?.googleConfigured !== false;
   const useDevAuthPrimary = devAuthIsPrimary(me, googleReady);
   const googleAuthHref = googleAuthStartPath();
   useEffect(() => setNotices(me.notices ?? []), [me.notices]);
-  const notice = notices[0];
+  useEffect(() => {
+    const timer = setInterval(() => setNoticeClock(Date.now()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
+  const visibleNotices = useMemo(() => visibleShellNotices(notices, noticeClock), [notices, noticeClock]);
+  const notice = visibleNotices[0];
   const navigate = (to: string) => (event: React.MouseEvent<HTMLAnchorElement>) => {
     event.preventDefault();
     nav(to);
@@ -342,6 +349,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     pendingAgentAge != null
     && pendingAgentAge < LOCAL_AGENT_RUN_MAX_MS
     && !feedHasAssistantAfterLatestUser(displayFeed)
+    && !feedProjectUpdatedAfterLatestUser(displayFeed)
     && (pendingAgentAge < LOCAL_AGENT_IDLE_GRACE_MS || !feedLiveIdle(displayFeed))
   );
   const agentWorking = Boolean(signedIn && activeProject?.status === 'ready' && activePreviewURL && (messageSubmitting || localAgentRunActive || displayFeed?.live?.isProcessing || feedAwaitingAgent(displayFeed) || agentDelayStatus?.active));
@@ -352,6 +360,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const modeLabel = viewMode === 'overlay' ? t('builder.mode.basic') : t('builder.mode.split');
   const quotaProjectCount = currentProjects.filter((project) => project.status !== 'archived' && project.status !== 'deleting').length;
   const projectCapLabel = projectCap == null ? `${quotaProjectCount}` : `${quotaProjectCount}/${projectCap}`;
+  const projectCapReached = signedIn && projectCap != null && quotaProjectCount >= projectCap;
   const selectedServiceLabel = selectedService?.name ?? '--';
   const hasMultipleServices = (activeProject?.services?.length ?? 0) > 1;
   const projectUpdatedTime = activeProject?.updatedAt ? formatMessageTime(activeProject.updatedAt, locale) : '';
@@ -442,11 +451,34 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       ? `${canvasStatusLabel} · ${selectedService.name}`
       : canvasStatusLabel;
   const StudioNextIcon = agentActivityActive ? CircleStop : projectArchived || noActiveProject ? FolderOpen : Sparkles;
+  const composerHintTone = !signedIn || projectsLoading || noActiveProject
+    ? 'blocked'
+    : isProjectStarting
+      ? 'pending'
+      : activeProject?.status === 'error'
+        ? 'error'
+        : activeProject?.status === 'stopped' || projectArchived
+          ? 'paused'
+          : '';
   const composerModeHint = agentActivityActive
     ? busyPolicy === 'queue'
       ? t('builder.composerHint.agentQueue')
       : t('builder.composerHint.agentSteer')
-    : t('builder.composerHint.ready');
+    : !signedIn
+      ? t('builder.composerHint.signIn')
+      : projectsLoading
+        ? t('builder.composerHint.loadingProjects')
+        : noActiveProject
+          ? t('builder.composerHint.noProject')
+          : isProjectStarting
+            ? t('builder.composerHint.starting')
+            : activeProject?.status === 'error'
+              ? t('builder.composerHint.error')
+              : activeProject?.status === 'stopped'
+                ? t('builder.composerHint.stopped')
+                : projectArchived
+                  ? t('builder.composerHint.archived')
+                  : t('builder.composerHint.ready');
 
   useDocumentTitle(pageTitle);
 
@@ -611,7 +643,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     const pendingStartedAt = pendingAgentRuns[feed.project.id];
     const pendingAgeMs = typeof pendingStartedAt === 'number' ? Date.now() - pendingStartedAt : null;
     const idleSettled = feedLiveIdle(feed) && (pendingAgeMs == null || pendingAgeMs >= LOCAL_AGENT_IDLE_GRACE_MS);
-    if (feed.project.status !== 'ready' || idleSettled || feedHasAssistantAfterLatestUser(feed)) {
+    if (feed.project.status !== 'ready' || idleSettled || feedHasAssistantAfterLatestUser(feed) || feedProjectUpdatedAfterLatestUser(feed)) {
       forgetPendingAgentRun(feed.project.id);
     }
   }, [feed, pendingAgentRuns]);
@@ -1159,7 +1191,8 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       {showServiceSelector && serviceSelectorButton()}
       <span className="projectTitleMeta">
         <button className="projectTitleCount" type="button" onClick={openProjectsPanel} disabled={!signedIn} aria-label={t('projects.title')}>
-          <FolderOpen size={15} /><span>{signedIn ? projectCapLabel : '-'}</span>
+          <FolderOpen size={15} />
+          <span className={projectCapReached ? 'quotaFull' : ''}>{signedIn ? projectCapLabel : '-'}</span>
         </button>
         {showIdleStop && idleStopCountdown && (
           <span className="projectIdleStop tooltip" tabIndex={0} data-tip={idleStopTooltip} aria-label={idleStopTooltip}>{idleStopCountdown}</span>
@@ -1256,7 +1289,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   );
 
   const chat = (
-    <section className={`chatPane ${draggingFiles ? 'dragActive' : ''} ${utilityScreenOpen ? 'screenOpen' : ''}`} {...chatDragHandlers}>
+    <section className={`chatPane ${draggingFiles ? 'dragActive' : ''} ${utilityScreenOpen ? 'screenOpen' : ''} ${agentActivityActive ? 'agentActive' : ''} ${prompt.trim() ? 'hasDraft' : ''}`} {...chatDragHandlers}>
       <a className="poweredBy" href="https://fibe.gg" target="_blank" rel="noopener noreferrer">
         {t('builder.poweredBy')} <span>fibe.gg</span>
       </a>
@@ -1282,7 +1315,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
           </div>
           <div className="messages" ref={messagesRef}>
             {rows.map((row) => row.kind === 'notification'
-              ? <AgentNotificationRow key={row.id} body={row.body || agentWorkingLabel} active={row.active} elapsedMs={row.elapsedMs} elapsedStartedAt={row.elapsedStartedAt} />
+              ? <AgentNotificationRow key={row.id} body={row.body} active={row.active} elapsedMs={row.elapsedMs} elapsedStartedAt={row.elapsedStartedAt} />
               : <UserMessageRow key={row.id} row={row} />
             )}
             {agentDelayStatus && !hasActiveNotification && <AgentNotificationRow body={agentDelayLabel} active={agentDelayStatus.active} tone={agentDelayStatus.tone} />}
@@ -1296,6 +1329,9 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
             }} />
             {attachments.length > 0 && (
               <div className="attachmentTray">
+                <span className="attachmentTrayCount" aria-label={`${attachments.length}/${MAX_ATTACHMENTS}`}>
+                  {attachments.length}/{MAX_ATTACHMENTS}
+                </span>
                 {attachments.map((attachment) => (
                   <span className="attachmentChip" key={attachment.id}>
                     <Paperclip size={14} />
@@ -1323,7 +1359,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
               <button type="button" onClick={() => textareaRef.current?.focus()} disabled={composerDisabled} aria-label={t('builder.promptTools.improve')} title={t('builder.promptTools.improve')}><Sparkles size={13} /> <span className="composerToolLabel">{t('builder.promptTools.improve')}</span></button>
               <button type="button" onClick={() => fileInputRef.current?.click()} disabled={composerDisabled || attachments.length >= MAX_ATTACHMENTS} aria-label={t('builder.promptTools.reference')} title={t('builder.promptTools.reference')}><ImagePlus size={13} /> <span className="composerToolLabel">{t('builder.promptTools.reference')}</span></button>
               <button type="button" onClick={openOnboardingTutorial} disabled={!signedIn} aria-label={t('builder.promptTools.starters')} title={t('builder.promptTools.starters')}><BookOpen size={13} /> <span className="composerToolLabel">{t('builder.promptTools.starters')}</span></button>
-              <span className={`composerModeHint ${agentActivityActive ? 'active' : ''}`} aria-live="polite">{composerModeHint}</span>
+              <span className={`composerModeHint ${agentActivityActive ? 'active' : composerHintTone}`} aria-live="polite">{composerModeHint}</span>
             </div>
           </div>
         </>
@@ -1346,6 +1382,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const previewBody = activeProject?.status === 'launching'
     ? t('builder.preview.launchingBody')
     : t('builder.preview.preparingBody');
+  const launchFailedBody = activeProject?.errorMessage?.trim() || t('builder.preview.launchFailedBody');
   const connectingCanvasBody = previewReady
     ? t('builder.preview.respondedBody')
     : t('builder.preview.warmingBody');
@@ -1374,7 +1411,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       ) : activeProject?.status === 'error' && agentActivityActive ? (
         <CanvasLoader title={agentWorkingLabel} body={t('builder.preview.agentWorkingBody')} />
       ) : activeProject?.status === 'error' && !previewMaintenance ? (
-        <CanvasLoader title={t('builder.preview.launchFailedTitle')} body={t('builder.preview.launchFailedBody')} tone="error" />
+        <CanvasLoader title={t('builder.preview.launchFailedTitle')} body={launchFailedBody} tone="error" />
       ) : activeProject?.status === 'stopped' ? (
         <CanvasLoader title={t('builder.preview.stoppedTitle')} body={t('builder.preview.stoppedBody')} />
       ) : activePreviewURL && previewDisplayable ? (
@@ -1771,6 +1808,20 @@ function readDismissedOnboardingProjects(): Record<string, boolean> {
 
 function writeDismissedOnboardingProjects(value: Record<string, boolean>) {
   localStorage.setItem(ONBOARDING_DISMISSED_KEY, JSON.stringify(value));
+}
+
+function visibleShellNotices(notices: UserNotice[], now = Date.now()): UserNotice[] {
+  return notices.filter((notice) => !isStaleProjectDeletionNotice(notice, now) && !isProjectQuotaNotice(notice));
+}
+
+function isStaleProjectDeletionNotice(notice: UserNotice, now: number): boolean {
+  if (!notice.body.startsWith('Project deletion started:')) return false;
+  const created = Date.parse(notice.createdAt);
+  return !Number.isNaN(created) && now - created > STALE_PROJECT_DELETION_NOTICE_MS;
+}
+
+function isProjectQuotaNotice(notice: UserNotice): boolean {
+  return notice.sender === 'system' && notice.body.startsWith('Project quota:');
 }
 
 createRoot(document.getElementById('root')!).render(

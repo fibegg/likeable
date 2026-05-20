@@ -428,6 +428,49 @@ func TestMeIncludesGithubConnectionState(t *testing.T) {
 	}
 }
 
+func TestMeFiltersTransientShellNotices(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	user, err := store.UpsertUser(t.Context(), "notices@example.com", "Notice User", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateSession(t.Context(), user.ID, "notice-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	if _, err := store.AddUserNotice(t.Context(), UserNotice{UserID: user.ID, Sender: "admin", Severity: "warning", Body: "Please review your account.", CreatedAt: now.Add(-30 * time.Minute).Format(time.RFC3339Nano)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AddUserNotice(t.Context(), UserNotice{UserID: user.ID, Sender: "system", Severity: "warning", Body: "Project deletion started: \"Old app\" and its workspace resources are being removed.", CreatedAt: now.Add(-20 * time.Minute).Format(time.RFC3339Nano)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AddUserNotice(t.Context(), UserNotice{UserID: user.ID, Sender: "system", Severity: "warning", Body: "Project quota: You are using 2/3 project slots. You have one project slot left.", CreatedAt: now.Add(-time.Minute).Format(time.RFC3339Nano)}); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/me", nil)
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "notice-token"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("me returned %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Notices []UserNotice `json:"notices"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Notices) != 1 || body.Notices[0].Body != "Please review your account." {
+		t.Fatalf("notices=%+v, want only non-transient admin notice", body.Notices)
+	}
+}
+
 func TestMeIncludesOnlyConfiguredBillingProducts(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {
@@ -2290,6 +2333,103 @@ esac
 	commands := readFile(t, logPath)
 	if got := strings.Count(commands, "agents messages"); got != 1 {
 		t.Fatalf("agents messages calls=%d, want 1; commands:\n%s", got, commands)
+	}
+}
+
+func TestProjectFeedActivityTimeoutDoesNotBackOffLiveUpdates(t *testing.T) {
+	dir := t.TempDir()
+	cliPath := filepath.Join(dir, "fibe")
+	logPath := filepath.Join(dir, "commands.log")
+	script := `#!/bin/sh
+printf '%s\n' "$*" >> "` + logPath + `"
+case "$*" in
+  *"agents messages"*)
+    echo '{"content":[{"role":"user","body":"build it"}]}'
+    ;;
+  *"agents activity"*)
+    printf '%s\n' '{"error":{"message":"signal: killed","code":"UNKNOWN_ERROR","status":500}}' >&2
+    exit 1
+    ;;
+  *"agents live-state"*)
+    echo '{"conversationId":"conv-feed-activity-timeout","isProcessing":false,"streamText":"","queuedTurns":0}'
+    ;;
+  *)
+    echo "unexpected command: $*" >&2
+    exit 64
+    ;;
+esac
+`
+	if err := os.WriteFile(cliPath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url": "server.test:3000",
+		"fibe_api_key":  "test-key",
+		"fibe_cli_path": cliPath,
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	user, _ := store.UpsertUser(t.Context(), "a@example.com", "A", "")
+	if err := store.CreateSession(t.Context(), user.ID, "token-a", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{
+		ID:             "project-feed-activity-timeout",
+		UserID:         user.ID,
+		Title:          "Activity Timeout",
+		ConversationID: "conv-feed-activity-timeout",
+		AgentID:        "agent-1",
+		PlaygroundID:   "123",
+		PreviewURL:     "http://preview.example.test",
+		Status:         "ready",
+	}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+
+	for range 2 {
+		req := httptest.NewRequest(http.MethodGet, "/api/projects/project-feed-activity-timeout/feed", nil)
+		req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "token-a"})
+		rec := httptest.NewRecorder()
+		server.routes().ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("feed returned %d, want 200; body=%s", rec.Code, rec.Body.String())
+		}
+		var body struct {
+			Warning  string `json:"warning"`
+			Messages []any  `json:"messages"`
+			Live     struct {
+				ConversationID string `json:"conversationId"`
+			} `json:"live"`
+		}
+		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if body.Warning != projectActivityWarning {
+			t.Fatalf("warning=%q, want %q", body.Warning, projectActivityWarning)
+		}
+		if len(body.Messages) != 1 {
+			t.Fatalf("messages=%d, want cached messages despite activity timeout", len(body.Messages))
+		}
+		if body.Live.ConversationID != project.ConversationID {
+			t.Fatalf("live conversation=%q, want %q", body.Live.ConversationID, project.ConversationID)
+		}
+		if remaining, ok := server.platformBackoffRemaining(); ok {
+			t.Fatalf("platform backoff active for %s after activity-only timeout", remaining)
+		}
+	}
+
+	commands := readFile(t, logPath)
+	for _, command := range []string{"agents messages", "agents activity", "agents live-state"} {
+		if got := strings.Count(commands, command); got != 1 {
+			t.Fatalf("%s calls=%d, want 1 cached successful snapshot; commands:\n%s", command, got, commands)
+		}
 	}
 }
 

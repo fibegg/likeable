@@ -35,8 +35,9 @@ RUN useradd --uid 10001 --create-home --home-dir /home/likeable --shell /usr/sbi
 COPY --from=backend /out/likeable /usr/local/bin/likeable
 COPY --from=fibe-cli /usr/local/bin/fibe /usr/local/bin/fibe
 COPY scripts/install-fibe.sh /usr/local/bin/install-fibe.sh
+COPY scripts/fibe-likeable-wrapper.sh /usr/local/bin/fibe-likeable-wrapper
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-RUN chmod +x /usr/local/bin/install-fibe.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/install-fibe.sh /usr/local/bin/fibe-likeable-wrapper /usr/local/bin/docker-entrypoint.sh
 USER likeable
 ENV ADDR=:8080 DATABASE_PATH=/data/likeable.db HOME=/tmp
 EXPOSE 8080

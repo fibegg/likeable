@@ -15,7 +15,12 @@ fi
 RUNTIME_FIBE_BIN_DIR="${LIKEABLE_FIBE_BIN_DIR:-${data_dir}/.fibe/bin}"
 RUNTIME_FIBE_BIN="${RUNTIME_FIBE_BIN_DIR}/fibe"
 export PATH="${RUNTIME_FIBE_BIN_DIR}:$PATH"
-export FIBE_CLI_PATH="${FIBE_CLI_PATH:-$RUNTIME_FIBE_BIN}"
+if [ -z "${FIBE_CLI_PATH:-}" ] && [ -x /usr/local/bin/fibe-likeable-wrapper ]; then
+  export FIBE_REAL_CLI="$RUNTIME_FIBE_BIN"
+  export FIBE_CLI_PATH="/usr/local/bin/fibe-likeable-wrapper"
+else
+  export FIBE_CLI_PATH="${FIBE_CLI_PATH:-$RUNTIME_FIBE_BIN}"
+fi
 
 fibe_binary_version() {
   binary="$1"
@@ -67,6 +72,7 @@ copy_baked_fibe() {
     return 1
   fi
   echo "[entrypoint] Copying baked fibe from /usr/local/bin/fibe"
+  mkdir -p "$RUNTIME_FIBE_BIN_DIR"
   cp /usr/local/bin/fibe "$RUNTIME_FIBE_BIN"
   chmod +x "$RUNTIME_FIBE_BIN"
 }
