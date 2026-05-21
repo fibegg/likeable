@@ -4003,6 +4003,8 @@ func TestAgentProjectPromptIncludesTargetContext(t *testing.T) {
 		"- backend [api,worker]: http://gitea.test/owner/backend",
 		"- app [app]: http://gitea.test/owner/app",
 		"- admin [admin]: http://gitea.test/owner/admin",
+		"Preserve the current product/domain and working behavior unless the user explicitly asks to replace it.",
+		"Run the available build/test/start command after code changes.",
 		"[[LIKEABLE_USER_CONTEXT_START]]",
 		"User request:\nChange the heading",
 		"[[LIKEABLE_USER_CONTEXT_END]]",
@@ -4011,6 +4013,108 @@ func TestAgentProjectPromptIncludesTargetContext(t *testing.T) {
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)
 		}
 	}
+}
+
+func TestPromptImproveUsesAssignedAgent(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	cliPath, logPath, stdinPath := fakePromptImproveFibeCLI(t)
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url":          "server.test:3000",
+		"fibe_api_key":           "key",
+		"fibe_cli_path":          cliPath,
+		"fibe_agent_server_pool": `[{"agent_id":"agent-1","server_id":"server-1","status":"active"}]`,
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	user, err := store.UpsertUser(t.Context(), "pilot@example.com", "Pilot", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateSession(t.Context(), user.ID, "prompt-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{ID: "project-prompt-improve", UserID: user.ID, Title: "car sharing webapp", ConversationID: "conv-prompt", AgentID: "agent-1", MarqueeID: "server-1", Status: "ready", PreviewURL: "http://preview.test"}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	req := httptest.NewRequest(http.MethodPost, "/api/projects/project-prompt-improve/prompt-improve", strings.NewReader(`{"text":"add some cars and enhance ux"}`))
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "prompt-token"})
+	rec := httptest.NewRecorder()
+
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("prompt improve returned %d: %s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Text   string `json:"text"`
+		Source string `json:"source"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Source != "agent" || !strings.Contains(body.Text, "Improve the existing car sharing webapp") {
+		t.Fatalf("body=%+v, want agent-improved prompt", body)
+	}
+	commands := readFile(t, logPath)
+	for _, want := range []string{
+		"agents create-conversation agent-1 --conversation-id likeable-prompt-improve-",
+		"agents send-message agent-1 --conversation-id likeable-prompt-improve-",
+		"agents messages agent-1 --conversation-id likeable-prompt-improve-",
+		"agents delete-conversation agent-1 --conversation-id likeable-prompt-improve-",
+	} {
+		if !strings.Contains(commands, want) {
+			t.Fatalf("commands missing %q:\n%s", want, commands)
+		}
+	}
+	payload := readFile(t, stdinPath)
+	for _, want := range []string{
+		"You are Likeable's prompt-improvement agent.",
+		"Do not edit files, do not run tools, do not build",
+		"Current app title: car sharing webapp",
+		`User draft:\nadd some cars and enhance ux`,
+	} {
+		if !strings.Contains(payload, want) {
+			t.Fatalf("prompt payload missing %q:\n%s", want, payload)
+		}
+	}
+}
+
+func fakePromptImproveFibeCLI(t *testing.T) (string, string, string) {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "fibe")
+	logPath := filepath.Join(dir, "commands.log")
+	stdinPath := filepath.Join(dir, "stdin.json")
+	script := `#!/bin/sh
+printf '%s\n' "$*" >> "` + logPath + `"
+case "$*" in
+  *"agents send-message"*)
+    cat > "` + stdinPath + `"
+    echo '{"ok":true}'
+    ;;
+  *"agents messages"*)
+    echo '{"content":[{"role":"assistant","body":"` + promptImproveStart + `\\nImprove the existing car sharing webapp by adding a clear vehicle inventory section, more polished ride/request UX, responsive spacing, empty/loading states, and a quick visual verification pass. Keep the current car sharing product intact and do not replace it with another app.\\n` + promptImproveEnd + `"}]}'
+    ;;
+  *"agents create-conversation"*|*"agents delete-conversation"*)
+    echo '{"ok":true}'
+    ;;
+  *)
+    echo "unexpected command: $*" >&2
+    exit 64
+    ;;
+esac
+`
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return path, logPath, stdinPath
 }
 
 func stringSliceContains(values []string, target string) bool {

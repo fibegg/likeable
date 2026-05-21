@@ -287,6 +287,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const [prompt, setPrompt] = useState('');
   const [busy, setBusy] = useState(false);
   const [messageSubmitting, setMessageSubmitting] = useState(false);
+  const [promptImproving, setPromptImproving] = useState(false);
   const [projectsLoaded, setProjectsLoaded] = useState(false);
   const [projectsLoadedUserID, setProjectsLoadedUserID] = useState('');
   const [pendingAgentRuns, setPendingAgentRuns] = useState<Record<string, number>>({});
@@ -935,6 +936,31 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     event.preventDefault();
     if (canSend) void createOrSend();
   };
+  const applyImprovedPrompt = (nextPrompt: string) => {
+    setPrompt(nextPrompt);
+    requestAnimationFrame(() => {
+      const textarea = textareaRef.current;
+      textarea?.focus();
+      textarea?.setSelectionRange(nextPrompt.length, nextPrompt.length);
+    });
+  };
+  const improveCurrentPrompt = async () => {
+    if (!activeProject || promptImproving) return;
+    const draft = prompt;
+    setPromptImproving(true);
+    try {
+      const response = await api<{ text: string; source?: string; warning?: string }>(`/api/projects/${activeProject.id}/prompt-improve`, {
+        method: 'POST',
+        body: JSON.stringify({ text: draft })
+      });
+      applyImprovedPrompt(response.text?.trim() || improvePromptDraft(draft, activeProject.title));
+    } catch (err) {
+      console.error(err);
+      applyImprovedPrompt(improvePromptDraft(draft, activeProject.title));
+    } finally {
+      setPromptImproving(false);
+    }
+  };
   const addFiles = (fileList: FileList | File[]) => {
     const nextFiles = Array.from(fileList).filter((file) => file.size > 0);
     if (nextFiles.length === 0) return;
@@ -1356,7 +1382,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
               {messageSubmitting ? <Loader2 className="spinIcon" size={22} /> : <Send size={22} />}
             </button>
             <div className="composerPromptTools">
-              <button type="button" onClick={() => textareaRef.current?.focus()} disabled={composerDisabled} aria-label={t('builder.promptTools.improve')} title={t('builder.promptTools.improve')}><Sparkles size={13} /> <span className="composerToolLabel">{t('builder.promptTools.improve')}</span></button>
+              <button type="button" onClick={() => void improveCurrentPrompt()} disabled={composerDisabled || promptImproving} aria-label={t('builder.promptTools.improve')} title={t('builder.promptTools.improve')}>{promptImproving ? <Loader2 size={13} className="spinIcon" /> : <Sparkles size={13} />} <span className="composerToolLabel">{t('builder.promptTools.improve')}</span></button>
               <button type="button" onClick={() => fileInputRef.current?.click()} disabled={composerDisabled || attachments.length >= MAX_ATTACHMENTS} aria-label={t('builder.promptTools.reference')} title={t('builder.promptTools.reference')}><ImagePlus size={13} /> <span className="composerToolLabel">{t('builder.promptTools.reference')}</span></button>
               <button type="button" onClick={openOnboardingTutorial} disabled={!signedIn} aria-label={t('builder.promptTools.starters')} title={t('builder.promptTools.starters')}><BookOpen size={13} /> <span className="composerToolLabel">{t('builder.promptTools.starters')}</span></button>
               <span className={`composerModeHint ${agentActivityActive ? 'active' : composerHintTone}`} aria-live="polite">{composerModeHint}</span>
@@ -1503,6 +1529,25 @@ function projectPageTitle(title: string, serviceName: string | undefined, t: (ke
   const normalizedServiceName = (serviceName ?? '').trim();
   if (!normalizedServiceName) return title;
   return t('page.projectServiceTitle', { title, service: normalizedServiceName });
+}
+
+function improvePromptDraft(rawPrompt: string, projectTitle?: string): string {
+  const draft = rawPrompt.trim().replace(/\s+/g, ' ');
+  const title = projectTitle?.trim();
+  const appContext = title ? `current "${title}" app` : 'current app';
+  if (!draft) {
+    return `Improve the ${appContext}. Keep the existing product/domain intact, tighten the main user flow, polish the responsive UI, and fix any obvious visual or interaction issues. Do not replace it with an unrelated app.`;
+  }
+  if (draft.toLowerCase().includes('do not replace it with an unrelated app')) {
+    return draft;
+  }
+  return [
+    `Improve the ${appContext}.`,
+    `Requested change: ${draft}.`,
+    'Stay in the same product/domain and build on the existing app; do not replace it with an unrelated app.',
+    'Make the result production-polished: clear layout hierarchy, responsive states, useful empty/loading/error states, and no overlapping text or controls.',
+    'Preserve existing working functionality unless the requested change explicitly says otherwise, then run the app/build and fix visible issues before finishing.'
+  ].join('\n');
 }
 
 type CollapsedChatPosition = { x: number; y: number };

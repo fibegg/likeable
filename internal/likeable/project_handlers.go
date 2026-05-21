@@ -160,6 +160,8 @@ func (s *Server) handleProjectRoute(w http.ResponseWriter, r *http.Request) {
 	switch parts[1] {
 	case "messages":
 		s.handleProjectMessages(w, r, user, project)
+	case "prompt-improve":
+		s.handleProjectPromptImprove(w, r, user, project)
 	case "feed":
 		s.handleProjectFeed(w, r, user, project)
 	case "preview-status":
