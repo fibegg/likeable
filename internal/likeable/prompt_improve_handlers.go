@@ -16,6 +16,7 @@ import (
 const (
 	promptImproveStart = "[[LIKEABLE_PROMPT_IMPROVE_START]]"
 	promptImproveEnd   = "[[LIKEABLE_PROMPT_IMPROVE_END]]"
+	promptImproveWait  = 55 * time.Second
 )
 
 func (s *Server) handleProjectPromptImprove(w http.ResponseWriter, r *http.Request, user *User, project *Project) {
@@ -53,7 +54,7 @@ func (s *Server) improvePromptWithAgent(ctx context.Context, user *User, project
 		return "", err
 	}
 	conversationID := "likeable-prompt-improve-" + uuid.NewString()
-	ctx, cancel := context.WithTimeout(ctx, 24*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, promptImproveWait)
 	defer cancel()
 	if err := client.EnsureConversation(ctx, conversationID, "Likeable prompt improve"); err != nil {
 		return "", err
