@@ -3926,6 +3926,50 @@ func TestIdleProjectStopTaskTreatsAlreadyStoppedAsSuccess(t *testing.T) {
 	}
 }
 
+func TestIdleProjectStopTaskTreatsMissingPlaygroundAsStopped(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	cliPath, logPath := fakeMissingPlaygroundFibeCLI(t)
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url": "server.test:3000",
+		"fibe_api_key":  "test-key",
+		"fibe_cli_path": cliPath,
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	user, err := store.UpsertUser(t.Context(), "idle-missing@example.com", "Idle", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{ID: "project-idle-missing", UserID: user.ID, Title: "Idle", ConversationID: "conv-idle-missing", AgentID: "agent-1", PlaygroundID: "playground-missing", Status: "ready", PlaygroundLastUsedAt: time.Now().UTC().Add(-idleProjectStopAfter - time.Minute).Format(time.RFC3339Nano)}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AddMessageAt(t.Context(), project.ID, "user", "old", time.Now().UTC().Add(-idleProjectStopAfter-time.Minute).Format(time.RFC3339Nano)); err != nil {
+		t.Fatal(err)
+	}
+	payload, _ := json.Marshal(projectJobPayload{UserID: user.ID, UserEmail: user.Email, ProjectID: project.ID})
+
+	if err := server.handleStopIdleProjectTask(t.Context(), asynq.NewTask(taskStopIdleProject, payload)); err != nil {
+		t.Fatal(err)
+	}
+
+	stored, err := store.ProjectForUser(t.Context(), user.ID, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != "stopped" {
+		t.Fatalf("status=%q, want stopped", stored.Status)
+	}
+	if log := readFile(t, logPath); !strings.Contains(log, "playgrounds stop playground-missing") {
+		t.Fatalf("missing stop command; log=%s", log)
+	}
+}
+
 func TestAgentProjectPromptIncludesTargetContext(t *testing.T) {
 	project := &Project{
 		ID:              "project-1",

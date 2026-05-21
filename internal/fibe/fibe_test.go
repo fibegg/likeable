@@ -155,6 +155,24 @@ func TestIsPlaygroundAlreadyStoppedError(t *testing.T) {
 	}
 }
 
+func TestIsPlaygroundMissingError(t *testing.T) {
+	for _, err := range []error{
+		&PlatformError{Code: "NOT_FOUND", Status: 404, Message: "Playground not found"},
+		&PlatformError{Code: "INTERNAL_ERROR", Status: 404, Message: "unexpected status 404"},
+		&PlatformError{Code: "RESOURCE_NOT_FOUND", Status: 422, Message: "playground is missing"},
+	} {
+		if !IsPlaygroundMissingError(err) {
+			t.Fatalf("IsPlaygroundMissingError(%v)=false, want true", err)
+		}
+	}
+	if IsPlaygroundMissingError(&PlatformError{Code: "NOT_FOUND", Status: 404, Message: "Conversation not found"}) {
+		t.Fatal("generic conversation 404 must not look like a playground miss when message is specific")
+	}
+	if IsPlaygroundMissingError(errors.New("playground not found")) {
+		t.Fatal("plain errors must not look like platform playground misses")
+	}
+}
+
 func TestIsAgentRuntimeUnavailableError(t *testing.T) {
 	for _, err := range []error{
 		&PlatformError{Code: "UNPROCESSABLE_ENTITY", Status: 422, Message: "No running AgentChat for Agent#1"},
