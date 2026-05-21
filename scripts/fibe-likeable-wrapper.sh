@@ -44,6 +44,17 @@ compact_response_body() {
   tr '\n\r\t' '   ' <"$file" | sed 's/  */ /g' | cut -c 1-700
 }
 
+duration_seconds() {
+  local value="$1"
+  case "$value" in
+    *h) printf '%s' "$(( ${value%h} * 3600 ))" ;;
+    *m) printf '%s' "$(( ${value%m} * 60 ))" ;;
+    *s) printf '%s' "${value%s}" ;;
+    ''|*[!0-9]*) printf '600' ;;
+    *) printf '%s' "$value" ;;
+  esac
+}
+
 curl_http_status() {
   local response_file="$1"
   local error_file status
@@ -363,6 +374,7 @@ marquee_id=""
 template_version_id=""
 wait_timeout="10m"
 variables="{}"
+service_subdomains="{}"
 
 while (($#)); do
   case "$1" in
@@ -390,6 +402,12 @@ while (($#)); do
       shift 2
       ;;
     --service-subdomain|--git-provider)
+      if [[ "$1" == "--service-subdomain" ]]; then
+        pair="${2:-}"
+        key="${pair%%=*}"
+        value="${pair#*=}"
+        service_subdomains="$(jq -c --arg key "$key" --arg value "$value" '. + {($key): $value}' <<<"$service_subdomains")"
+      fi
       shift 2
       ;;
     --private)
@@ -405,10 +423,111 @@ done
 [[ -n "$api_key" ]] || fail_json "Fibe API key is not configured"
 [[ -n "$name" ]] || fail_json "greenfield name is required"
 [[ -n "$marquee_id" ]] || fail_json "greenfield marquee id is required"
-[[ -n "$template_version_id" ]] || fail_json "greenfield template version id is required"
 log_wrapper "greenfield name=$name marquee_id=$marquee_id template_version_id=$template_version_id"
 
 base_url="$(base_url_from_domain "$domain")"
+
+if [[ -z "$template_version_id" ]]; then
+  create_file="$(mktemp)"
+  poll_file="$(mktemp)"
+  trap 'rm -f "$create_file" "$poll_file"' EXIT
+  payload="$(jq -n \
+    --arg name "$name" \
+    --arg marquee_id "$marquee_id" \
+    --argjson variables "$variables" \
+    --argjson service_subdomains "$service_subdomains" \
+    '{name:$name, git_provider:"gitea", private:true, marquee_id:($marquee_id|tonumber? // $marquee_id), variables:$variables, service_subdomains:$service_subdomains}')"
+  log_wrapper "greenfield default API name=$name marquee_id=$marquee_id"
+  if ! create_status="$(curl_http_status "$create_file" \
+    -X POST \
+    -H "Authorization: Bearer $api_key" \
+    -H "Accept: application/json" \
+    -H "Content-Type: application/json" \
+    --data-binary "$payload" \
+    "$base_url/api/greenfields")"; then
+    message="$create_status"
+    log_wrapper "greenfield create failed before response message=$message"
+    [[ -n "$message" ]] || message="greenfield create failed before receiving a response"
+    fail_json "$message" "SERVICE_UNAVAILABLE" "503"
+  fi
+  if [[ "$create_status" != 2* ]]; then
+    message="$(jq -r '.error.message? // .message? // empty' "$create_file" 2>/dev/null || true)"
+    error_code="$(jq -r '.error.code? // .code? // empty' "$create_file" 2>/dev/null || true)"
+    error_status="$(jq -r '.error.status? // .status? // empty' "$create_file" 2>/dev/null || true)"
+    [[ -n "$message" ]] || message="greenfield create failed ($create_status)"
+    [[ -n "$error_status" ]] || error_status="$create_status"
+    [[ -n "$error_code" ]] || error_code="$(platform_code_for_status "$error_status")"
+    log_wrapper "greenfield create failed status=$create_status code=$error_code message=$message body=$(compact_response_body "$create_file")"
+    fail_json "$message" "$error_code" "$error_status"
+  fi
+  if [[ "$create_status" == "202" ]]; then
+    status_url="$(jq -r '.status_url // empty' "$create_file")"
+    request_id="$(jq -r '.request_id // empty' "$create_file")"
+    if [[ -z "$status_url" ]]; then
+      [[ -n "$request_id" ]] || fail_json "greenfield create did not return an async request id"
+      status_url="/api/async_requests/$request_id"
+    fi
+    if [[ "$status_url" == http://* || "$status_url" == https://* ]]; then
+      poll_url="$status_url"
+    else
+      poll_url="$base_url/${status_url#/}"
+    fi
+    deadline=$(( $(date +%s) + $(duration_seconds "$wait_timeout") ))
+    while true; do
+      if ! poll_status="$(curl_http_status "$poll_file" \
+        -H "Authorization: Bearer $api_key" \
+        -H "Accept: application/json" \
+        "$poll_url")"; then
+        message="$poll_status"
+        [[ -n "$message" ]] || message="greenfield async poll failed before receiving a response"
+        fail_json "$message" "SERVICE_UNAVAILABLE" "503"
+      fi
+      if [[ "$poll_status" != 2* && "$poll_status" != "422" ]]; then
+        message="$(jq -r '.error.message? // .message? // empty' "$poll_file" 2>/dev/null || true)"
+        [[ -n "$message" ]] || message="greenfield async poll failed ($poll_status)"
+        fail_json "$message" "$(platform_code_for_status "$poll_status")" "$poll_status"
+      fi
+      async_status="$(jq -r '.status // empty' "$poll_file" 2>/dev/null || true)"
+      if [[ "$async_status" == "success" || ( -z "$async_status" && "$poll_status" == 2* ) ]]; then
+        cp "$poll_file" "$create_file"
+        break
+      fi
+      if [[ "$async_status" == "error" || "$poll_status" == "422" ]]; then
+        message="$(jq -r '.error.message? // .message? // .error? // empty' "$poll_file" 2>/dev/null || true)"
+        [[ -n "$message" ]] || message="greenfield async request failed"
+        fail_json "$message" "REMOTE_REQUEST_FAILED" "422"
+      fi
+      if (( $(date +%s) >= deadline )); then
+        fail_json "greenfield async request timed out after $wait_timeout" "TIMEOUT" "408"
+      fi
+      sleep 2
+    done
+  fi
+  playground_id="$(jq -r '
+    def first_object:
+      if type == "array" then (.[0] // {})
+      elif type == "object" then .
+      else {}
+      end;
+    (.payload // .result // .) as $root
+    | ($root.playground | first_object | .id) // $root.playground_id // $root.id // empty
+  ' "$create_file")"
+  [[ -n "$playground_id" ]] || fail_json "greenfield create did not return a playground id"
+  log_wrapper "greenfield default playground_id=$playground_id wait_timeout=$wait_timeout"
+  wait_file="$(mktemp)"
+  if ! "$REAL_FIBE" --domain "$domain" --api-key "$api_key" --output "$output" \
+    wait playground "$playground_id" --status running --timeout "$wait_timeout" --interval 8s >"$wait_file" 2>&1; then
+    message="$(compact_response_body "$wait_file")"
+    rm -f "$wait_file"
+    [[ -n "$message" ]] || message="playground $playground_id did not reach running"
+    log_wrapper "greenfield default playground_id=$playground_id wait failed message=$message"
+    fail_json "$message" "TIMEOUT" "408"
+  fi
+  rm -f "$wait_file"
+  log_wrapper "greenfield default playground_id=$playground_id running"
+  jq '(.payload // .result // .)' "$create_file"
+  exit 0
+fi
 
 templates_file="$(mktemp)"
 launch_file="$(mktemp)"
@@ -441,6 +560,29 @@ template_id="$(jq -r --arg version_id "$template_version_id" '
   | .[0].id // empty
 ' "$templates_file")"
 [[ -n "$template_id" ]] || fail_json "template for version $template_version_id was not found" "TEMPLATE_VERSION_NOT_FOUND" "422"
+template_system="$(jq -r --arg version_id "$template_version_id" '
+  (if type == "array" then . else (.data // .Data // .items // []) end)
+  | map(select(
+      ((.latest_version_id // .latestVersionId // "") | tostring) == $version_id
+      or (((.versions // [])
+        | map(if type == "object" then ((.id // "") | tostring) else "" end)
+        | index($version_id)) != null)
+  ))
+  | .[0].system // empty
+' "$templates_file")"
+template_name="$(jq -r --arg version_id "$template_version_id" '
+  (if type == "array" then . else (.data // .Data // .items // []) end)
+  | map(select(
+      ((.latest_version_id // .latestVersionId // "") | tostring) == $version_id
+      or (((.versions // [])
+        | map(if type == "object" then ((.id // "") | tostring) else "" end)
+        | index($version_id)) != null)
+  ))
+  | .[0].name // empty
+' "$templates_file")"
+if [[ "${LIKEABLE_ALLOW_NON_SYSTEM_TEMPLATE:-}" != "1" && "$template_system" == "false" ]]; then
+  fail_json "configured template version $template_version_id belongs to non-system import template ${template_name:-$template_id}; clear fibe_template_version_id to use the Fibe greenfield default" "INVALID_TEMPLATE_VERSION" "422"
+fi
 log_wrapper "template_id=$template_id"
 
 payload="$(jq -n \
