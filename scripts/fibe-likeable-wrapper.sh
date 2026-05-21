@@ -431,13 +431,25 @@ if [[ -z "$template_version_id" ]]; then
   create_file="$(mktemp)"
   poll_file="$(mktemp)"
   trap 'rm -f "$create_file" "$poll_file"' EXIT
-  payload="$(jq -n \
-    --arg name "$name" \
-    --arg marquee_id "$marquee_id" \
-    --argjson variables "$variables" \
-    --argjson service_subdomains "$service_subdomains" \
-    '{name:$name, git_provider:"gitea", private:true, marquee_id:($marquee_id|tonumber? // $marquee_id), variables:$variables, service_subdomains:$service_subdomains}')"
-  log_wrapper "greenfield default API name=$name marquee_id=$marquee_id"
+  template_body_path="${LIKEABLE_GREENFIELD_TEMPLATE_BODY_PATH:-/usr/local/share/likeable/go-fibe-greenfield.yaml}"
+  if [[ -f "$template_body_path" ]]; then
+    payload="$(jq -n \
+      --arg name "$name" \
+      --arg marquee_id "$marquee_id" \
+      --argjson variables "$variables" \
+      --argjson service_subdomains "$service_subdomains" \
+      --rawfile template_body "$template_body_path" \
+      '{name:$name, git_provider:"gitea", private:true, marquee_id:($marquee_id|tonumber? // $marquee_id), variables:$variables, service_subdomains:$service_subdomains, template_body:$template_body}')"
+    log_wrapper "greenfield default API name=$name marquee_id=$marquee_id template_body=$template_body_path"
+  else
+    payload="$(jq -n \
+      --arg name "$name" \
+      --arg marquee_id "$marquee_id" \
+      --argjson variables "$variables" \
+      --argjson service_subdomains "$service_subdomains" \
+      '{name:$name, git_provider:"gitea", private:true, marquee_id:($marquee_id|tonumber? // $marquee_id), variables:$variables, service_subdomains:$service_subdomains}')"
+    log_wrapper "greenfield default API name=$name marquee_id=$marquee_id template_body=platform-default"
+  fi
   if ! create_status="$(curl_http_status "$create_file" \
     -X POST \
     -H "Authorization: Bearer $api_key" \
