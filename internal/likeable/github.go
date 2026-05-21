@@ -223,10 +223,7 @@ func (s *Server) exportProjectToGithub(ctx context.Context, user *User, project 
 	if err != nil {
 		return "", err
 	}
-	owner := strings.TrimSpace(conn.ProviderUserID)
-	if owner == "" {
-		owner = githubOwnerFromRepoURL(repoURL)
-	}
+	owner := githubExportOwner(repoURL, conn.ProviderUserID)
 	if owner == "" {
 		return "", fmt.Errorf("github repository owner missing")
 	}
@@ -378,6 +375,13 @@ func githubOwnerFromRepoURL(raw string) string {
 		return ""
 	}
 	return strings.TrimSpace(parts[0])
+}
+
+func githubExportOwner(createdRepoURL, configuredOwner string) string {
+	if owner := githubOwnerFromRepoURL(createdRepoURL); owner != "" {
+		return owner
+	}
+	return strings.TrimSpace(configuredOwner)
 }
 
 func withBasicAuth(raw, username, token string) string {

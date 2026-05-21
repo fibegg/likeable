@@ -744,6 +744,15 @@ func TestCreateGithubRepoRejectsExistingRepository(t *testing.T) {
 	}
 }
 
+func TestGithubExportOwnerPrefersCreatedRepositoryOwner(t *testing.T) {
+	if got := githubExportOwner("https://github.com/token-owner/export-me", "configured-owner"); got != "token-owner" {
+		t.Fatalf("githubExportOwner returned %q, want token-owner", got)
+	}
+	if got := githubExportOwner("", "configured-owner"); got != "configured-owner" {
+		t.Fatalf("githubExportOwner fallback returned %q, want configured-owner", got)
+	}
+}
+
 func TestProjectArchiveExportCreatesDownloadableZip(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {
