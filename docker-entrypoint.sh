@@ -14,13 +14,8 @@ fi
 
 RUNTIME_FIBE_BIN_DIR="${LIKEABLE_FIBE_BIN_DIR:-${data_dir}/.fibe/bin}"
 RUNTIME_FIBE_BIN="${RUNTIME_FIBE_BIN_DIR}/fibe"
+RUNTIME_FIBE_WRAPPER="${RUNTIME_FIBE_BIN_DIR}/fibe-likeable-wrapper"
 export PATH="${RUNTIME_FIBE_BIN_DIR}:$PATH"
-if [ -z "${FIBE_CLI_PATH:-}" ] && [ -x /usr/local/bin/fibe-likeable-wrapper ]; then
-  export FIBE_REAL_CLI="$RUNTIME_FIBE_BIN"
-  export FIBE_CLI_PATH="/usr/local/bin/fibe-likeable-wrapper"
-else
-  export FIBE_CLI_PATH="${FIBE_CLI_PATH:-$RUNTIME_FIBE_BIN}"
-fi
 
 fibe_binary_version() {
   binary="$1"
@@ -125,7 +120,24 @@ ensure_runtime_fibe() {
   echo "[entrypoint] Runtime fibe ready: ${installed_version}"
 }
 
+sync_runtime_fibe_wrapper() {
+  if [ ! -x /usr/local/bin/fibe-likeable-wrapper ]; then
+    return
+  fi
+  mkdir -p "$RUNTIME_FIBE_BIN_DIR"
+  cp /usr/local/bin/fibe-likeable-wrapper "$RUNTIME_FIBE_WRAPPER"
+  chmod +x "$RUNTIME_FIBE_WRAPPER"
+}
+
 ensure_runtime_fibe
+sync_runtime_fibe_wrapper
+
+if [ -z "${FIBE_CLI_PATH:-}" ] && [ -x "$RUNTIME_FIBE_WRAPPER" ]; then
+  export FIBE_REAL_CLI="$RUNTIME_FIBE_BIN"
+  export FIBE_CLI_PATH="$RUNTIME_FIBE_WRAPPER"
+else
+  export FIBE_CLI_PATH="${FIBE_CLI_PATH:-$RUNTIME_FIBE_BIN}"
+fi
 
 if [ "$#" -eq 0 ]; then
   set -- likeable

@@ -131,6 +131,21 @@ func TestPlatformErrorPublicProjectErrorKindDoesNotClassifyMirrorLagAsConfigurat
 	}
 }
 
+func TestNewClientUsesEnvCLIPathWhenConfigOmitted(t *testing.T) {
+	t.Setenv("FIBE_CLI_PATH", "/tmp/fibe-wrapper")
+	client, err := NewClient(Config{
+		BaseURL: testFibeBaseURL(),
+		APIKey:  "test",
+		AgentID: "agent",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.cliPath != "/tmp/fibe-wrapper" {
+		t.Fatalf("cliPath=%q, want env wrapper", client.cliPath)
+	}
+}
+
 func TestIsIdempotentConversationCreateError(t *testing.T) {
 	if !IsIdempotentConversationCreateError(&PlatformError{Code: "INTERNAL_ERROR", Status: 422, Message: "conversation already exists"}) {
 		t.Fatal("duplicate/upsert conversation failure should be treated as idempotent")
