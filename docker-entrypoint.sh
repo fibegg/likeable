@@ -129,6 +129,8 @@ sync_runtime_fibe_wrapper() {
   if cp /usr/local/bin/fibe-likeable-wrapper "$RUNTIME_FIBE_WRAPPER" 2>/dev/null; then
     chmod +x "$RUNTIME_FIBE_WRAPPER"
     ACTIVE_FIBE_WRAPPER="$RUNTIME_FIBE_WRAPPER"
+  elif [ -x "$RUNTIME_FIBE_WRAPPER" ] && cmp -s /usr/local/bin/fibe-likeable-wrapper "$RUNTIME_FIBE_WRAPPER"; then
+    ACTIVE_FIBE_WRAPPER="$RUNTIME_FIBE_WRAPPER"
   else
     echo "[entrypoint] Could not update runtime fibe wrapper; using baked wrapper" >&2
     ACTIVE_FIBE_WRAPPER="/usr/local/bin/fibe-likeable-wrapper"
