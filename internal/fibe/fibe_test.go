@@ -784,6 +784,64 @@ func TestSendMessagePassesImageAttachmentsInline(t *testing.T) {
 	}
 }
 
+func TestMessagesAndActivityFallBackToRuntimeWhenFibeSyncIsEmpty(t *testing.T) {
+	cliPath, _, _ := fakeFibeCLI(t)
+	runtimeStatusCalls := 0
+	runtime := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/conversations/conv-1/messages":
+			writeJSONResponse(t, w, []map[string]any{
+				{"role": "user", "body": "hello"},
+				{"role": "assistant", "body": "done"},
+			})
+		case "/api/conversations/conv-1/activities":
+			writeJSONResponse(t, w, []map[string]any{
+				{"id": "activity-1", "type": "stream_start"},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer runtime.Close()
+	fibeAPI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/agents/agent/runtime_status" {
+			http.NotFound(w, r)
+			return
+		}
+		runtimeStatusCalls++
+		if got := r.Header.Get("Authorization"); got != "Bearer test" {
+			t.Fatalf("Authorization=%q, want bearer key", got)
+		}
+		writeJSONResponse(t, w, map[string]any{"chat_url": runtime.URL})
+	}))
+	defer fibeAPI.Close()
+	client := &Client{
+		baseURL:   fibeAPI.URL,
+		apiKey:    "test",
+		agentID:   "agent",
+		cliPath:   cliPath,
+		cliDomain: testFibeCLIDomain(),
+		http:      fibeAPI.Client(),
+	}
+	messages, err := client.Messages(t.Context(), "conv-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(messages) != 2 || messages[1].(map[string]any)["body"] != "done" {
+		t.Fatalf("messages=%#v, want runtime messages", messages)
+	}
+	activity, err := client.Activity(t.Context(), "conv-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(activity) != 1 || activity[0].(map[string]any)["id"] != "activity-1" {
+		t.Fatalf("activity=%#v, want runtime activity", activity)
+	}
+	if runtimeStatusCalls != 1 {
+		t.Fatalf("runtimeStatusCalls=%d, want cached chat URL", runtimeStatusCalls)
+	}
+}
+
 func TestConversationLiveStateFetchesRuntimeStreamState(t *testing.T) {
 	cliPath, logPath, _ := fakeFibeCLI(t)
 
@@ -1135,6 +1193,14 @@ func readFile(t *testing.T, path string) string {
 		t.Fatal(err)
 	}
 	return string(data)
+}
+
+func writeJSONResponse(t *testing.T, w http.ResponseWriter, value any) {
+	t.Helper()
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(value); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func containsString(values []string, want string) bool {

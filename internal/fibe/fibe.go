@@ -16,6 +16,7 @@ type Client struct {
 	templateVersionID string
 	cliPath           string
 	cliDomain         string
+	runtimeChatURL    string
 	http              *http.Client
 }
 
