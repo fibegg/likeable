@@ -24,7 +24,8 @@ func (s *Server) handleProjectPromptImprove(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	var body struct {
-		Text string `json:"text"`
+		Text   string `json:"text"`
+		Locale string `json:"locale"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid json")
@@ -34,7 +35,7 @@ func (s *Server) handleProjectPromptImprove(w http.ResponseWriter, r *http.Reque
 	if err != nil {
 		log.Printf("agent prompt improve failed for project %s: %v", project.ID, err)
 		writeJSON(w, http.StatusOK, map[string]any{
-			"text":    fallbackImprovedPrompt(body.Text, project.Title),
+			"text":    fallbackImprovedPrompt(body.Text, project.Title, body.Locale),
 			"source":  "fallback",
 			"warning": "prompt improve agent is unavailable",
 		})
@@ -160,11 +161,44 @@ func betweenMarkers(value, start, end string) string {
 	return strings.TrimSpace(value[contentStart : contentStart+endIndex])
 }
 
-func fallbackImprovedPrompt(draft, projectTitle string) string {
+func fallbackImprovedPrompt(draft, projectTitle string, locale ...string) string {
 	draft = strings.TrimSpace(strings.Join(strings.Fields(draft), " "))
 	context := "current app"
 	if title := strings.TrimSpace(projectTitle); title != "" {
 		context = fmt.Sprintf("current %q app", title)
+	}
+	language := fallbackPromptLanguage(draft, firstNonEmpty(locale...))
+	if language == "uk" {
+		ukContext := "поточний застосунок"
+		if title := strings.TrimSpace(projectTitle); title != "" {
+			ukContext = fmt.Sprintf("поточний застосунок %q", title)
+		}
+		if draft == "" {
+			return fmt.Sprintf("Покращ %s. Збережи наявний продукт і домен, посиль основний користувацький сценарій, відполіруй адаптивний UI та виправ очевидні візуальні або інтеракційні проблеми. Не замінюй застосунок на непов'язаний продукт.", ukContext)
+		}
+		return strings.Join([]string{
+			fmt.Sprintf("Покращ %s.", ukContext),
+			"Запитана зміна: " + draft + ".",
+			"Залишайся в тому самому продукті й домені та розвивай наявний застосунок; не замінюй його на непов'язаний продукт.",
+			"Доведи результат до запускової якості: чітка ієрархія, адаптивні стани, корисні empty/loading/error стани, без накладання тексту або контролів.",
+			"Збережи робочу функціональність, якщо запит явно не вимагає іншого, потім запусти build/app і виправ видимі проблеми перед завершенням.",
+		}, "\n")
+	}
+	if language == "ru" {
+		ruContext := "текущее приложение"
+		if title := strings.TrimSpace(projectTitle); title != "" {
+			ruContext = fmt.Sprintf("текущее приложение %q", title)
+		}
+		if draft == "" {
+			return fmt.Sprintf("Улучши %s. Сохрани текущий продукт и домен, усили основной пользовательский сценарий, отполируй адаптивный UI и исправь очевидные визуальные или интеракционные проблемы. Не заменяй приложение на несвязанный продукт.", ruContext)
+		}
+		return strings.Join([]string{
+			fmt.Sprintf("Улучши %s.", ruContext),
+			"Запрошенное изменение: " + draft + ".",
+			"Оставайся в том же продукте и домене, развивай существующее приложение; не заменяй его на несвязанный продукт.",
+			"Доведи результат до запускового качества: четкая иерархия, адаптивные состояния, полезные empty/loading/error состояния, без наложения текста или контролов.",
+			"Сохрани рабочую функциональность, если запрос явно не требует другого, затем запусти build/app и исправь видимые проблемы перед завершением.",
+		}, "\n")
 	}
 	if draft == "" {
 		return fmt.Sprintf("Improve the %s. Keep the existing product/domain intact, tighten the main user flow, polish the responsive UI, and fix any obvious visual or interaction issues. Do not replace it with an unrelated app.", context)
@@ -176,4 +210,24 @@ func fallbackImprovedPrompt(draft, projectTitle string) string {
 		"Make the result production-polished: clear layout hierarchy, responsive states, useful empty/loading/error states, and no overlapping text or controls.",
 		"Preserve existing working functionality unless the requested change explicitly says otherwise, then run the app/build and fix visible issues before finishing.",
 	}, "\n")
+}
+
+func fallbackPromptLanguage(draft, locale string) string {
+	locale = strings.ToLower(strings.TrimSpace(locale))
+	if strings.HasPrefix(locale, "uk") {
+		return "uk"
+	}
+	if containsCyrillic(draft) {
+		return "ru"
+	}
+	return "en"
+}
+
+func containsCyrillic(value string) bool {
+	for _, r := range value {
+		if r >= '\u0400' && r <= '\u04ff' {
+			return true
+		}
+	}
+	return false
 }

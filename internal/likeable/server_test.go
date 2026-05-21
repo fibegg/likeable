@@ -719,6 +719,31 @@ func TestProjectExportRequiresWorkflowGithubScope(t *testing.T) {
 	}
 }
 
+func TestCreateGithubRepoRejectsExistingRepository(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Path != "/user/repos" {
+			t.Fatalf("unexpected GitHub path %s", req.URL.Path)
+		}
+		return &http.Response{
+			StatusCode: http.StatusUnprocessableEntity,
+			Status:     "422 Unprocessable Entity",
+			Header:     make(http.Header),
+			Body: io.NopCloser(strings.NewReader(`{
+				"message":"Validation Failed",
+				"errors":[{"resource":"Repository","field":"name","code":"custom","message":"name already exists on this account"}]
+			}`)),
+		}, nil
+	})}
+
+	_, err := createGithubRepo(t.Context(), client, "token", "owner", "existing-repo", true)
+	if !errors.Is(err, errGithubRepoExists) {
+		t.Fatalf("err=%v, want errGithubRepoExists", err)
+	}
+	if got := publicGithubExportError(err); !strings.Contains(got, "already exists") {
+		t.Fatalf("public error=%q, want already-exists guidance", got)
+	}
+}
+
 func TestProjectArchiveExportCreatesDownloadableZip(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {
@@ -4179,6 +4204,17 @@ func TestPromptImproveUsesAssignedAgent(t *testing.T) {
 		if !strings.Contains(payload, want) {
 			t.Fatalf("prompt payload missing %q:\n%s", want, payload)
 		}
+	}
+}
+
+func TestFallbackImprovedPromptKeepsCyrillicLanguage(t *testing.T) {
+	ru := fallbackImprovedPrompt("добавь машины и улучши ux", "car sharing webapp")
+	if !strings.Contains(ru, "Запрошенное изменение") || !strings.Contains(ru, "car sharing webapp") {
+		t.Fatalf("ru fallback=%q, want Russian prompt with app context", ru)
+	}
+	uk := fallbackImprovedPrompt("add billing polish", "Likeable", "uk")
+	if !strings.Contains(uk, "Запитана зміна") || !strings.Contains(uk, "Likeable") {
+		t.Fatalf("uk fallback=%q, want Ukrainian prompt with app context", uk)
 	}
 }
 

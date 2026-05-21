@@ -951,12 +951,12 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     try {
       const response = await api<{ text: string; source?: string; warning?: string }>(`/api/projects/${activeProject.id}/prompt-improve`, {
         method: 'POST',
-        body: JSON.stringify({ text: draft })
+        body: JSON.stringify({ text: draft, locale })
       });
-      applyImprovedPrompt(response.text?.trim() || improvePromptDraft(draft, activeProject.title));
+      applyImprovedPrompt(response.text?.trim() || improvePromptDraft(draft, activeProject.title, t));
     } catch (err) {
       console.error(err);
-      applyImprovedPrompt(improvePromptDraft(draft, activeProject.title));
+      applyImprovedPrompt(improvePromptDraft(draft, activeProject.title, t));
     } finally {
       setPromptImproving(false);
     }
@@ -1531,22 +1531,23 @@ function projectPageTitle(title: string, serviceName: string | undefined, t: (ke
   return t('page.projectServiceTitle', { title, service: normalizedServiceName });
 }
 
-function improvePromptDraft(rawPrompt: string, projectTitle?: string): string {
+function improvePromptDraft(rawPrompt: string, projectTitle: string | undefined, t: (key: TranslationKey, params?: Record<string, string | number>) => string): string {
   const draft = rawPrompt.trim().replace(/\s+/g, ' ');
   const title = projectTitle?.trim();
-  const appContext = title ? `current "${title}" app` : 'current app';
+  const appContext = title ? t('promptImprove.fallback.namedApp', { title }) : t('promptImprove.fallback.currentApp');
   if (!draft) {
-    return `Improve the ${appContext}. Keep the existing product/domain intact, tighten the main user flow, polish the responsive UI, and fix any obvious visual or interaction issues. Do not replace it with an unrelated app.`;
+    return t('promptImprove.fallback.empty', { app: appContext });
   }
-  if (draft.toLowerCase().includes('do not replace it with an unrelated app')) {
+  const normalizedDraft = draft.toLowerCase();
+  if (normalizedDraft.includes('do not replace it with an unrelated app') || normalizedDraft.includes('не замінюй') || normalizedDraft.includes('не заменяй')) {
     return draft;
   }
   return [
-    `Improve the ${appContext}.`,
-    `Requested change: ${draft}.`,
-    'Stay in the same product/domain and build on the existing app; do not replace it with an unrelated app.',
-    'Make the result production-polished: clear layout hierarchy, responsive states, useful empty/loading/error states, and no overlapping text or controls.',
-    'Preserve existing working functionality unless the requested change explicitly says otherwise, then run the app/build and fix visible issues before finishing.'
+    t('promptImprove.fallback.intro', { app: appContext }),
+    t('promptImprove.fallback.requestedChange', { draft }),
+    t('promptImprove.fallback.preserveDomain'),
+    t('promptImprove.fallback.polish'),
+    t('promptImprove.fallback.verify')
   ].join('\n');
 }
 

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -23,6 +24,7 @@ var (
 	githubRepoNamePattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,100}$`)
 	urlUserInfoPattern    = regexp.MustCompile(`https?://[^\s/]+@`)
 	githubOAuthScopes     = []string{"repo", "workflow"}
+	errGithubRepoExists   = errors.New("github repository already exists")
 )
 
 func (s *Server) githubOAuthConfig(ctx context.Context) (*oauth2.Config, error) {
@@ -278,6 +280,9 @@ func githubScopeIncludes(scope, required string) bool {
 }
 
 func publicGithubExportError(err error) string {
+	if errors.Is(err, errGithubRepoExists) {
+		return "A GitHub repository with this name already exists. Choose another repository name, then export again."
+	}
 	message := strings.ToLower(strings.TrimSpace(fmt.Sprint(err)))
 	switch {
 	case strings.Contains(message, "workflow") && strings.Contains(message, "scope"):
@@ -300,17 +305,67 @@ func createGithubRepo(ctx context.Context, client *http.Client, token, owner, na
 		return "", err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusUnprocessableEntity {
-		return "", fmt.Errorf("github repo create failed: %s", resp.Status)
+	responseBody := readLimitedResponseBody(resp.Body)
+	if resp.StatusCode != http.StatusCreated {
+		return "", githubRepoCreateError(resp.Status, responseBody)
 	}
 	var out struct {
 		HTMLURL string `json:"html_url"`
+		Owner   struct {
+			Login string `json:"login"`
+		} `json:"owner"`
 	}
-	_ = json.NewDecoder(resp.Body).Decode(&out)
+	_ = json.Unmarshal(responseBody, &out)
 	if out.HTMLURL != "" {
 		return out.HTMLURL, nil
 	}
+	if owner == "" {
+		owner = strings.TrimSpace(out.Owner.Login)
+	}
+	if owner == "" {
+		return "", fmt.Errorf("github repository owner missing")
+	}
 	return "https://github.com/" + owner + "/" + name, nil
+}
+
+func readLimitedResponseBody(body io.Reader) []byte {
+	data, _ := io.ReadAll(io.LimitReader(body, 1<<20))
+	return data
+}
+
+func githubRepoCreateError(status string, body []byte) error {
+	message, validation := parseGithubErrorMessage(body)
+	lower := strings.ToLower(message + "\n" + validation)
+	if strings.Contains(lower, "already exists") || strings.Contains(lower, "name already exists") || strings.Contains(lower, "already_exists") {
+		if message == "" {
+			message = status
+		}
+		return fmt.Errorf("%w: %s", errGithubRepoExists, message)
+	}
+	if message != "" {
+		return fmt.Errorf("github repo create failed: %s: %s", status, message)
+	}
+	return fmt.Errorf("github repo create failed: %s", status)
+}
+
+func parseGithubErrorMessage(body []byte) (string, string) {
+	var out struct {
+		Message string `json:"message"`
+		Errors  []struct {
+			Resource string `json:"resource"`
+			Field    string `json:"field"`
+			Code     string `json:"code"`
+			Message  string `json:"message"`
+		} `json:"errors"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		return strings.TrimSpace(string(body)), ""
+	}
+	parts := make([]string, 0, len(out.Errors))
+	for _, item := range out.Errors {
+		parts = append(parts, strings.TrimSpace(strings.Join([]string{item.Resource, item.Field, item.Code, item.Message}, " ")))
+	}
+	return strings.TrimSpace(out.Message), strings.TrimSpace(strings.Join(parts, "\n"))
 }
 
 func githubOwnerFromRepoURL(raw string) string {
