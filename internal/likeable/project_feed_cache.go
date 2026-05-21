@@ -22,7 +22,6 @@ const (
 	projectMessagesWarning        = "Workspace messages are temporarily unavailable."
 	projectActivityWarning        = "Workspace activity is temporarily unavailable."
 	projectLiveWarning            = "Live workspace status is temporarily unavailable."
-	projectFeedBackoffLogLabel    = "workspace platform temporarily unavailable"
 )
 
 type projectFeedCacheEntry struct {
@@ -112,11 +111,8 @@ func (s *Server) loadProjectFeedSnapshot(ctx context.Context, user *User, projec
 		return base.clone(), nil
 	}
 
-	if remaining, ok := s.platformBackoffRemaining(); ok {
+	if _, ok := s.platformBackoffRemaining(); ok {
 		base.warning = projectFeedBackoffWarning
-		if remaining > 0 {
-			log.Printf("%s for project %s; skipping feed refresh for %s", projectFeedBackoffLogLabel, project.ID, remaining.Round(time.Second))
-		}
 		entry.snapshot = base.clone()
 		return base.clone(), nil
 	}
