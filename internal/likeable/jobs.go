@@ -564,7 +564,9 @@ func (s *Server) handleArchiveDeleteProjectTask(ctx context.Context, task *asynq
 	if err != nil {
 		return err
 	}
-	if conn, err := s.store.SocialConnection(ctx, user.ID, "github"); err == nil {
+	if conn, connected, needsReconnect, err := s.githubExportConnection(ctx, user.ID); err != nil {
+		log.Printf("archive project %s github export credential lookup failed: %v", project.ID, err)
+	} else if connected && !needsReconnect && conn != nil {
 		repoName := projecttext.SourceName(project.Title) + "-archive-" + strings.ReplaceAll(project.ID[:min(len(project.ID), 8)], "-", "")
 		if repoURL, err := s.exportProjectToGithub(ctx, user, project, conn, repoName, true); err == nil {
 			archive.GithubRepoURL = repoURL

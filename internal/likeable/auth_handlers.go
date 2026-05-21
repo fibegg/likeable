@@ -36,11 +36,11 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	notices = activeShellNotices(notices, time.Now().UTC(), 3)
 	githubConnected := false
 	githubNeedsReconnect := false
-	if conn, err := s.store.SocialConnection(r.Context(), user.ID, "github"); err == nil {
-		githubConnected = true
-		githubNeedsReconnect = conn != nil && !githubScopeIncludes(conn.Scope, "workflow")
-	} else if !errors.Is(err, sql.ErrNoRows) {
-		log.Printf("load github connection for user %s failed: %v", user.ID, err)
+	if _, connected, needsReconnect, err := s.githubExportConnection(r.Context(), user.ID); err == nil {
+		githubConnected = connected
+		githubNeedsReconnect = needsReconnect
+	} else {
+		log.Printf("load github export connection for user %s failed: %v", user.ID, err)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"user":                 user,

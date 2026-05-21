@@ -428,6 +428,103 @@ func TestMeIncludesGithubConnectionState(t *testing.T) {
 	}
 }
 
+func TestMeUsesConfiguredGithubFallback(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	user, err := store.UpsertUser(t.Context(), "github-fallback@example.com", "GitHub Fallback", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateSession(t.Context(), user.ID, "github-fallback-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"github_username": "fallback-owner",
+		"github_token":    "ghp_secret",
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/me", nil)
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "github-fallback-token"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("me returned %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var body map[string]any
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body["githubConnected"] != true || body["githubNeedsReconnect"] != false {
+		t.Fatalf("github state=%v/%v with configured fallback, want connected without reconnect", body["githubConnected"], body["githubNeedsReconnect"])
+	}
+}
+
+func TestGithubExportConnectionPrefersConfiguredFallbackForRepoOnlyOAuth(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	user, err := store.UpsertUser(t.Context(), "github-fallback-export@example.com", "GitHub Export", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertSocialConnection(t.Context(), SocialConnection{UserID: user.ID, Provider: "github", ProviderUserID: "repo-only", AccessToken: "oauth-token", Scope: "repo"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"github_username": "fallback-owner",
+		"github_token":    "fallback-token",
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+
+	conn, connected, needsReconnect, err := server.githubExportConnection(t.Context(), user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !connected || needsReconnect || conn == nil {
+		t.Fatalf("github fallback state connected=%t needsReconnect=%t conn=%+v, want usable fallback", connected, needsReconnect, conn)
+	}
+	if conn.ProviderUserID != "fallback-owner" || conn.AccessToken != "fallback-token" {
+		t.Fatalf("github fallback conn=%+v, want configured owner/token", conn)
+	}
+}
+
+func TestGithubExportConnectionUsesEnvironmentFallback(t *testing.T) {
+	t.Setenv("GITHUB_USERNAME", "env-owner")
+	t.Setenv("GITHUB_TOKEN", "env-token")
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	user, err := store.UpsertUser(t.Context(), "github-env-export@example.com", "GitHub Env Export", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	conn, connected, needsReconnect, err := server.githubExportConnection(t.Context(), user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !connected || needsReconnect || conn == nil {
+		t.Fatalf("github env fallback state connected=%t needsReconnect=%t conn=%+v, want usable fallback", connected, needsReconnect, conn)
+	}
+	if conn.ProviderUserID != "env-owner" || conn.AccessToken != "env-token" {
+		t.Fatalf("github env fallback conn=%+v, want env owner/token", conn)
+	}
+}
+
 func TestMeFiltersTransientShellNotices(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {
@@ -4737,12 +4834,20 @@ func TestPublicAdminConfigExposesSMTPSettings(t *testing.T) {
 		"smtp_port":       "2525",
 		"smtp_from_email": "noreply@example.com",
 		"smtp_password":   "secret",
+		"github_username": "fallback-owner",
+		"github_token":    "ghp_secret",
 	})
 	if entry := cfg["smtp_host"].(map[string]any); entry["value"] != "smtp.example.com" || entry["secret"].(bool) {
 		t.Fatalf("smtp_host entry=%+v, want public value", entry)
 	}
 	if entry := cfg["smtp_password"].(map[string]any); !entry["secret"].(bool) || !entry["set"].(bool) || entry["value"] != "" {
 		t.Fatalf("smtp_password entry=%+v, want write-only secret", entry)
+	}
+	if entry := cfg["github_username"].(map[string]any); entry["value"] != "fallback-owner" || entry["secret"].(bool) {
+		t.Fatalf("github_username entry=%+v, want public fallback owner", entry)
+	}
+	if entry := cfg["github_token"].(map[string]any); !entry["secret"].(bool) || !entry["set"].(bool) || entry["value"] != "" {
+		t.Fatalf("github_token entry=%+v, want write-only secret", entry)
 	}
 }
 

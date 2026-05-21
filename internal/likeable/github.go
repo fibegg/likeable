@@ -2,7 +2,9 @@ package likeable
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -116,6 +118,51 @@ func githubLogin(ctx context.Context, client *http.Client, token string) (string
 	return out.Login, nil
 }
 
+func (s *Server) githubExportConnection(ctx context.Context, userID string) (*SocialConnection, bool, bool, error) {
+	conn, err := s.store.SocialConnection(ctx, userID, "github")
+	if err == nil && conn != nil {
+		if githubScopeIncludes(conn.Scope, "workflow") {
+			return conn, true, false, nil
+		}
+		fallback, err := s.configuredGithubExportConnection(ctx)
+		if err != nil {
+			return nil, false, false, err
+		}
+		if fallback != nil {
+			return fallback, true, false, nil
+		}
+		return conn, true, true, nil
+	}
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, false, false, err
+	}
+	fallback, err := s.configuredGithubExportConnection(ctx)
+	if err != nil {
+		return nil, false, false, err
+	}
+	if fallback != nil {
+		return fallback, true, false, nil
+	}
+	return nil, false, false, nil
+}
+
+func (s *Server) configuredGithubExportConnection(ctx context.Context) (*SocialConnection, error) {
+	cfg, err := s.store.ConfigMap(ctx)
+	if err != nil {
+		return nil, err
+	}
+	token := firstNonEmptyString(cfg["github_token"], os.Getenv("GITHUB_TOKEN"), os.Getenv("GH_TOKEN"))
+	if token == "" {
+		return nil, nil
+	}
+	return &SocialConnection{
+		Provider:       "github",
+		ProviderUserID: firstNonEmptyString(cfg["github_username"], os.Getenv("GITHUB_USERNAME"), os.Getenv("GITHUB_OWNER"), os.Getenv("GH_USERNAME"), os.Getenv("GH_OWNER")),
+		AccessToken:    token,
+		Scope:          strings.Join(githubOAuthScopes, ","),
+	}, nil
+}
+
 func (s *Server) handleProjectExport(w http.ResponseWriter, r *http.Request, user *User, project *Project) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -141,12 +188,17 @@ func (s *Server) handleProjectExport(w http.ResponseWriter, r *http.Request, use
 		writeError(w, http.StatusBadRequest, "repoName may only contain letters, numbers, dots, underscores, and hyphens")
 		return
 	}
-	conn, err := s.store.SocialConnection(r.Context(), user.ID, "github")
+	conn, connected, needsReconnect, err := s.githubExportConnection(r.Context(), user.ID)
 	if err != nil {
+		log.Printf("load github export connection for user %s failed: %v", user.ID, err)
+		writeError(w, http.StatusInternalServerError, "GitHub export configuration could not be loaded")
+		return
+	}
+	if !connected || conn == nil {
 		writeError(w, http.StatusPreconditionRequired, "connect GitHub first")
 		return
 	}
-	if !githubScopeIncludes(conn.Scope, "workflow") {
+	if needsReconnect {
 		writeError(w, http.StatusPreconditionRequired, "Reconnect GitHub to grant workflow export permission.")
 		return
 	}
@@ -169,6 +221,13 @@ func (s *Server) exportProjectToGithub(ctx context.Context, user *User, project 
 	if err != nil {
 		return "", err
 	}
+	owner := strings.TrimSpace(conn.ProviderUserID)
+	if owner == "" {
+		owner = githubOwnerFromRepoURL(repoURL)
+	}
+	if owner == "" {
+		return "", fmt.Errorf("github repository owner missing")
+	}
 	fibe, err := s.fibeClientForProject(ctx, project, user.Email)
 	if err != nil {
 		return "", err
@@ -183,7 +242,7 @@ func (s *Server) exportProjectToGithub(ctx context.Context, user *User, project 
 	}
 	defer os.RemoveAll(temp)
 	sourceURL := withBasicAuth(project.RepoURL, giteaToken["username"], giteaToken["token"])
-	targetURL := withBasicAuth("https://github.com/"+conn.ProviderUserID+"/"+repoName+".git", "x-access-token", conn.AccessToken)
+	targetURL := withBasicAuth("https://github.com/"+owner+"/"+repoName+".git", "x-access-token", conn.AccessToken)
 	if err := runGit(ctx, temp, "clone", sourceURL, "."); err != nil {
 		return "", err
 	}
@@ -222,9 +281,9 @@ func publicGithubExportError(err error) string {
 	message := strings.ToLower(strings.TrimSpace(fmt.Sprint(err)))
 	switch {
 	case strings.Contains(message, "workflow") && strings.Contains(message, "scope"):
-		return "GitHub rejected workflow files. Reconnect GitHub to grant workflow export permission, then export again."
+		return "GitHub rejected workflow files. Grant workflow permission to the GitHub credential, then export again."
 	case strings.Contains(message, "authentication failed") || strings.Contains(message, "bad credentials") || strings.Contains(message, "401"):
-		return "GitHub authentication failed. Reconnect GitHub, then export again."
+		return "GitHub authentication failed. Reconnect GitHub or update the configured GitHub token, then export again."
 	default:
 		return "Export failed. Try again later."
 	}
@@ -252,6 +311,18 @@ func createGithubRepo(ctx context.Context, client *http.Client, token, owner, na
 		return out.HTMLURL, nil
 	}
 	return "https://github.com/" + owner + "/" + name, nil
+}
+
+func githubOwnerFromRepoURL(raw string) string {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || !strings.EqualFold(parsed.Host, "github.com") {
+		return ""
+	}
+	parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+	if len(parts) < 2 {
+		return ""
+	}
+	return strings.TrimSpace(parts[0])
 }
 
 func withBasicAuth(raw, username, token string) string {
