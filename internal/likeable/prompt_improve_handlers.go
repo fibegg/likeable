@@ -32,7 +32,7 @@ func (s *Server) handleProjectPromptImprove(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
-	improved, err := s.improvePromptWithAgent(r.Context(), user, project, body.Text)
+	improved, err := s.improvePromptWithAgent(r.Context(), user, project, body.Text, body.Locale)
 	if err != nil {
 		log.Printf("agent prompt improve failed for project %s: %v", project.ID, err)
 		writeJSON(w, http.StatusOK, map[string]any{
@@ -45,7 +45,7 @@ func (s *Server) handleProjectPromptImprove(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusOK, map[string]any{"text": improved, "source": "agent"})
 }
 
-func (s *Server) improvePromptWithAgent(ctx context.Context, user *User, project *Project, draft string) (string, error) {
+func (s *Server) improvePromptWithAgent(ctx context.Context, user *User, project *Project, draft, locale string) (string, error) {
 	if user == nil || project == nil {
 		return "", fmt.Errorf("project context is required")
 	}
@@ -59,6 +59,7 @@ func (s *Server) improvePromptWithAgent(ctx context.Context, user *User, project
 	if err := client.EnsureConversation(ctx, conversationID, "Likeable prompt improve"); err != nil {
 		return "", err
 	}
+	request := promptImproveRequest(project, draft, locale)
 	defer func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cleanupCancel()
@@ -66,12 +67,12 @@ func (s *Server) improvePromptWithAgent(ctx context.Context, user *User, project
 			log.Printf("delete prompt improve conversation %s: %v", conversationID, err)
 		}
 	}()
-	if err := client.SendMessage(ctx, conversationID, promptImproveRequest(project, draft), nil, "reject"); err != nil {
+	if err := client.SendMessage(ctx, conversationID, request, nil, "reject"); err != nil {
 		if fibegateway.IsAgentRuntimeUnavailableError(err) {
 			if startErr := s.startProjectAgentChat(ctx, project, client, "prompt improve"); startErr != nil {
 				return "", startErr
 			}
-			if retryErr := client.SendMessage(ctx, conversationID, promptImproveRequest(project, draft), nil, "reject"); retryErr == nil {
+			if retryErr := client.SendMessage(ctx, conversationID, request, nil, "reject"); retryErr == nil {
 				goto poll
 			} else {
 				return "", retryErr
@@ -98,7 +99,7 @@ poll:
 	}
 }
 
-func promptImproveRequest(project *Project, draft string) string {
+func promptImproveRequest(project *Project, draft, locale string) string {
 	title := ""
 	service := ""
 	if project != nil {
@@ -109,6 +110,7 @@ func promptImproveRequest(project *Project, draft string) string {
 	if draft == "" {
 		draft = "Improve the current app."
 	}
+	preferredLanguage := promptImprovePreferredLanguage(locale)
 	return fmt.Sprintf(`You are Likeable's prompt-improvement agent.
 
 Task:
@@ -116,16 +118,29 @@ Task:
 - Do not edit files, do not run tools, do not build, and do not ask follow-up questions.
 - Keep the solution universal: do not add domain-specific details unless they are present in the draft or current app context.
 - Preserve the current app/domain unless the draft explicitly asks to replace it.
-- Keep the user's language when it is clear; otherwise use English.
+- Keep the user's language when it is clear; otherwise use the preferred UI language.
 - Make the prompt specific about outcome, UX, responsive behavior, states, and verification.
 - Return only the improved prompt wrapped exactly between:
 %s
 %s
 
+Preferred UI language: %s
 Current app title: %s
 Selected service: %s
 User draft:
-%s`, promptImproveStart, promptImproveEnd, title, service, draft)
+%s`, promptImproveStart, promptImproveEnd, preferredLanguage, title, service, draft)
+}
+
+func promptImprovePreferredLanguage(locale string) string {
+	locale = strings.ToLower(strings.TrimSpace(locale))
+	switch {
+	case strings.HasPrefix(locale, "uk"):
+		return "Ukrainian"
+	case strings.HasPrefix(locale, "ru"):
+		return "Russian"
+	default:
+		return "English"
+	}
 }
 
 func extractPromptImprovement(messages []any) string {

@@ -4173,7 +4173,7 @@ func TestPromptImproveUsesAssignedAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
-	req := httptest.NewRequest(http.MethodPost, "/api/projects/project-prompt-improve/prompt-improve", strings.NewReader(`{"text":"add some cars and enhance ux"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/projects/project-prompt-improve/prompt-improve", strings.NewReader(`{"text":"add some cars and enhance ux","locale":"uk"}`))
 	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "prompt-token"})
 	rec := httptest.NewRecorder()
 
@@ -4207,6 +4207,7 @@ func TestPromptImproveUsesAssignedAgent(t *testing.T) {
 	for _, want := range []string{
 		"You are Likeable's prompt-improvement agent.",
 		"Do not edit files, do not run tools, do not build",
+		"Preferred UI language: Ukrainian",
 		"Current app title: car sharing webapp",
 		`User draft:\nadd some cars and enhance ux`,
 	} {
@@ -4224,6 +4225,9 @@ func TestFallbackImprovedPromptKeepsCyrillicLanguage(t *testing.T) {
 	uk := fallbackImprovedPrompt("add billing polish", "Likeable", "uk")
 	if !strings.Contains(uk, "Запитана зміна") || !strings.Contains(uk, "Likeable") {
 		t.Fatalf("uk fallback=%q, want Ukrainian prompt with app context", uk)
+	}
+	if got := promptImprovePreferredLanguage("uk-UA"); got != "Ukrainian" {
+		t.Fatalf("preferred language=%q, want Ukrainian", got)
 	}
 }
 
