@@ -8003,9 +8003,14 @@ body {
   opacity: .28;
 }
 
-.previewPane iframe,
-.previewContent > .emptyPreview {
+.previewPane iframe {
   position: relative;
+  z-index: 1;
+}
+
+.previewContent > .emptyPreview {
+  position: absolute;
+  inset: 0;
   z-index: 1;
 }
 
