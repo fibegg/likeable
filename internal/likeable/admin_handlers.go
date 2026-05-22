@@ -24,6 +24,7 @@ var secretConfigKeys = map[string]bool{
 	"github_token":          true,
 	"google_client_secret":  true,
 	"smtp_password":         true,
+	"agent_artefacts":       true,
 }
 
 func (s *Server) handleAdminConfig(w http.ResponseWriter, r *http.Request) {

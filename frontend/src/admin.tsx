@@ -551,7 +551,8 @@ function adminConfigLabel(key: string, t: (key: TranslationKey) => string): stri
     stripe_webhook_secret: 'admin.config.stripe_webhook_secret',
     free_hours: 'admin.config.free_hours',
     free_hour_window_hours: 'admin.config.free_hour_window_hours',
-    project_cap: 'admin.config.project_cap'
+    project_cap: 'admin.config.project_cap',
+    agent_artefacts: 'admin.config.agent_artefacts'
   };
   const labelKey = labelKeys[key];
   return labelKey ? t(labelKey) : key;

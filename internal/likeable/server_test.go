@@ -4146,6 +4146,62 @@ func TestAgentProjectPromptIncludesTargetContext(t *testing.T) {
 	}
 }
 
+func TestAgentProjectPromptIncludesResolvedArtefactsInSystemContext(t *testing.T) {
+	project := &Project{ID: "project-prompt", Title: "Prompt app", ConversationID: "conv-prompt"}
+	prompt := projecttext.AgentPromptWithArtefacts(project, "Use [artefact:cookie-master]", []projecttext.PromptArtefact{
+		{Name: "cookie-master", Content: "session=abc123"},
+	})
+	for _, want := range []string{
+		"- prompt artefacts:",
+		"[[LIKEABLE_ARTEFACT_START name=\"cookie-master\"]]",
+		"session=abc123",
+		"[[LIKEABLE_ARTEFACT_END name=\"cookie-master\"]]",
+		"Use prompt artefacts only when Likeable expands them in the system context.",
+		"User request:\nUse [artefact:cookie-master]",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
+func TestResolvePromptArtefactMacrosLoadsConfiguredArtefacts(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"agent_artefacts": `{"cookie-master":"session=abc123"}`,
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	text, artefacts, err := server.resolvePromptArtefactMacros(t.Context(), "Use {|artefact:cookie-master|} for auth")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text != "Use [artefact:cookie-master] for auth" {
+		t.Fatalf("text=%q, want macro placeholder", text)
+	}
+	if len(artefacts) != 1 || artefacts[0].Name != "cookie-master" || artefacts[0].Content != "session=abc123" {
+		t.Fatalf("artefacts=%+v, want configured cookie-master", artefacts)
+	}
+}
+
+func TestResolvePromptArtefactMacrosRejectsMissingArtefact(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	_, _, err = server.resolvePromptArtefactMacros(t.Context(), "Use {|artefact:cookie-master|}")
+	if err == nil || !strings.Contains(err.Error(), "cookie-master") {
+		t.Fatalf("err=%v, want missing artefact error", err)
+	}
+}
+
 func TestPromptImproveUsesAssignedAgent(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {

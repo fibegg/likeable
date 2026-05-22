@@ -101,7 +101,16 @@ func ServiceSubdomains(project *domain.Project) map[string]string {
 	}
 }
 
+type PromptArtefact struct {
+	Name    string
+	Content string
+}
+
 func AgentPrompt(project *domain.Project, userText string) string {
+	return AgentPromptWithArtefacts(project, userText, nil)
+}
+
+func AgentPromptWithArtefacts(project *domain.Project, userText string, artefacts []PromptArtefact) string {
 	return fmt.Sprintf(`[[LIKEABLE_SYSTEM_CONTEXT_START]]
 Likeable project context:
 - title: %s
@@ -117,6 +126,8 @@ Likeable project context:
 %s
 - project repositories:
 %s
+- prompt artefacts:
+%s
 
 [[LIKEABLE_AGENT_CONTRACT_START]]
 Operating contract:
@@ -126,6 +137,7 @@ Operating contract:
 - Build a real usable app surface, not a landing page, unless the user asks for a landing page.
 - Keep the UI responsive and production-polished: clear hierarchy, useful empty/loading/error states, no overlapping text or controls.
 - Run the available build/test/start command after code changes. If a provider, key, permission, or workspace issue blocks the work, report the exact blocker instead of silently stopping.
+- Use prompt artefacts only when Likeable expands them in the system context. If a request references an unresolved {|artefact:name|} macro, report the missing artefact instead of inventing it.
 [[LIKEABLE_AGENT_CONTRACT_END]]
 
 [[LIKEABLE_SYSTEM_CONTEXT_END]]
@@ -144,8 +156,28 @@ User request:
 		selectedServiceLine(project),
 		formatProjectServices(project),
 		formatProjectRepositories(project),
+		formatPromptArtefacts(artefacts),
 		userText,
 	)
+}
+
+func formatPromptArtefacts(artefacts []PromptArtefact) string {
+	if len(artefacts) == 0 {
+		return "  - none"
+	}
+	var b strings.Builder
+	for _, artefact := range artefacts {
+		name := strings.TrimSpace(artefact.Name)
+		content := strings.TrimSpace(artefact.Content)
+		if name == "" || content == "" {
+			continue
+		}
+		fmt.Fprintf(&b, "  - %s:\n[[LIKEABLE_ARTEFACT_START name=%q]]\n%s\n[[LIKEABLE_ARTEFACT_END name=%q]]\n", name, name, content, name)
+	}
+	if strings.TrimSpace(b.String()) == "" {
+		return "  - none"
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
 func selectedServiceLine(project *domain.Project) string {
