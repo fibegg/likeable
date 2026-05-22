@@ -320,6 +320,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   });
   const [collapsedChatPosition, setCollapsedChatPosition] = useState(() => initialCollapsedChatPosition());
   const [busyPolicy, setBusyPolicy] = useState<BusyPolicy>('queue');
+  const [accountMe, setAccountMe] = useState<Me>(me);
   const [hourQuota, setHourQuota] = useState<HourQuota | null>(me.hourQuota ?? null);
   const [quotaNow, setQuotaNow] = useState(Date.now());
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -506,7 +507,10 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     });
   });
   const refreshQuota = () => api<Me>('/api/me')
-    .then((next) => setHourQuota(next.hourQuota ?? null))
+    .then((next) => {
+      setAccountMe(next);
+      setHourQuota(next.hourQuota ?? null);
+    })
     .catch(() => undefined);
   const rememberPendingAgentRun = (projectID: string) => {
     setPendingAgentRuns((current) => ({ ...current, [projectID]: Date.now() }));
@@ -597,8 +601,9 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     }
   }, [profileRoute, signedIn]);
   useEffect(() => {
+    setAccountMe(me);
     setHourQuota(me.hourQuota ?? null);
-  }, [me.hourQuota]);
+  }, [me]);
   useEffect(() => {
     const timer = setInterval(() => setQuotaNow(Date.now()), 30000);
     return () => clearInterval(timer);
@@ -1322,7 +1327,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       {projectTitleButton('chatProjectTitle', true, true)}
       {builderChrome}
       {showProjects && <ProjectList projects={currentProjects} activeID={activeID} projectCap={projectCap} busy={busy} exportingID={exportingID} controllingID={controllingProjectID} onSelect={(id) => { setActiveID(id); setShowProjects(false); }} onNew={() => setConfirmNewProject(true)} onRename={renameProject} onDelete={setDeleteTarget} onExport={requestProjectExport} onControlPlayground={controlProjectPlayground} onClose={() => setShowProjects(false)} />}
-      {showProfile && <ProfilePanel me={me} onClose={closeProfilePanel} onOpenTutorial={openOnboardingTutorial} />}
+      {showProfile && <ProfilePanel me={accountMe} onClose={closeProfilePanel} onOpenTutorial={openOnboardingTutorial} onRefreshAccount={refreshBuilder} />}
       {showHelp && <HelpPanel markdown={t('help.markdown')} onClose={() => setShowHelp(false)} />}
       {showServices && activeProject?.services && <ServicePanel services={activeProject.services} selectedName={selectedService?.name} busy={busy} onSelect={(service) => void selectService(service)} onClose={() => setShowServices(false)} />}
       {!utilityScreenOpen && (

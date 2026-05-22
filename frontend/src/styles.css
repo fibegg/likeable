@@ -9212,3 +9212,39 @@ body {
     width: 100%;
   }
 }
+
+/* Launch hardening: keep the empty canvas copy inside the visible area above overlay chat. */
+.previewPane.chatExpanded .emptyPreview {
+  padding: calc(72px + env(safe-area-inset-top)) 18px calc(var(--basic-chat-height, 360px) + 56px + env(safe-area-inset-bottom));
+}
+
+.previewPane.chatExpanded .emptyCopy {
+  transform: none;
+}
+
+.profileHeaderActions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.profileHeaderActions .projectDelete {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  border: 1px solid var(--border-subtle);
+  background: rgba(18, 32, 41, .62);
+}
+
+.profileHeaderActions .profileRefreshButton:hover,
+.profileHeaderActions .profileRefreshButton:focus-visible {
+  color: var(--cyan);
+  background: rgba(174, 245, 255, .08);
+}
+
+.profileHeaderActions .profileRefreshButton:disabled {
+  cursor: wait;
+  opacity: .72;
+}

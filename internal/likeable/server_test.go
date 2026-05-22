@@ -5575,6 +5575,7 @@ func TestProjectQuotaCheckoutBuildsStripeMetadata(t *testing.T) {
 		t.Fatalf("checkout returned %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
 	if form.Get("line_items[0][price]") != "price_project_slot" ||
+		form.Get("success_url") != "http://example.test/profile?billing=success&session_id={CHECKOUT_SESSION_ID}" ||
 		form.Get("metadata[purchase_kind]") != "project_quota" ||
 		form.Get("metadata[project_slots]") != "1" ||
 		form.Get("metadata[project_quota_days]") != "30" {
@@ -5628,9 +5629,84 @@ func TestHourPackCheckoutBuildsStripeMetadata(t *testing.T) {
 		t.Fatalf("checkout returned %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
 	if form.Get("line_items[0][price]") != "price_10h" ||
+		form.Get("success_url") != "http://example.test/profile?billing=success&session_id={CHECKOUT_SESSION_ID}" ||
 		form.Get("metadata[purchase_kind]") != "hour_pack" ||
 		form.Get("metadata[pack_hours]") != "10" {
 		t.Fatalf("stripe form=%v, want hour pack metadata", form)
+	}
+}
+
+func TestBillingRefreshAppliesCompletedHourPack(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"stripe_secret_key":        "sk_test",
+		"stripe_price_id_10_hours": "price_10h",
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	user, err := store.UpsertUser(t.Context(), "buyer@example.com", "Buyer", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateSession(t.Context(), user.ID, "refresh-buyer-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		var body string
+		switch req.URL.Path {
+		case "/v1/checkout/sessions/cs_refresh_hour":
+			body = fmt.Sprintf(`{
+				"id":"cs_refresh_hour",
+				"client_reference_id":%q,
+				"amount_total":2500,
+				"currency":"usd",
+				"payment_status":"paid",
+				"status":"complete",
+				"metadata":{"purchase_kind":"hour_pack","pack_hours":"10"}
+			}`, user.ID)
+		case "/v1/checkout/sessions/cs_refresh_hour/line_items":
+			body = `{"data":[{"price":{"id":"price_10h"}}]}`
+		default:
+			t.Fatalf("unexpected stripe request %s", req.URL.String())
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(body)),
+		}, nil
+	})}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: client}
+	req := httptest.NewRequest(http.MethodPost, "/api/billing/refresh", strings.NewReader(`{"session_id":"cs_refresh_hour"}`))
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "refresh-buyer-token"})
+	rec := httptest.NewRecorder()
+
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("refresh returned %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Refreshed    bool   `json:"refreshed"`
+		Applied      bool   `json:"applied"`
+		Granted      bool   `json:"granted"`
+		PurchaseKind string `json:"purchaseKind"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.Refreshed || !body.Applied || !body.Granted || body.PurchaseKind != "hour_pack" {
+		t.Fatalf("refresh body=%+v, want applied hour pack grant", body)
+	}
+	balance, err := store.PaidHourCreditBalance(t.Context(), user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if balance != int64(10*time.Hour/time.Millisecond) {
+		t.Fatalf("balance=%d, want 10 paid hours", balance)
 	}
 }
 

@@ -1,18 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { BookOpen, Check, CircleAlert, ExternalLink, FolderOpen, GitBranch, Loader2, LogOut, Send, Trash2, Wallet, X } from 'lucide-react';
+import { BookOpen, Check, CircleAlert, ExternalLink, FolderOpen, GitBranch, Loader2, LogOut, RefreshCw, Send, Trash2, Wallet, X } from 'lucide-react';
 import { api } from './api';
 import { DeleteAllAccountDialog } from './builder_components';
 import type { Me, ProjectArchive, UserNotice } from './domain';
 import { formatBillingDuration, formatMessageTime, formatResetCountdown, formatShortDate, userInitials } from './format';
 import { resetCountdownLabels, statusLabel, useI18n } from './i18n';
 
-export function ProfilePanel({ me, onClose, onOpenTutorial }: { me: Me; onClose: () => void; onOpenTutorial: () => void }) {
+export function ProfilePanel({ me, onClose, onOpenTutorial, onRefreshAccount }: { me: Me; onClose: () => void; onOpenTutorial: () => void; onRefreshAccount: () => Promise<void> | void }) {
   const { locale, t } = useI18n();
   const [messages, setMessages] = useState<UserNotice[]>([]);
   const [archives, setArchives] = useState<ProjectArchive[]>([]);
   const [supportBody, setSupportBody] = useState('');
   const [busyPack, setBusyPack] = useState<number | null>(null);
   const [sendingSupport, setSendingSupport] = useState(false);
+  const [refreshingAccount, setRefreshingAccount] = useState(false);
   const [profileError, setProfileError] = useState('');
   const [deleteAllOpen, setDeleteAllOpen] = useState(false);
   const [deletingAll, setDeletingAll] = useState(false);
@@ -42,6 +43,38 @@ export function ProfilePanel({ me, onClose, onOpenTutorial }: { me: Me; onClose:
   useEffect(() => {
     void loadMessages();
     void loadArchives();
+  }, []);
+  const refreshAccount = async (sessionID = '') => {
+    setRefreshingAccount(true);
+    setProfileError('');
+    try {
+      if (sessionID.trim()) {
+        await api('/api/billing/refresh', {
+          method: 'POST',
+          body: JSON.stringify({ session_id: sessionID.trim() })
+        });
+      }
+      await onRefreshAccount();
+      await Promise.all([loadMessages(), loadArchives()]);
+    } catch (err) {
+      setProfileError(err instanceof Error ? err.message : t('profile.refreshFailed'));
+    } finally {
+      setRefreshingAccount(false);
+    }
+  };
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const billing = params.get('billing');
+    const sessionID = params.get('session_id') ?? '';
+    if (billing === 'success') {
+      const delays = [0, 1500, 4200];
+      const timers = delays.map((delay) => window.setTimeout(() => void refreshAccount(sessionID), delay));
+      window.history.replaceState({}, '', window.location.pathname);
+      return () => timers.forEach((timer) => window.clearTimeout(timer));
+    }
+    if (billing === 'cancel') {
+      window.history.replaceState({}, '', window.location.pathname);
+    }
   }, []);
   useEffect(() => {
     const container = profileMessagesRef.current;
@@ -133,7 +166,12 @@ export function ProfilePanel({ me, onClose, onOpenTutorial }: { me: Me; onClose:
           <span className="eyebrow">{t('profile.title')}</span>
           <strong>{me.user?.email}</strong>
         </div>
-        <button className="projectDelete" onClick={onClose} aria-label={t('profile.close')}><X size={15} /></button>
+        <div className="profileHeaderActions">
+          <button className="projectDelete profileRefreshButton" onClick={() => void refreshAccount()} disabled={refreshingAccount} aria-label={t('profile.refreshBalance')} title={t('profile.refreshBalance')}>
+            {refreshingAccount ? <Loader2 size={15} className="spin" /> : <RefreshCw size={15} />}
+          </button>
+          <button className="projectDelete" onClick={onClose} aria-label={t('profile.close')}><X size={15} /></button>
+        </div>
       </div>
       {profileError && <div className="adminError inlineAdminError">{profileError}</div>}
       <div className="profileGrid">
