@@ -439,6 +439,10 @@ func (s *Server) handleDevLogin(w http.ResponseWriter, r *http.Request) {
 	if email == "" {
 		email = "admin@example.com"
 	}
+	if !s.devLoginEmailAllowed(email) {
+		writeError(w, http.StatusForbidden, "dev auth is restricted to the configured admin")
+		return
+	}
 	if allowed, err := s.prepareEmailForSignIn(r.Context(), email); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -454,6 +458,14 @@ func (s *Server) handleDevLogin(w http.ResponseWriter, r *http.Request) {
 	s.setSession(w, r, user.ID)
 	s.ensureDefaultProject(r.Context(), user)
 	writeJSON(w, http.StatusOK, map[string]any{"user": user})
+}
+
+func (s *Server) devLoginEmailAllowed(email string) bool {
+	if !isHTTPS(s.config.BaseURL) {
+		return true
+	}
+	adminEmail := normalizeEmail(s.config.AdminEmail)
+	return adminEmail != "" && normalizeEmail(email) == adminEmail
 }
 
 func (s *Server) setSession(w http.ResponseWriter, r *http.Request, userID string) {

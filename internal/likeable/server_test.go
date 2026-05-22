@@ -4546,6 +4546,32 @@ func TestLoginRetiresPendingDeletionUserBeforeSignIn(t *testing.T) {
 	}
 }
 
+func TestDevLoginRestrictsPublicHTTPSBaseURLToAdmin(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.UpsertConfig(t.Context(), map[string]string{"signup_mode": "all"}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "https://likeable.test", AdminEmail: "admin@example.com", DevAuth: true}, http: http.DefaultClient}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/dev/login?email=pilot@example.com", nil)
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("public dev login returned %d, want 403; body=%s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/dev/login?email=admin@example.com", nil)
+	rec = httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("admin dev login returned %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestNormalizeAdminConfigValuesFormatsAllowlistAndPool(t *testing.T) {
 	values, err := normalizeAdminConfigValues(map[string]string{
 		"signup_allowed_emails": "Pilot@Gmail.com, @Trusted.test\npilot@gmail.com",
