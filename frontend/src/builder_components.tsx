@@ -603,7 +603,8 @@ export function OnboardingGallery({ ready, onUsePrompt, onStart, onDismiss }: { 
       body: t('onboarding.slide.messagesBody'),
       bullets: [
         t('onboarding.slide.messagesBulletOne'),
-        t('onboarding.slide.messagesBulletTwo')
+        t('onboarding.slide.messagesBulletTwo'),
+        t('onboarding.slide.messagesBulletThree')
       ]
     },
     {
