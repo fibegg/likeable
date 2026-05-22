@@ -237,6 +237,7 @@ func (s *Store) AgentPoolStats(ctx context.Context) ([]AgentPoolStat, error) {
 		SELECT projects.agent_id,
 			projects.marquee_id,
 			COUNT(DISTINCT projects.id) AS project_count,
+			COUNT(DISTINCT CASE WHEN projects.status != 'archived' THEN projects.id END) AS active_project_count,
 			SUM(CASE WHEN projects.status = 'archived' THEN 1 ELSE 0 END) AS archived_count,
 			COUNT(DISTINCT CASE WHEN project_archives.id IS NOT NULL THEN projects.id END) AS ready_archive_count
 		FROM projects
@@ -255,7 +256,7 @@ func (s *Store) AgentPoolStats(ctx context.Context) ([]AgentPoolStat, error) {
 	var out []AgentPoolStat
 	for rows.Next() {
 		var stat AgentPoolStat
-		if err := rows.Scan(&stat.AgentID, &stat.ServerID, &stat.ProjectCount, &stat.ArchivedCount, &stat.ReadyArchiveCount); err != nil {
+		if err := rows.Scan(&stat.AgentID, &stat.ServerID, &stat.ProjectCount, &stat.ActiveProjectCount, &stat.ArchivedCount, &stat.ReadyArchiveCount); err != nil {
 			return nil, err
 		}
 		out = append(out, stat)

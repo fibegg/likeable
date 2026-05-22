@@ -18,19 +18,20 @@ import (
 )
 
 type Server struct {
-	store        *store.Store
-	config       RuntimeConfig
-	http         *http.Client
-	recovering   sync.Map
-	refreshing   sync.Map
-	feedCache    sync.Map
-	cleanupOnce  sync.Once
-	cleanupSlots chan struct{}
-	email        emailSender
-	jobs         *JobSystem
-	limiter      *RateLimiter
-	limiterOnce  sync.Once
-	platform     platformBackoffState
+	store           *store.Store
+	config          RuntimeConfig
+	http            *http.Client
+	recovering      sync.Map
+	refreshing      sync.Map
+	feedCache       sync.Map
+	projectCreateMu sync.Mutex
+	cleanupOnce     sync.Once
+	cleanupSlots    chan struct{}
+	email           emailSender
+	jobs            *JobSystem
+	limiter         *RateLimiter
+	limiterOnce     sync.Once
+	platform        platformBackoffState
 }
 
 const (

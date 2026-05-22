@@ -4087,7 +4087,7 @@ html.draggingCollapsedChat * {
 .poolRows { display: grid; gap: 10px; }
 .poolRow {
   display: grid;
-  grid-template-columns: minmax(120px, .7fr) minmax(160px, 1fr) minmax(160px, 1fr) minmax(128px, .72fr) minmax(160px, .86fr) auto 38px;
+  grid-template-columns: minmax(120px, .65fr) minmax(150px, 1fr) minmax(150px, 1fr) minmax(96px, .48fr) minmax(120px, .64fr) minmax(160px, .8fr) auto 38px;
   align-items: end;
   gap: 10px;
   min-width: 0;
@@ -9094,7 +9094,7 @@ body {
 }
 
 .poolRow {
-  grid-template-columns: minmax(120px, .7fr) minmax(160px, 1fr) minmax(160px, 1fr) minmax(128px, .72fr) minmax(170px, .86fr) auto 38px;
+  grid-template-columns: minmax(120px, .65fr) minmax(150px, 1fr) minmax(150px, 1fr) minmax(96px, .48fr) minmax(120px, .64fr) minmax(170px, .82fr) auto 38px;
   padding: 10px;
 }
 

@@ -175,11 +175,12 @@ type ProjectArchive struct {
 }
 
 type AgentPoolStat struct {
-	AgentID           string `json:"agentId"`
-	ServerID          string `json:"serverId"`
-	ProjectCount      int    `json:"projectCount"`
-	ArchivedCount     int    `json:"archivedCount"`
-	ReadyArchiveCount int    `json:"readyArchiveCount"`
+	AgentID            string `json:"agentId"`
+	ServerID           string `json:"serverId"`
+	ProjectCount       int    `json:"projectCount"`
+	ActiveProjectCount int    `json:"activeProjectCount"`
+	ArchivedCount      int    `json:"archivedCount"`
+	ReadyArchiveCount  int    `json:"readyArchiveCount"`
 }
 
 type AgentAssignmentSummary struct {
@@ -194,6 +195,7 @@ type AgentPoolOption struct {
 	AgentID  string `json:"agentId"`
 	ServerID string `json:"serverId"`
 	Status   string `json:"status"`
+	Capacity int    `json:"capacity,omitempty"`
 }
 
 type UserNotice struct {

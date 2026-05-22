@@ -788,6 +788,10 @@ export function Admin() {
                   <input value={row.serverId} placeholder={t('admin.pool.serverPlaceholder')} onChange={(event) => setPoolRow(row.id, { serverId: event.target.value })} />
                 </label>
                 <label>
+                  <span>{t('admin.pool.capacity')}</span>
+                  <input type="number" min="0" inputMode="numeric" value={row.capacity} placeholder={t('admin.pool.capacityPlaceholder')} onChange={(event) => setPoolRow(row.id, { capacity: event.target.value })} />
+                </label>
+                <label>
                   <span>{t('admin.pool.status')}</span>
                   <select className="adminSelect" value={row.status} onChange={(event) => setPoolRow(row.id, { status: event.target.value as PoolRow['status'] })}>
                     <option value="active">{t('admin.pool.status.active')}</option>
@@ -800,7 +804,7 @@ export function Admin() {
                   {(() => {
                     const stat = statForPoolRow(row);
                     return stat
-                      ? t('admin.pool.stats', { projects: stat.projectCount, archived: stat.archivedCount, archives: stat.readyArchiveCount })
+                      ? t('admin.pool.stats', { projects: stat.projectCount, active: stat.activeProjectCount ?? Math.max(0, stat.projectCount - stat.archivedCount), archived: stat.archivedCount, archives: stat.readyArchiveCount })
                       : t('admin.pool.stats.empty');
                   })()}
                 </div>

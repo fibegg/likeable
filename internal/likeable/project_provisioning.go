@@ -2,7 +2,9 @@ package likeable
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"log"
@@ -18,6 +20,8 @@ import (
 const projectResourceRefreshInterval = 60 * time.Second
 const projectProvisioningRecoveryGrace = 2 * time.Minute
 const projectProvisioningRecoveryEnqueueTTL = projectProvisioningRecoveryGrace
+
+var errAgentPoolAtCapacity = errors.New("all active agent/server pairs are at capacity")
 
 func (s *Server) ensureDefaultProject(ctx context.Context, user *User) {
 	if user == nil {
@@ -46,12 +50,15 @@ func (s *Server) ensureDefaultProject(ctx context.Context, user *User) {
 }
 
 func (s *Server) createProjectRecord(ctx context.Context, user *User, title string) (*Project, error) {
+	s.projectCreateMu.Lock()
+	defer s.projectCreateMu.Unlock()
+
 	projectID := uuid.NewString()
 	cfg, err := s.store.ConfigMap(ctx)
 	if err != nil {
 		return nil, err
 	}
-	assignment, err := fibe.AssignmentForNewProject(cfg, projectID)
+	assignment, err := s.assignmentForNewProject(ctx, cfg, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -69,6 +76,90 @@ func (s *Server) createProjectRecord(ctx context.Context, user *User, title stri
 		return nil, err
 	}
 	return project, nil
+}
+
+func (s *Server) assignmentForNewProject(ctx context.Context, cfg map[string]string, projectID string) (fibe.Assignment, error) {
+	pool, err := fibe.AssignmentPoolFromConfig(cfg)
+	if err != nil {
+		return fibe.Assignment{}, err
+	}
+	active := make([]fibe.Assignment, 0, len(pool))
+	for _, assignment := range pool {
+		if fibe.AssignmentStatus(assignment) == fibe.AssignmentStatusActive {
+			active = append(active, assignment)
+		}
+	}
+	if len(active) == 0 {
+		return fibe.AssignmentForNewProject(cfg, projectID)
+	}
+	counts, err := s.activeAssignmentCounts(ctx)
+	if err != nil {
+		return fibe.Assignment{}, err
+	}
+	if assignment, ok := selectLaunchAssignment(projectID, active, counts); ok {
+		return assignment, nil
+	}
+	return fibe.Assignment{}, errAgentPoolAtCapacity
+}
+
+func (s *Server) activeAssignmentCounts(ctx context.Context) (map[string]int, error) {
+	stats, err := s.store.AgentPoolStats(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]int, len(stats))
+	for _, stat := range stats {
+		out[assignmentPairKey(stat.AgentID, stat.ServerID)] = stat.ActiveProjectCount
+	}
+	return out, nil
+}
+
+func selectLaunchAssignment(seed string, pool []fibe.Assignment, activeCounts map[string]int) (fibe.Assignment, bool) {
+	var selected fibe.Assignment
+	var selectedLoad int
+	var selectedRatio float64
+	var selectedScore uint64
+	for _, assignment := range pool {
+		agentID := strings.TrimSpace(assignment.AgentID)
+		serverID := strings.TrimSpace(assignment.MarqueeID)
+		if agentID == "" || serverID == "" {
+			continue
+		}
+		key := assignmentPairKey(agentID, serverID)
+		load := activeCounts[key]
+		if assignment.Capacity > 0 && load >= assignment.Capacity {
+			continue
+		}
+		ratio := assignmentLoadRatio(assignment, load)
+		score := assignmentTieScore(seed, key)
+		if selected.AgentID == "" ||
+			ratio < selectedRatio ||
+			(ratio == selectedRatio && load < selectedLoad) ||
+			(ratio == selectedRatio && load == selectedLoad && assignment.Capacity > selected.Capacity) ||
+			(ratio == selectedRatio && load == selectedLoad && assignment.Capacity == selected.Capacity && score > selectedScore) {
+			selected = assignment
+			selectedLoad = load
+			selectedRatio = ratio
+			selectedScore = score
+		}
+	}
+	return selected, selected.AgentID != ""
+}
+
+func assignmentLoadRatio(assignment fibe.Assignment, load int) float64 {
+	if assignment.Capacity > 0 {
+		return float64(load) / float64(assignment.Capacity)
+	}
+	return float64(load)
+}
+
+func assignmentPairKey(agentID, serverID string) string {
+	return strings.TrimSpace(agentID) + "\x00" + strings.TrimSpace(serverID)
+}
+
+func assignmentTieScore(seed, key string) uint64 {
+	sum := sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(seed)) + "\x00" + key))
+	return binary.BigEndian.Uint64(sum[:8])
 }
 
 func (s *Server) provisionProjectAsync(userID, userEmail, projectID, prompt string) error {

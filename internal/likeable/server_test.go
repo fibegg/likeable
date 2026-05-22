@@ -5003,6 +5003,78 @@ func TestCreateProjectRecordStoresAssignedFibePair(t *testing.T) {
 	}
 }
 
+func TestCreateProjectRecordUsesCapacityAwareLeastLoadedPair(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	user, err := store.UpsertUser(t.Context(), "pilot@example.com", "Pilot", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_agent_server_pool": `[
+			{"label":"A","agent_id":"agent-a","server_id":"server-a","capacity":1},
+			{"label":"B","agent_id":"agent-b","server_id":"server-b","capacity":2}
+		]`,
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateProject(t.Context(), &Project{
+		ID:             "existing-a",
+		UserID:         user.ID,
+		Title:          "Existing",
+		ConversationID: "conv-existing-a",
+		AgentID:        "agent-a",
+		MarqueeID:      "server-a",
+		Status:         "ready",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	project, err := server.createProjectRecord(t.Context(), user, "Assigned app")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if project.AgentID != "agent-b" || project.MarqueeID != "server-b" {
+		t.Fatalf("project assignment=%s/%s, want least-loaded pair agent-b/server-b", project.AgentID, project.MarqueeID)
+	}
+}
+
+func TestCreateProjectRecordRejectsFullAgentPool(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	user, err := store.UpsertUser(t.Context(), "pilot@example.com", "Pilot", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_agent_server_pool": `[{"agent_id":"agent-a","server_id":"server-a","capacity":1}]`,
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateProject(t.Context(), &Project{
+		ID:             "existing-a",
+		UserID:         user.ID,
+		Title:          "Existing",
+		ConversationID: "conv-existing-a",
+		AgentID:        "agent-a",
+		MarqueeID:      "server-a",
+		Status:         "ready",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, err = server.createProjectRecord(t.Context(), user, "Overflow app")
+	if !errors.Is(err, errAgentPoolAtCapacity) {
+		t.Fatalf("err=%v, want errAgentPoolAtCapacity", err)
+	}
+}
+
 func TestProvisionProjectLeaseSkipsDuplicateGreenfield(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {

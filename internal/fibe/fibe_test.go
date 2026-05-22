@@ -518,6 +518,19 @@ func TestParseAssignmentPoolDefaultsStatusActive(t *testing.T) {
 	}
 }
 
+func TestParseAssignmentPoolPreservesCapacity(t *testing.T) {
+	pool, err := ParseAssignmentPool(`[{"agentId":"agent-1","serverId":"server-1","maxProjects":"200"}]`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pool) != 1 || pool[0].Capacity != 200 {
+		t.Fatalf("pool=%+v, want capacity 200", pool)
+	}
+	if encoded := EncodeAssignmentPool(pool); !strings.Contains(encoded, `"capacity":200`) {
+		t.Fatalf("encoded=%s, want capacity preserved", encoded)
+	}
+}
+
 func TestParseAssignmentPoolRejectsInvalidStatus(t *testing.T) {
 	_, err := ParseAssignmentPool(`[{"agent_id":"agent-1","server_id":"server-1","status":"paused"}]`)
 	if err == nil || !strings.Contains(err.Error(), "invalid status") {

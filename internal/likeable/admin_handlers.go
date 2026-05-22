@@ -617,6 +617,7 @@ func adminAgentPoolOptionsFromConfig(cfg map[string]string) ([]AgentPoolOption, 
 			AgentID:  strings.TrimSpace(assignment.AgentID),
 			ServerID: strings.TrimSpace(assignment.MarqueeID),
 			Status:   fibe.AssignmentStatus(assignment),
+			Capacity: assignment.Capacity,
 		})
 	}
 	return options, nil
