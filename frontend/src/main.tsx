@@ -954,14 +954,15 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     const draft = prompt;
     setPromptImproving(true);
     try {
-      const response = await api<{ text: string; source?: string; warning?: string }>(`/api/projects/${activeProject.id}/prompt-improve`, {
+      const response = await api<{ text: string; source?: string; warning?: string; chargedMs?: number }>(`/api/projects/${activeProject.id}/prompt-improve`, {
         method: 'POST',
         body: JSON.stringify({ text: draft, locale })
       });
       applyImprovedPrompt(response.text?.trim() || improvePromptDraft(draft, activeProject.title, t));
+      if ((response.chargedMs ?? 0) > 0) void refreshQuota();
     } catch (err) {
       console.error(err);
-      applyImprovedPrompt(improvePromptDraft(draft, activeProject.title, t));
+      setDialog({ title: t('dialog.requestFailed.title'), body: err instanceof Error ? err.message : t('dialog.requestFailed.title'), tone: 'warning', confirmLabel: t('common.close') });
     } finally {
       setPromptImproving(false);
     }

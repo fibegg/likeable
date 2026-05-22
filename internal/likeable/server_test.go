@@ -4273,6 +4273,107 @@ func TestPromptImproveUsesAssignedAgent(t *testing.T) {
 	}
 }
 
+func TestPromptImproveChargesConfiguredMinutes(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	cliPath, _, _ := fakePromptImproveFibeCLI(t)
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url":                 "server.test:3000",
+		"fibe_api_key":                  "key",
+		"fibe_cli_path":                 cliPath,
+		"fibe_agent_server_pool":        `[{"agent_id":"agent-1","server_id":"server-1","status":"active"}]`,
+		"prompt_improve_charge_minutes": "7",
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	user, err := store.UpsertUser(t.Context(), "pilot@example.com", "Pilot", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateSession(t.Context(), user.ID, "prompt-charge-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{ID: "project-prompt-improve-charge", UserID: user.ID, Title: "car sharing webapp", ConversationID: "conv-prompt-charge", AgentID: "agent-1", MarqueeID: "server-1", Status: "ready", PreviewURL: "http://preview.test"}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	req := httptest.NewRequest(http.MethodPost, "/api/projects/project-prompt-improve-charge/prompt-improve", strings.NewReader(`{"text":"add some cars","locale":"en"}`))
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "prompt-charge-token"})
+	rec := httptest.NewRecorder()
+
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("prompt improve returned %d: %s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Source    string `json:"source"`
+		ChargedMs int64  `json:"chargedMs"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	wantMs := (7 * time.Minute).Milliseconds()
+	if body.Source != "agent" || body.ChargedMs != wantMs {
+		t.Fatalf("body=%+v, want agent source and %d charged ms", body, wantMs)
+	}
+	lifetimeMs, err := store.UserLifetimeWorkMs(t.Context(), user.ID, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lifetimeMs != wantMs {
+		t.Fatalf("lifetime work ms=%d, want %d", lifetimeMs, wantMs)
+	}
+}
+
+func TestPromptImproveChargeRequiresHourAllowanceBeforeAgent(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	cliPath, logPath, _ := fakePromptImproveFibeCLI(t)
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url":                 "server.test:3000",
+		"fibe_api_key":                  "key",
+		"fibe_cli_path":                 cliPath,
+		"fibe_agent_server_pool":        `[{"agent_id":"agent-1","server_id":"server-1","status":"active"}]`,
+		"free_hours":                    "0",
+		"prompt_improve_charge_minutes": "1",
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	user, err := store.UpsertUser(t.Context(), "pilot@example.com", "Pilot", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateSession(t.Context(), user.ID, "prompt-no-credit-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{ID: "project-prompt-improve-no-credit", UserID: user.ID, Title: "car sharing webapp", ConversationID: "conv-prompt-no-credit", AgentID: "agent-1", MarqueeID: "server-1", Status: "ready", PreviewURL: "http://preview.test"}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	req := httptest.NewRequest(http.MethodPost, "/api/projects/project-prompt-improve-no-credit/prompt-improve", strings.NewReader(`{"text":"add some cars","locale":"en"}`))
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "prompt-no-credit-token"})
+	rec := httptest.NewRecorder()
+
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusPaymentRequired {
+		t.Fatalf("prompt improve returned %d: %s", rec.Code, rec.Body.String())
+	}
+	commands, err := os.ReadFile(logPath)
+	if err == nil && strings.TrimSpace(string(commands)) != "" {
+		t.Fatalf("agent CLI was called despite no hour allowance:\n%s", commands)
+	}
+}
+
 func TestFallbackImprovedPromptKeepsCyrillicLanguage(t *testing.T) {
 	ru := fallbackImprovedPrompt("добавь машины и улучши ux", "car sharing webapp")
 	if !strings.Contains(ru, "Запрошенное изменение") || !strings.Contains(ru, "car sharing webapp") {

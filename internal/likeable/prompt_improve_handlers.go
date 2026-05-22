@@ -32,6 +32,18 @@ func (s *Server) handleProjectPromptImprove(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
+	chargeMinutes := s.promptImproveChargeMinutes(r.Context())
+	if chargeMinutes > 0 {
+		allowed, err := s.hourAllowance(r.Context(), user)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if !allowed {
+			writeError(w, http.StatusPaymentRequired, "hour pack required")
+			return
+		}
+	}
 	improved, err := s.improvePromptWithAgent(r.Context(), user, project, body.Text, body.Locale)
 	if err != nil {
 		log.Printf("agent prompt improve failed for project %s: %v", project.ID, err)
@@ -42,7 +54,37 @@ func (s *Server) handleProjectPromptImprove(w http.ResponseWriter, r *http.Reque
 		})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"text": improved, "source": "agent"})
+	chargedMs := int64(0)
+	if chargeMinutes > 0 {
+		var err error
+		chargedMs, err = s.billPromptImprove(r.Context(), user, project, chargeMinutes)
+		if err != nil {
+			log.Printf("bill prompt improve for project %s: %v", project.ID, err)
+			writeError(w, http.StatusInternalServerError, "could not bill prompt improvement")
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"text": improved, "source": "agent", "chargedMs": chargedMs})
+}
+
+func (s *Server) billPromptImprove(ctx context.Context, user *User, project *Project, minutes int) (int64, error) {
+	if user == nil || project == nil || minutes <= 0 {
+		return 0, nil
+	}
+	if minutes > maxPromptImproveChargeMin {
+		minutes = maxPromptImproveChargeMin
+	}
+	completedAt := time.Now().UTC()
+	duration := time.Duration(minutes) * time.Minute
+	startedAt := completedAt.Add(-duration)
+	sessionKey := "prompt-improve:" + uuid.NewString()
+	if err := s.store.StartProjectWorkSession(ctx, user.ID, project.ID, sessionKey, startedAt); err != nil {
+		return 0, err
+	}
+	if _, err := s.store.CompleteAndBillProjectWorkSession(ctx, user.ID, project.ID, sessionKey, completedAt, s.freeHourWindowHours(ctx), s.freeHourLimitMs(ctx)); err != nil {
+		return 0, err
+	}
+	return duration.Milliseconds(), nil
 }
 
 func (s *Server) improvePromptWithAgent(ctx context.Context, user *User, project *Project, draft, locale string) (string, error) {

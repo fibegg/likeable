@@ -588,6 +588,7 @@ A short summary of how Likeable handles your data.
   'admin.config.stripe_webhook_secret': 'Webhook secret',
   'admin.config.free_hours': 'Free hours per window',
   'admin.config.free_hour_window_hours': 'Free-hour window hours',
+  'admin.config.prompt_improve_charge_minutes': 'Improve prompt charge minutes',
   'admin.config.project_cap': 'Base playground cap',
   'admin.config.agent_artefacts': 'Agent artefacts JSON'
 } as const;
@@ -1182,6 +1183,7 @@ Likeable — сервіс для створення застосунків че�
   'admin.config.stripe_webhook_secret': 'Webhook secret',
   'admin.config.free_hours': 'Безплатних годин за вікно',
   'admin.config.free_hour_window_hours': 'Години вікна безплатних годин',
+  'admin.config.prompt_improve_charge_minutes': 'Хвилин списання за Improve Prompt',
   'admin.config.project_cap': 'Базовий ліміт майданчиків',
   'admin.config.agent_artefacts': 'JSON артефактів агента'
 };
