@@ -8112,6 +8112,10 @@ body {
   padding: 0 18px;
 }
 
+.previewPane.chatExpanded .emptyCopy {
+  transform: translateY(clamp(-220px, -24vh, -150px));
+}
+
 .emptyCopy h1 {
   color: var(--text-primary);
   font-size: clamp(30px, 4.2vw, 56px);
@@ -8265,6 +8269,10 @@ body {
 
   .emptyCopy p {
     font-size: 13.5px;
+  }
+
+  .previewPane.chatExpanded .emptyCopy {
+    transform: translateY(clamp(-160px, -18dvh, -92px));
   }
 
   .dropOverlay {
