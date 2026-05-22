@@ -315,6 +315,9 @@ func (c *Client) DeleteGiteaRepo(ctx context.Context, repoURL string) error {
 	}
 	token, err := c.GiteaToken(ctx)
 	if err != nil {
+		if resourceAlreadyDeleted(err) {
+			return nil
+		}
 		return err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, baseURL+"/api/v1/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo), nil)
