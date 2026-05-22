@@ -23,6 +23,8 @@ function AdminCustomersPanel() {
   const [accessNote, setAccessNote] = useState('');
   const [noticeBody, setNoticeBody] = useState('');
   const [noticeSeverity, setNoticeSeverity] = useState('warning');
+  const [grantHours, setGrantHours] = useState('1');
+  const [grantingHours, setGrantingHours] = useState(false);
   const [dialog, setDialog] = useState<AppDialogConfig | null>(null);
   const noticeListRef = useRef<HTMLDivElement | null>(null);
 
@@ -117,6 +119,26 @@ function AdminCustomersPanel() {
       return;
     }
     await applyAccess(status);
+  };
+  const grantBuildHours = async () => {
+    if (!selectedUserID) return;
+    const hours = Number(grantHours);
+    if (!Number.isFinite(hours) || hours < 1) return;
+    setGrantingHours(true);
+    setActionError('');
+    try {
+      const response = await api<{ detail: AdminUserDetail }>(`/api/admin/users/${selectedUserID}/billing/hours`, {
+        method: 'POST',
+        body: JSON.stringify({ hours })
+      });
+      setDetail(response.detail);
+      setAgentPool((current) => response.detail.agentPool ?? current);
+      await loadUsers();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : t('admin.grant.failed'));
+    } finally {
+      setGrantingHours(false);
+    }
   };
   const sendNotice = async () => {
     if (!selectedUserID || !noticeBody.trim()) return;
@@ -321,6 +343,27 @@ function AdminCustomersPanel() {
                 <Metric label={t('admin.metric.paidSlots')} value={selectedSummary.paidProjectSlots ? `${selectedSummary.paidProjectSlots}${selectedSummary.projectSlotsExpire ? ` ${t('common.until')} ${formatShortDate(selectedSummary.projectSlotsExpire, locale)}` : ''}` : '0'} />
                 <Metric label={t('admin.metric.github')} value={selectedSummary.githubConnected ? t('common.connected') : t('common.missing')} />
                 <Metric label={t('admin.metric.paid')} value={formatMoney(selectedSummary.paidTotalCents, selectedSummary.paidCurrency)} />
+              </div>
+              <div className="supportGrantBox">
+                <div className="adminCardHeader compactHeader">
+                  <h3>{t('admin.grant.title')}</h3>
+                  <p>{t('admin.grant.body')}</p>
+                </div>
+                <div className="supportGrantControls">
+                  <label className="configLabel compactConfigLabel">
+                    <span>{t('admin.grant.hours')}</span>
+                    <select className="adminSelect" value={grantHours} onChange={(event) => setGrantHours(event.target.value)}>
+                      <option value="1">1</option>
+                      <option value="5">5</option>
+                      <option value="10">10</option>
+                      <option value="25">25</option>
+                    </select>
+                  </label>
+                  <button className="ghostButton" disabled={grantingHours} onClick={() => void grantBuildHours()}>
+                    {grantingHours ? <Loader2 className="spinIcon" size={15} /> : <Plus size={15} />}
+                    {t('admin.grant.button')}
+                  </button>
+                </div>
               </div>
               <div className="moderationBox">
                 <label className="configLabel">

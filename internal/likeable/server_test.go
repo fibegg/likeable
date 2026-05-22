@@ -4576,6 +4576,71 @@ func TestAdminUserResponsesExposeProjectAssignments(t *testing.T) {
 	}
 }
 
+func TestAdminUserGrantHoursAddsBalanceAndNotice(t *testing.T) {
+	appStore, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer appStore.Close()
+	server := &Server{store: appStore, config: RuntimeConfig{BaseURL: "http://example.test", AdminEmail: "admin@example.com"}, http: http.DefaultClient}
+	admin, err := appStore.UpsertUser(t.Context(), "admin@example.com", "Admin", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	user, err := appStore.UpsertUser(t.Context(), "pilot@example.com", "Pilot", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := appStore.CreateSession(t.Context(), admin.ID, "admin-grant-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/users/"+user.ID+"/billing/hours", strings.NewReader(`{"hours":5}`))
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "admin-grant-token"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("grant hours returned %d: %s", rec.Code, rec.Body.String())
+	}
+	balance, err := appStore.PaidHourCreditBalance(t.Context(), user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if balance != int64(5*time.Hour/time.Millisecond) {
+		t.Fatalf("balance=%d, want 5h credit", balance)
+	}
+	var body struct {
+		Detail  AdminUserDetail `json:"detail"`
+		Granted bool            `json:"granted"`
+		Hours   int             `json:"hours"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.Granted || body.Hours != 5 || body.Detail.Summary.PaidHourBalanceMs != int64(5*time.Hour/time.Millisecond) {
+		t.Fatalf("grant response=%+v, want refreshed 5h balance", body)
+	}
+	foundNotice := false
+	for _, notice := range body.Detail.Notices {
+		if notice.Sender == "system" && strings.Contains(notice.Body, "5 build hours") {
+			foundNotice = true
+			break
+		}
+	}
+	if !foundNotice {
+		t.Fatalf("notices=%+v, want system grant notice", body.Detail.Notices)
+	}
+
+	badReq := httptest.NewRequest(http.MethodPost, "/api/admin/users/"+user.ID+"/billing/hours", strings.NewReader(`{"hours":101}`))
+	badReq.AddCookie(&http.Cookie{Name: "likeable_session", Value: "admin-grant-token"})
+	badRec := httptest.NewRecorder()
+	server.routes().ServeHTTP(badRec, badReq)
+	if badRec.Code != http.StatusBadRequest {
+		t.Fatalf("oversized grant returned %d, want 400", badRec.Code)
+	}
+}
+
 func TestAdminRecoveryReportsDeletionBacklog(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {

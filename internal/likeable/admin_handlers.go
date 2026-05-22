@@ -11,7 +11,10 @@ import (
 	"time"
 
 	"github.com/fibegg/likeable/internal/fibe"
+	"github.com/google/uuid"
 )
+
+const adminMaxHourGrant = 100
 
 var secretConfigKeys = map[string]bool{
 	"fibe_api_key":          true,
@@ -281,6 +284,8 @@ func (s *Server) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 		s.handleAdminUserNotice(w, r, userID)
 	case len(parts) == 3 && parts[1] == "notices" && r.Method == http.MethodDelete:
 		s.handleAdminUserNoticeUnsend(w, r, userID, parts[2])
+	case len(parts) == 3 && parts[1] == "billing" && parts[2] == "hours" && r.Method == http.MethodPost:
+		s.handleAdminUserGrantHours(w, r, userID)
 	case len(parts) == 3 && parts[1] == "projects" && r.Method == http.MethodDelete:
 		s.handleAdminUserProjectDelete(w, r, userID, parts[2])
 	case len(parts) == 4 && parts[1] == "projects" && parts[3] == "assignment" && r.Method == http.MethodPatch:
@@ -400,6 +405,56 @@ func (s *Server) handleAdminUserNotice(w http.ResponseWriter, r *http.Request, u
 	}
 	s.sendUserEmailAsync(target.Email, "New Likeable message", s.systemMessageEmailBody(target, notice.Body))
 	writeJSON(w, http.StatusCreated, map[string]any{"notice": notice})
+}
+
+func (s *Server) handleAdminUserGrantHours(w http.ResponseWriter, r *http.Request, userID string) {
+	var body struct {
+		Hours int `json:"hours"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	if body.Hours <= 0 || body.Hours > adminMaxHourGrant {
+		writeError(w, http.StatusBadRequest, "hours must be between 1 and "+strconv.Itoa(adminMaxHourGrant))
+		return
+	}
+	if _, err := s.store.UserByID(r.Context(), userID); err != nil {
+		writeError(w, http.StatusNotFound, "user not found")
+		return
+	}
+	granted, err := s.store.GrantHourCredits(r.Context(), userID, "admin_grant_"+uuid.NewString(), body.Hours)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if granted {
+		hourLabel := "hours"
+		if body.Hours == 1 {
+			hourLabel = "hour"
+		}
+		_, _ = s.store.AddUserNotice(r.Context(), UserNotice{
+			UserID:   userID,
+			Sender:   "system",
+			Severity: "info",
+			Body:     "Support added " + strconv.Itoa(body.Hours) + " build " + hourLabel + " to your account.",
+		})
+	}
+	windowStart, windowEnd := s.freeHourWindow(time.Now(), r.Context())
+	detail, err := s.store.AdminUserDetail(r.Context(), userID, s.freeHourLimitMs(r.Context()), windowStart, windowEnd)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	detail.Summary.ProjectLimit = s.baseProjectCap(r.Context()) + detail.Summary.PaidProjectSlots
+	pool, err := s.adminAgentPoolOptions(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	decorateAdminDetailAssignmentStatuses(detail, pool)
+	detail.AgentPool = pool
+	writeJSON(w, http.StatusOK, map[string]any{"detail": detail, "granted": granted, "hours": body.Hours})
 }
 
 func (s *Server) handleAdminUserNoticeUnsend(w http.ResponseWriter, r *http.Request, userID, noticeID string) {

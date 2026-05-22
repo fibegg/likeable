@@ -3822,6 +3822,7 @@ html.draggingCollapsedChat * {
   white-space: nowrap;
 }
 .moderationBox,
+.supportGrantBox,
 .adminProjects,
 .noticeHistory,
 .adminMessageConsole {
@@ -3853,6 +3854,19 @@ html.draggingCollapsedChat * {
 }
 .compactActions {
   margin-top: 0;
+}
+.supportGrantBox {
+  display: grid;
+  gap: 9px;
+}
+.supportGrantControls {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) auto;
+  align-items: end;
+  gap: 9px;
+}
+.supportGrantControls .ghostButton {
+  min-height: 42px;
 }
 .adminProjectRow {
   display: grid;
@@ -8844,6 +8858,7 @@ body {
 .customerList,
 .customerDetail,
 .moderationBox,
+.supportGrantBox,
 .adminProjects,
 .adminMessageConsole {
   border-color: rgba(174, 245, 255, .11);
@@ -8972,6 +8987,7 @@ body {
 }
 
 .moderationBox,
+.supportGrantBox,
 .adminProjects {
   padding: 11px;
 }
