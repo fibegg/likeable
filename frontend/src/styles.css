@@ -648,17 +648,6 @@ html[data-builder-mode="split"] .account {
   background-position: 30px 20px, 120px 80px, 70px 110px;
   opacity: .6;
 }
-.corner {
-  position: absolute;
-  width: 22px;
-  height: 22px;
-  border-color: var(--line-strong);
-  opacity: .8;
-}
-.corner.tl { left: 10px; top: 10px; border-left: 1px solid; border-top: 1px solid; }
-.corner.tr { right: 10px; top: 10px; border-right: 1px solid; border-top: 1px solid; }
-.corner.bl { left: 10px; bottom: 10px; border-left: 1px solid; border-bottom: 1px solid; }
-.corner.br { right: 10px; bottom: 10px; border-right: 1px solid; border-bottom: 1px solid; }
 .reticle {
   position: absolute;
   width: 58px;
