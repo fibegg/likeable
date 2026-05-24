@@ -518,6 +518,19 @@ func TestParseAssignmentPoolDefaultsStatusActive(t *testing.T) {
 	}
 }
 
+func TestParseAssignmentPoolPreservesCapacity(t *testing.T) {
+	pool, err := ParseAssignmentPool(`[{"agentId":"agent-1","serverId":"server-1","maxProjects":"200"}]`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pool) != 1 || pool[0].Capacity != 200 {
+		t.Fatalf("pool=%+v, want capacity 200", pool)
+	}
+	if encoded := EncodeAssignmentPool(pool); !strings.Contains(encoded, `"capacity":200`) {
+		t.Fatalf("encoded=%s, want capacity preserved", encoded)
+	}
+}
+
 func TestParseAssignmentPoolRejectsInvalidStatus(t *testing.T) {
 	_, err := ParseAssignmentPool(`[{"agent_id":"agent-1","server_id":"server-1","status":"paused"}]`)
 	if err == nil || !strings.Contains(err.Error(), "invalid status") {
@@ -970,6 +983,44 @@ esac
 		if !strings.Contains(log, want) {
 			t.Fatalf("missing CLI command %q; log=%s", want, log)
 		}
+	}
+}
+
+func TestDeleteProjectResourcesSkipsGiteaRepoWhenTokenEndpointIsMissing(t *testing.T) {
+	dir := t.TempDir()
+	cliPath := filepath.Join(dir, "fibe")
+	logPath := filepath.Join(dir, "commands.log")
+	script := `#!/bin/sh
+printf '%s\n' "$*" >> "` + logPath + `"
+case "$*" in
+  *"agents gitea-token"*)
+    echo '{"error":{"message":"Resource not found","code":"RESOURCE_NOT_FOUND","status":404}}' >&2
+    exit 1
+    ;;
+  *)
+    echo '{"ok":true}'
+    ;;
+esac
+`
+	if err := os.WriteFile(cliPath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("unexpected Gitea request after missing token endpoint: %s %s", r.Method, r.URL.Path)
+	}))
+	defer server.Close()
+	client := &Client{
+		apiKey:    "test",
+		agentID:   "agent",
+		cliPath:   cliPath,
+		cliDomain: testFibeCLIDomain(),
+		http:      server.Client(),
+	}
+	if err := client.DeleteProjectResources(t.Context(), &Project{RepoURL: server.URL + "/owner/repo.git"}); err != nil {
+		t.Fatal(err)
+	}
+	if log := readFile(t, logPath); !strings.Contains(log, "agents gitea-token agent") {
+		t.Fatalf("missing gitea token command; log=%s", log)
 	}
 }
 

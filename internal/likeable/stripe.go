@@ -113,7 +113,7 @@ func (s *Server) handleBillingCheckout(w http.ResponseWriter, r *http.Request) {
 	form.Set("mode", "payment")
 	form.Set("client_reference_id", user.ID)
 	form.Set("customer_email", user.Email)
-	form.Set("success_url", s.config.BaseURL+"/profile?billing=success")
+	form.Set("success_url", s.config.BaseURL+"/profile?billing=success&session_id={CHECKOUT_SESSION_ID}")
 	form.Set("cancel_url", s.config.BaseURL+"/profile?billing=cancel")
 	form.Set("metadata[purchase_kind]", product)
 	if product == "project_quota" {
@@ -145,6 +145,47 @@ func (s *Server) handleBillingCheckout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"url": out.URL})
+}
+
+func (s *Server) handleBillingRefresh(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	user := userFromContext(r.Context())
+	cfg, err := s.stripeConfig(r)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	var body struct {
+		SessionID string `json:"session_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil && err != io.EOF {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	sessionID := strings.TrimSpace(body.SessionID)
+	if !validStripeCheckoutSessionID(sessionID) {
+		writeError(w, http.StatusBadRequest, "invalid stripe session")
+		return
+	}
+	session, err := s.fetchStripeCheckoutSession(r.Context(), cfg, sessionID)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	if fmt.Sprint(session["client_reference_id"]) != user.ID {
+		writeError(w, http.StatusForbidden, "stripe session belongs to a different user")
+		return
+	}
+	result, err := s.applyStripeCheckoutSession(r.Context(), cfg, session)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	result.Refreshed = true
+	writeJSON(w, http.StatusOK, result)
 }
 
 func normalizeStripeProduct(product string) string {
@@ -216,75 +257,132 @@ func (s *Server) handleStripeWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 	switch event.Type {
 	case "checkout.session.completed":
-		userID := fmt.Sprint(event.Data.Object["client_reference_id"])
-		customerID := fmt.Sprint(event.Data.Object["customer"])
-		subscriptionID := fmt.Sprint(event.Data.Object["subscription"])
-		paymentStatus := strings.ToLower(strings.TrimSpace(fmt.Sprint(event.Data.Object["payment_status"])))
-		status := strings.ToLower(strings.TrimSpace(fmt.Sprint(event.Data.Object["status"])))
-		if paymentStatus != "" && paymentStatus != "paid" {
-			writeJSON(w, http.StatusOK, map[string]bool{"received": true})
+		if _, err := s.applyStripeCheckoutSession(r.Context(), cfg, event.Data.Object); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
 			return
-		}
-		if status != "" && status != "complete" {
-			writeJSON(w, http.StatusOK, map[string]bool{"received": true})
-			return
-		}
-		if userID != "" {
-			sessionID := fmt.Sprint(event.Data.Object["id"])
-			if sessionID == "" || sessionID == "<nil>" {
-				sessionID = subscriptionID
-			}
-			amountTotal := stripeInt64(event.Data.Object["amount_total"])
-			currency := fmt.Sprint(event.Data.Object["currency"])
-			if sessionID != "" && sessionID != "<nil>" {
-				_ = s.store.UpsertPayment(r.Context(), Payment{
-					UserID:            userID,
-					ProviderPaymentID: sessionID,
-					AmountCents:       amountTotal,
-					Currency:          currency,
-					Status:            "paid",
-				})
-			}
-			packHours := stripePackHours(event.Data.Object["metadata"])
-			if packHours > 0 {
-				expectedPriceID := expectedStripeHourPackPrice(cfg, packHours)
-				if err := s.verifyStripeCheckoutPrice(r.Context(), cfg, sessionID, expectedPriceID); err != nil {
-					writeError(w, http.StatusBadRequest, err.Error())
-					return
-				}
-			}
-			if packHours > 0 && sessionID != "" && sessionID != "<nil>" {
-				if granted, err := s.store.GrantHourCredits(r.Context(), userID, sessionID, packHours); err == nil && granted {
-					s.notifyHourCreditsPurchased(r.Context(), userID, packHours)
-				}
-			}
-			projectSlots := stripeProjectSlots(event.Data.Object["metadata"])
-			if projectSlots > 0 {
-				if err := s.verifyStripeCheckoutPrice(r.Context(), cfg, sessionID, cfg["project_quota_price"]); err != nil {
-					writeError(w, http.StatusBadRequest, err.Error())
-					return
-				}
-			}
-			if projectSlots > 0 && sessionID != "" && sessionID != "<nil>" {
-				expiresAt := time.Now().UTC().Add(30 * 24 * time.Hour)
-				if granted, err := s.store.GrantProjectQuota(r.Context(), userID, sessionID, projectSlots, expiresAt); err == nil && granted {
-					s.notifyProjectQuotaPurchased(r.Context(), userID, projectSlots, expiresAt)
-				}
-			}
-			if subscriptionID != "" && subscriptionID != "<nil>" {
-				_ = s.store.UpsertSubscription(r.Context(), Subscription{
-					UserID:               userID,
-					Status:               "active",
-					StripeCustomerID:     customerID,
-					StripeSubscriptionID: subscriptionID,
-					CurrentPeriodEnd:     time.Now().UTC().Add(31 * 24 * time.Hour),
-				})
-			}
 		}
 	case "customer.subscription.deleted":
 		// Stripe sends customer/subscription ids here; a follow-up improvement can map these exactly.
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"received": true})
+}
+
+type stripeCheckoutApplyResult struct {
+	Refreshed    bool   `json:"refreshed"`
+	Applied      bool   `json:"applied"`
+	Granted      bool   `json:"granted"`
+	Paid         bool   `json:"paid"`
+	Complete     bool   `json:"complete"`
+	PurchaseKind string `json:"purchaseKind,omitempty"`
+}
+
+func (s *Server) fetchStripeCheckoutSession(ctx context.Context, cfg map[string]string, sessionID string) (map[string]any, error) {
+	endpoint := "https://api.stripe.com/v1/checkout/sessions/" + url.PathEscape(sessionID)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	req.SetBasicAuth(cfg["secret"], "")
+	resp, err := s.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("stripe checkout refresh failed: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("stripe checkout refresh failed: %s", resp.Status)
+	}
+	var session map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&session); err != nil {
+		return nil, fmt.Errorf("stripe checkout refresh failed: %w", err)
+	}
+	return session, nil
+}
+
+func (s *Server) applyStripeCheckoutSession(ctx context.Context, cfg map[string]string, session map[string]any) (stripeCheckoutApplyResult, error) {
+	result := stripeCheckoutApplyResult{}
+	userID := fmt.Sprint(session["client_reference_id"])
+	customerID := fmt.Sprint(session["customer"])
+	subscriptionID := fmt.Sprint(session["subscription"])
+	paymentStatus := strings.ToLower(strings.TrimSpace(fmt.Sprint(session["payment_status"])))
+	status := strings.ToLower(strings.TrimSpace(fmt.Sprint(session["status"])))
+	result.Paid = paymentStatus == "" || paymentStatus == "paid"
+	result.Complete = status == "" || status == "complete"
+	if !result.Paid || !result.Complete {
+		return result, nil
+	}
+	if userID == "" || userID == "<nil>" {
+		return result, nil
+	}
+	sessionID := fmt.Sprint(session["id"])
+	if sessionID == "" || sessionID == "<nil>" {
+		sessionID = subscriptionID
+	}
+	amountTotal := stripeInt64(session["amount_total"])
+	currency := fmt.Sprint(session["currency"])
+	if sessionID != "" && sessionID != "<nil>" {
+		_ = s.store.UpsertPayment(ctx, Payment{
+			UserID:            userID,
+			ProviderPaymentID: sessionID,
+			AmountCents:       amountTotal,
+			Currency:          currency,
+			Status:            "paid",
+		})
+	}
+	packHours := stripePackHours(session["metadata"])
+	if packHours > 0 {
+		result.PurchaseKind = "hour_pack"
+		expectedPriceID := expectedStripeHourPackPrice(cfg, packHours)
+		if err := s.verifyStripeCheckoutPrice(ctx, cfg, sessionID, expectedPriceID); err != nil {
+			return result, err
+		}
+		result.Applied = true
+		if sessionID != "" && sessionID != "<nil>" {
+			if granted, err := s.store.GrantHourCredits(ctx, userID, sessionID, packHours); err == nil && granted {
+				result.Granted = true
+				s.notifyHourCreditsPurchased(ctx, userID, packHours)
+			} else if err != nil {
+				return result, err
+			}
+		}
+	}
+	projectSlots := stripeProjectSlots(session["metadata"])
+	if projectSlots > 0 {
+		result.PurchaseKind = "project_quota"
+		if err := s.verifyStripeCheckoutPrice(ctx, cfg, sessionID, cfg["project_quota_price"]); err != nil {
+			return result, err
+		}
+		result.Applied = true
+		if sessionID != "" && sessionID != "<nil>" {
+			expiresAt := time.Now().UTC().Add(30 * 24 * time.Hour)
+			if granted, err := s.store.GrantProjectQuota(ctx, userID, sessionID, projectSlots, expiresAt); err == nil && granted {
+				result.Granted = true
+				s.notifyProjectQuotaPurchased(ctx, userID, projectSlots, expiresAt)
+			} else if err != nil {
+				return result, err
+			}
+		}
+	}
+	if subscriptionID != "" && subscriptionID != "<nil>" {
+		result.Applied = true
+		_ = s.store.UpsertSubscription(ctx, Subscription{
+			UserID:               userID,
+			Status:               "active",
+			StripeCustomerID:     customerID,
+			StripeSubscriptionID: subscriptionID,
+			CurrentPeriodEnd:     time.Now().UTC().Add(31 * 24 * time.Hour),
+		})
+	}
+	return result, nil
+}
+
+func validStripeCheckoutSessionID(sessionID string) bool {
+	if len(sessionID) < 4 || len(sessionID) > 220 || !strings.HasPrefix(sessionID, "cs_") {
+		return false
+	}
+	for _, ch := range sessionID {
+		if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_' || ch == '-' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func stripeInt64(value any) int64 {

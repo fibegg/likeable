@@ -121,6 +121,12 @@ func (s *Server) handleProjectMessages(w http.ResponseWriter, r *http.Request, u
 	if agentText == "" {
 		agentText = "Review the attached file(s) and update the playground accordingly."
 	}
+	agentText, promptArtefacts, err := s.resolvePromptArtefactMacros(r.Context(), agentText)
+	if err != nil {
+		cleanupLocalAttachments()
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	msg, err := s.store.AddMessageWithAttachments(r.Context(), &Message{
 		ID:        messageID,
 		ProjectID: project.ID,
@@ -139,7 +145,7 @@ func (s *Server) handleProjectMessages(w http.ResponseWriter, r *http.Request, u
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if err := fibeClient.SendMessage(r.Context(), project.ConversationID, projecttext.AgentPrompt(project, agentText), attachmentPaths, busyPolicy); err != nil {
+	if err := fibeClient.SendMessage(r.Context(), project.ConversationID, projecttext.AgentPromptWithArtefacts(project, agentText, promptArtefacts), attachmentPaths, busyPolicy); err != nil {
 		s.observePlatformError(err)
 		cleanupLocalAttachments()
 		_ = s.store.DeleteMessage(context.Background(), project.ID, messageID)

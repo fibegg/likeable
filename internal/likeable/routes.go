@@ -134,6 +134,8 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		s.withUser(s.handleProfileArchives)(w, r)
 	case r.URL.Path == "/api/billing/checkout":
 		s.withUser(s.handleBillingCheckout)(w, r)
+	case r.URL.Path == "/api/billing/refresh":
+		s.withUser(s.handleBillingRefresh)(w, r)
 	case r.URL.Path == "/api/messages" || strings.HasPrefix(r.URL.Path, "/api/messages/"):
 		s.withUser(s.handleUserMessages)(w, r)
 	case r.URL.Path == "/api/stripe/webhook":

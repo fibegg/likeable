@@ -10,6 +10,7 @@ import (
 const (
 	defaultFreeHourWindowHours = 5
 	maxFreeHourWindowHours     = 24
+	maxPromptImproveChargeMin  = 60
 	freeHourWindow             = time.Duration(defaultFreeHourWindowHours) * time.Hour
 	msPerHour                  = int64(time.Hour / time.Millisecond)
 )
@@ -130,6 +131,22 @@ func (s *Server) freeHourWindowHours(ctx context.Context) int {
 	n, err := strconv.Atoi(raw)
 	if err != nil || n <= 0 || n > maxFreeHourWindowHours {
 		return defaultFreeHourWindowHours
+	}
+	return n
+}
+
+func (s *Server) promptImproveChargeMinutes(ctx context.Context) int {
+	cfg, _ := s.store.ConfigMap(ctx)
+	raw := strings.TrimSpace(cfg["prompt_improve_charge_minutes"])
+	if raw == "" {
+		return 0
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 0 {
+		return 0
+	}
+	if n > maxPromptImproveChargeMin {
+		return maxPromptImproveChargeMin
 	}
 	return n
 }

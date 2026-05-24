@@ -4146,6 +4146,62 @@ func TestAgentProjectPromptIncludesTargetContext(t *testing.T) {
 	}
 }
 
+func TestAgentProjectPromptIncludesResolvedArtefactsInSystemContext(t *testing.T) {
+	project := &Project{ID: "project-prompt", Title: "Prompt app", ConversationID: "conv-prompt"}
+	prompt := projecttext.AgentPromptWithArtefacts(project, "Use [artefact:cookie-master]", []projecttext.PromptArtefact{
+		{Name: "cookie-master", Content: "session=abc123"},
+	})
+	for _, want := range []string{
+		"- prompt artefacts:",
+		"[[LIKEABLE_ARTEFACT_START name=\"cookie-master\"]]",
+		"session=abc123",
+		"[[LIKEABLE_ARTEFACT_END name=\"cookie-master\"]]",
+		"Use prompt artefacts only when Likeable expands them in the system context.",
+		"User request:\nUse [artefact:cookie-master]",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
+func TestResolvePromptArtefactMacrosLoadsConfiguredArtefacts(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"agent_artefacts": `{"cookie-master":"session=abc123"}`,
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	text, artefacts, err := server.resolvePromptArtefactMacros(t.Context(), "Use {|artefact:cookie-master|} for auth")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text != "Use [artefact:cookie-master] for auth" {
+		t.Fatalf("text=%q, want macro placeholder", text)
+	}
+	if len(artefacts) != 1 || artefacts[0].Name != "cookie-master" || artefacts[0].Content != "session=abc123" {
+		t.Fatalf("artefacts=%+v, want configured cookie-master", artefacts)
+	}
+}
+
+func TestResolvePromptArtefactMacrosRejectsMissingArtefact(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	_, _, err = server.resolvePromptArtefactMacros(t.Context(), "Use {|artefact:cookie-master|}")
+	if err == nil || !strings.Contains(err.Error(), "cookie-master") {
+		t.Fatalf("err=%v, want missing artefact error", err)
+	}
+}
+
 func TestPromptImproveUsesAssignedAgent(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {
@@ -4214,6 +4270,107 @@ func TestPromptImproveUsesAssignedAgent(t *testing.T) {
 		if !strings.Contains(payload, want) {
 			t.Fatalf("prompt payload missing %q:\n%s", want, payload)
 		}
+	}
+}
+
+func TestPromptImproveChargesConfiguredMinutes(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	cliPath, _, _ := fakePromptImproveFibeCLI(t)
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url":                 "server.test:3000",
+		"fibe_api_key":                  "key",
+		"fibe_cli_path":                 cliPath,
+		"fibe_agent_server_pool":        `[{"agent_id":"agent-1","server_id":"server-1","status":"active"}]`,
+		"prompt_improve_charge_minutes": "7",
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	user, err := store.UpsertUser(t.Context(), "pilot@example.com", "Pilot", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateSession(t.Context(), user.ID, "prompt-charge-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{ID: "project-prompt-improve-charge", UserID: user.ID, Title: "car sharing webapp", ConversationID: "conv-prompt-charge", AgentID: "agent-1", MarqueeID: "server-1", Status: "ready", PreviewURL: "http://preview.test"}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	req := httptest.NewRequest(http.MethodPost, "/api/projects/project-prompt-improve-charge/prompt-improve", strings.NewReader(`{"text":"add some cars","locale":"en"}`))
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "prompt-charge-token"})
+	rec := httptest.NewRecorder()
+
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("prompt improve returned %d: %s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Source    string `json:"source"`
+		ChargedMs int64  `json:"chargedMs"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	wantMs := (7 * time.Minute).Milliseconds()
+	if body.Source != "agent" || body.ChargedMs != wantMs {
+		t.Fatalf("body=%+v, want agent source and %d charged ms", body, wantMs)
+	}
+	lifetimeMs, err := store.UserLifetimeWorkMs(t.Context(), user.ID, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lifetimeMs != wantMs {
+		t.Fatalf("lifetime work ms=%d, want %d", lifetimeMs, wantMs)
+	}
+}
+
+func TestPromptImproveChargeRequiresHourAllowanceBeforeAgent(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	cliPath, logPath, _ := fakePromptImproveFibeCLI(t)
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url":                 "server.test:3000",
+		"fibe_api_key":                  "key",
+		"fibe_cli_path":                 cliPath,
+		"fibe_agent_server_pool":        `[{"agent_id":"agent-1","server_id":"server-1","status":"active"}]`,
+		"free_hours":                    "0",
+		"prompt_improve_charge_minutes": "1",
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	user, err := store.UpsertUser(t.Context(), "pilot@example.com", "Pilot", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateSession(t.Context(), user.ID, "prompt-no-credit-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{ID: "project-prompt-improve-no-credit", UserID: user.ID, Title: "car sharing webapp", ConversationID: "conv-prompt-no-credit", AgentID: "agent-1", MarqueeID: "server-1", Status: "ready", PreviewURL: "http://preview.test"}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	req := httptest.NewRequest(http.MethodPost, "/api/projects/project-prompt-improve-no-credit/prompt-improve", strings.NewReader(`{"text":"add some cars","locale":"en"}`))
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "prompt-no-credit-token"})
+	rec := httptest.NewRecorder()
+
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusPaymentRequired {
+		t.Fatalf("prompt improve returned %d: %s", rec.Code, rec.Body.String())
+	}
+	commands, err := os.ReadFile(logPath)
+	if err == nil && strings.TrimSpace(string(commands)) != "" {
+		t.Fatalf("agent CLI was called despite no hour allowance:\n%s", commands)
 	}
 }
 
@@ -4386,6 +4543,32 @@ func TestLoginRetiresPendingDeletionUserBeforeSignIn(t *testing.T) {
 	}
 	if newUser.AccessStatus != "active" {
 		t.Fatalf("new user access_status=%q, want active", newUser.AccessStatus)
+	}
+}
+
+func TestDevLoginRestrictsPublicHTTPSBaseURLToAdmin(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.UpsertConfig(t.Context(), map[string]string{"signup_mode": "all"}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "https://likeable.test", AdminEmail: "admin@example.com", DevAuth: true}, http: http.DefaultClient}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/dev/login?email=pilot@example.com", nil)
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("public dev login returned %d, want 403; body=%s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/dev/login?email=admin@example.com", nil)
+	rec = httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("admin dev login returned %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -5003,6 +5186,78 @@ func TestCreateProjectRecordStoresAssignedFibePair(t *testing.T) {
 	}
 }
 
+func TestCreateProjectRecordUsesCapacityAwareLeastLoadedPair(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	user, err := store.UpsertUser(t.Context(), "pilot@example.com", "Pilot", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_agent_server_pool": `[
+			{"label":"A","agent_id":"agent-a","server_id":"server-a","capacity":1},
+			{"label":"B","agent_id":"agent-b","server_id":"server-b","capacity":2}
+		]`,
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateProject(t.Context(), &Project{
+		ID:             "existing-a",
+		UserID:         user.ID,
+		Title:          "Existing",
+		ConversationID: "conv-existing-a",
+		AgentID:        "agent-a",
+		MarqueeID:      "server-a",
+		Status:         "ready",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	project, err := server.createProjectRecord(t.Context(), user, "Assigned app")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if project.AgentID != "agent-b" || project.MarqueeID != "server-b" {
+		t.Fatalf("project assignment=%s/%s, want least-loaded pair agent-b/server-b", project.AgentID, project.MarqueeID)
+	}
+}
+
+func TestCreateProjectRecordRejectsFullAgentPool(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	user, err := store.UpsertUser(t.Context(), "pilot@example.com", "Pilot", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_agent_server_pool": `[{"agent_id":"agent-a","server_id":"server-a","capacity":1}]`,
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateProject(t.Context(), &Project{
+		ID:             "existing-a",
+		UserID:         user.ID,
+		Title:          "Existing",
+		ConversationID: "conv-existing-a",
+		AgentID:        "agent-a",
+		MarqueeID:      "server-a",
+		Status:         "ready",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, err = server.createProjectRecord(t.Context(), user, "Overflow app")
+	if !errors.Is(err, errAgentPoolAtCapacity) {
+		t.Fatalf("err=%v, want errAgentPoolAtCapacity", err)
+	}
+}
+
 func TestProvisionProjectLeaseSkipsDuplicateGreenfield(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {
@@ -5447,6 +5702,7 @@ func TestProjectQuotaCheckoutBuildsStripeMetadata(t *testing.T) {
 		t.Fatalf("checkout returned %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
 	if form.Get("line_items[0][price]") != "price_project_slot" ||
+		form.Get("success_url") != "http://example.test/profile?billing=success&session_id={CHECKOUT_SESSION_ID}" ||
 		form.Get("metadata[purchase_kind]") != "project_quota" ||
 		form.Get("metadata[project_slots]") != "1" ||
 		form.Get("metadata[project_quota_days]") != "30" {
@@ -5500,9 +5756,84 @@ func TestHourPackCheckoutBuildsStripeMetadata(t *testing.T) {
 		t.Fatalf("checkout returned %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
 	if form.Get("line_items[0][price]") != "price_10h" ||
+		form.Get("success_url") != "http://example.test/profile?billing=success&session_id={CHECKOUT_SESSION_ID}" ||
 		form.Get("metadata[purchase_kind]") != "hour_pack" ||
 		form.Get("metadata[pack_hours]") != "10" {
 		t.Fatalf("stripe form=%v, want hour pack metadata", form)
+	}
+}
+
+func TestBillingRefreshAppliesCompletedHourPack(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"stripe_secret_key":        "sk_test",
+		"stripe_price_id_10_hours": "price_10h",
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	user, err := store.UpsertUser(t.Context(), "buyer@example.com", "Buyer", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateSession(t.Context(), user.ID, "refresh-buyer-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		var body string
+		switch req.URL.Path {
+		case "/v1/checkout/sessions/cs_refresh_hour":
+			body = fmt.Sprintf(`{
+				"id":"cs_refresh_hour",
+				"client_reference_id":%q,
+				"amount_total":2500,
+				"currency":"usd",
+				"payment_status":"paid",
+				"status":"complete",
+				"metadata":{"purchase_kind":"hour_pack","pack_hours":"10"}
+			}`, user.ID)
+		case "/v1/checkout/sessions/cs_refresh_hour/line_items":
+			body = `{"data":[{"price":{"id":"price_10h"}}]}`
+		default:
+			t.Fatalf("unexpected stripe request %s", req.URL.String())
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(body)),
+		}, nil
+	})}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: client}
+	req := httptest.NewRequest(http.MethodPost, "/api/billing/refresh", strings.NewReader(`{"session_id":"cs_refresh_hour"}`))
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "refresh-buyer-token"})
+	rec := httptest.NewRecorder()
+
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("refresh returned %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Refreshed    bool   `json:"refreshed"`
+		Applied      bool   `json:"applied"`
+		Granted      bool   `json:"granted"`
+		PurchaseKind string `json:"purchaseKind"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.Refreshed || !body.Applied || !body.Granted || body.PurchaseKind != "hour_pack" {
+		t.Fatalf("refresh body=%+v, want applied hour pack grant", body)
+	}
+	balance, err := store.PaidHourCreditBalance(t.Context(), user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if balance != int64(10*time.Hour/time.Millisecond) {
+		t.Fatalf("balance=%d, want 10 paid hours", balance)
 	}
 }
 

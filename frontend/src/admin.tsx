@@ -551,7 +551,9 @@ function adminConfigLabel(key: string, t: (key: TranslationKey) => string): stri
     stripe_webhook_secret: 'admin.config.stripe_webhook_secret',
     free_hours: 'admin.config.free_hours',
     free_hour_window_hours: 'admin.config.free_hour_window_hours',
-    project_cap: 'admin.config.project_cap'
+    prompt_improve_charge_minutes: 'admin.config.prompt_improve_charge_minutes',
+    project_cap: 'admin.config.project_cap',
+    agent_artefacts: 'admin.config.agent_artefacts'
   };
   const labelKey = labelKeys[key];
   return labelKey ? t(labelKey) : key;
@@ -788,6 +790,10 @@ export function Admin() {
                   <input value={row.serverId} placeholder={t('admin.pool.serverPlaceholder')} onChange={(event) => setPoolRow(row.id, { serverId: event.target.value })} />
                 </label>
                 <label>
+                  <span>{t('admin.pool.capacity')}</span>
+                  <input type="number" min="0" inputMode="numeric" value={row.capacity} placeholder={t('admin.pool.capacityPlaceholder')} onChange={(event) => setPoolRow(row.id, { capacity: event.target.value })} />
+                </label>
+                <label>
                   <span>{t('admin.pool.status')}</span>
                   <select className="adminSelect" value={row.status} onChange={(event) => setPoolRow(row.id, { status: event.target.value as PoolRow['status'] })}>
                     <option value="active">{t('admin.pool.status.active')}</option>
@@ -800,7 +806,7 @@ export function Admin() {
                   {(() => {
                     const stat = statForPoolRow(row);
                     return stat
-                      ? t('admin.pool.stats', { projects: stat.projectCount, archived: stat.archivedCount, archives: stat.readyArchiveCount })
+                      ? t('admin.pool.stats', { projects: stat.projectCount, active: stat.activeProjectCount ?? Math.max(0, stat.projectCount - stat.archivedCount), archived: stat.archivedCount, archives: stat.readyArchiveCount })
                       : t('admin.pool.stats.empty');
                   })()}
                 </div>

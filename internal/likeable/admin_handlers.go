@@ -24,6 +24,7 @@ var secretConfigKeys = map[string]bool{
 	"github_token":          true,
 	"google_client_secret":  true,
 	"smtp_password":         true,
+	"agent_artefacts":       true,
 }
 
 func (s *Server) handleAdminConfig(w http.ResponseWriter, r *http.Request) {
@@ -617,6 +618,7 @@ func adminAgentPoolOptionsFromConfig(cfg map[string]string) ([]AgentPoolOption, 
 			AgentID:  strings.TrimSpace(assignment.AgentID),
 			ServerID: strings.TrimSpace(assignment.MarqueeID),
 			Status:   fibe.AssignmentStatus(assignment),
+			Capacity: assignment.Capacity,
 		})
 	}
 	return options, nil
@@ -689,7 +691,7 @@ func firstNonEmptyString(values ...string) string {
 
 func publicAdminConfig(cfg map[string]string) map[string]any {
 	out := map[string]any{}
-	for _, key := range []string{"fibe_base_url", "fibe_agent_server_pool", "fibe_template_version_id", "free_hours", "free_hour_window_hours", "project_cap", "signup_mode", "signup_allowed_emails", "stripe_publishable_key", "stripe_price_id_1_hour", "stripe_price_id_10_hours", "stripe_price_id_100_hours", "stripe_project_quota_price_id", "github_client_id", "github_username", "google_client_id", "smtp_host", "smtp_port", "smtp_username", "smtp_from_email", "smtp_from_name", "smtp_tls_mode"} {
+	for _, key := range []string{"fibe_base_url", "fibe_agent_server_pool", "fibe_template_version_id", "free_hours", "free_hour_window_hours", "prompt_improve_charge_minutes", "project_cap", "signup_mode", "signup_allowed_emails", "stripe_publishable_key", "stripe_price_id_1_hour", "stripe_price_id_10_hours", "stripe_price_id_100_hours", "stripe_project_quota_price_id", "github_client_id", "github_username", "google_client_id", "smtp_host", "smtp_port", "smtp_username", "smtp_from_email", "smtp_from_name", "smtp_tls_mode"} {
 		value := cfg[key]
 		set := strings.TrimSpace(cfg[key]) != ""
 		if key == "fibe_agent_server_pool" && strings.TrimSpace(value) == "" {
@@ -716,6 +718,8 @@ func publicConfigDefault(key string) string {
 		return "5"
 	case "free_hour_window_hours":
 		return strconv.Itoa(defaultFreeHourWindowHours)
+	case "prompt_improve_charge_minutes":
+		return "0"
 	case "project_cap":
 		return "3"
 	case "signup_mode":
@@ -763,6 +767,17 @@ func normalizeAdminConfigValues(values map[string]string) (map[string]string, er
 			n, err := strconv.Atoi(trimmed)
 			if err != nil || n <= 0 || n > maxFreeHourWindowHours {
 				return nil, errors.New("free_hour_window_hours must be between 1 and 24")
+			}
+			out[key] = strconv.Itoa(n)
+		case "prompt_improve_charge_minutes":
+			trimmed := strings.TrimSpace(value)
+			if trimmed == "" {
+				out[key] = ""
+				continue
+			}
+			n, err := strconv.Atoi(trimmed)
+			if err != nil || n < 0 || n > maxPromptImproveChargeMin {
+				return nil, errors.New("prompt_improve_charge_minutes must be between 0 and 60")
 			}
 			out[key] = strconv.Itoa(n)
 		default:

@@ -4087,7 +4087,7 @@ html.draggingCollapsedChat * {
 .poolRows { display: grid; gap: 10px; }
 .poolRow {
   display: grid;
-  grid-template-columns: minmax(120px, .7fr) minmax(160px, 1fr) minmax(160px, 1fr) minmax(128px, .72fr) minmax(160px, .86fr) auto 38px;
+  grid-template-columns: minmax(120px, .65fr) minmax(150px, 1fr) minmax(150px, 1fr) minmax(96px, .48fr) minmax(120px, .64fr) minmax(160px, .8fr) auto 38px;
   align-items: end;
   gap: 10px;
   min-width: 0;
@@ -9094,7 +9094,7 @@ body {
 }
 
 .poolRow {
-  grid-template-columns: minmax(120px, .7fr) minmax(160px, 1fr) minmax(160px, 1fr) minmax(128px, .72fr) minmax(170px, .86fr) auto 38px;
+  grid-template-columns: minmax(120px, .65fr) minmax(150px, 1fr) minmax(150px, 1fr) minmax(96px, .48fr) minmax(120px, .64fr) minmax(170px, .82fr) auto 38px;
   padding: 10px;
 }
 
@@ -9211,4 +9211,40 @@ body {
   .adminSave {
     width: 100%;
   }
+}
+
+/* Launch hardening: keep the empty canvas copy inside the visible area above overlay chat. */
+.previewPane.chatExpanded .emptyPreview {
+  padding: calc(72px + env(safe-area-inset-top)) 18px calc(var(--basic-chat-height, 360px) + 56px + env(safe-area-inset-bottom));
+}
+
+.previewPane.chatExpanded .emptyCopy {
+  transform: none;
+}
+
+.profileHeaderActions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.profileHeaderActions .projectDelete {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  border: 1px solid var(--border-subtle);
+  background: rgba(18, 32, 41, .62);
+}
+
+.profileHeaderActions .profileRefreshButton:hover,
+.profileHeaderActions .profileRefreshButton:focus-visible {
+  color: var(--cyan);
+  background: rgba(174, 245, 255, .08);
+}
+
+.profileHeaderActions .profileRefreshButton:disabled {
+  cursor: wait;
+  opacity: .72;
 }

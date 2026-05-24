@@ -5,19 +5,23 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
 type fibeAssignmentInput struct {
-	Label          string `json:"label"`
-	AgentID        string `json:"agent_id"`
-	AgentIDAlias   string `json:"agentId"`
-	ServerID       string `json:"server_id"`
-	ServerIDAlias  string `json:"serverId"`
-	MarqueeID      string `json:"marquee_id"`
-	MarqueeIDAlias string `json:"marqueeId"`
-	Status         string `json:"status"`
-	StatusAlias    string `json:"state"`
+	Label          string          `json:"label"`
+	AgentID        string          `json:"agent_id"`
+	AgentIDAlias   string          `json:"agentId"`
+	ServerID       string          `json:"server_id"`
+	ServerIDAlias  string          `json:"serverId"`
+	MarqueeID      string          `json:"marquee_id"`
+	MarqueeIDAlias string          `json:"marqueeId"`
+	Status         string          `json:"status"`
+	StatusAlias    string          `json:"state"`
+	Capacity       json.RawMessage `json:"capacity"`
+	MaxProjects    json.RawMessage `json:"max_projects"`
+	MaxProjectsAlt json.RawMessage `json:"maxProjects"`
 }
 
 const (
@@ -122,6 +126,7 @@ func ParseAssignmentPool(raw string) ([]Assignment, error) {
 			Label:     strings.TrimSpace(input.Label),
 			AgentID:   firstNonEmpty(input.AgentID, input.AgentIDAlias),
 			MarqueeID: firstNonEmpty(input.ServerID, input.ServerIDAlias, input.MarqueeID, input.MarqueeIDAlias),
+			Capacity:  firstPositiveRawInt(input.Capacity, input.MaxProjects, input.MaxProjectsAlt),
 		}
 		status, err := normalizeAssignmentStatus(firstNonEmpty(input.Status, input.StatusAlias))
 		if err != nil {
@@ -137,6 +142,38 @@ func ParseAssignmentPool(raw string) ([]Assignment, error) {
 		out = append(out, assignment)
 	}
 	return out, nil
+}
+
+func firstPositiveRawInt(values ...json.RawMessage) int {
+	for _, raw := range values {
+		value := positiveRawInt(raw)
+		if value > 0 {
+			return value
+		}
+	}
+	return 0
+}
+
+func positiveRawInt(raw json.RawMessage) int {
+	if len(raw) == 0 || string(raw) == "null" {
+		return 0
+	}
+	var numeric int
+	if err := json.Unmarshal(raw, &numeric); err == nil {
+		if numeric > 0 {
+			return numeric
+		}
+		return 0
+	}
+	var text string
+	if err := json.Unmarshal(raw, &text); err != nil {
+		return 0
+	}
+	value, err := strconv.Atoi(strings.TrimSpace(text))
+	if err != nil || value <= 0 {
+		return 0
+	}
+	return value
 }
 
 func EncodeAssignmentPool(pool []Assignment) string {
