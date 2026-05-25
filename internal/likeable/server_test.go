@@ -4298,6 +4298,38 @@ func TestPromptImproveUsesAssignedAgent(t *testing.T) {
 	}
 }
 
+func TestPromptImproveRejectsEmptyDraft(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	user, err := store.UpsertUser(t.Context(), "pilot@example.com", "Pilot", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateSession(t.Context(), user.ID, "prompt-empty-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{ID: "project-prompt-empty", UserID: user.ID, Title: "car sharing webapp", ConversationID: "conv-prompt-empty", AgentID: "agent-1", MarqueeID: "server-1", Status: "ready", PreviewURL: "http://preview.test"}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	req := httptest.NewRequest(http.MethodPost, "/api/projects/project-prompt-empty/prompt-improve", strings.NewReader(`{"text":"   ","locale":"en"}`))
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "prompt-empty-token"})
+	rec := httptest.NewRecorder()
+
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("prompt improve returned %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "prompt text is required") {
+		t.Fatalf("body=%s, want prompt text validation", rec.Body.String())
+	}
+}
+
 func TestPromptImproveChargesConfiguredMinutes(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {

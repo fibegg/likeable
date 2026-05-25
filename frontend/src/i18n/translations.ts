@@ -147,58 +147,77 @@ Describe the app you want in the composer. Fibe builds the first playground in a
 <details>
 <summary>Terms of Service</summary>
 
-Likeable is a service for building applications by describing them. By signing in and using Likeable you agree to use the service in good faith.
+Last updated: May 25, 2026
 
-**Acceptable use.** You agree not to use Likeable to generate or host malicious code, infringing material, or anything you don't have the rights to publish. Automated scraping, attempts to overload the platform, and sharing accounts are not allowed.
+Likeable lets you build and run application playgrounds from prompts. By signing in, creating a playground, sending a prompt, or buying build time, you agree to these terms.
 
-**Your content.** You own the prompts you write and the source code generated for your playgrounds. You grant Likeable the rights needed to operate the service, including storing your projects and running them on our infrastructure.
+**Account.** You are responsible for activity under your account. Keep your sign-in method secure and contact support from Profile if you suspect unauthorized access.
 
-**Service availability.** Likeable is provided on a best-effort basis. Playgrounds may be paused, restarted, or temporarily unavailable for maintenance. Uninterrupted service is not guaranteed.
+**Acceptable use.** Do not use Likeable to create, host, or distribute malware, phishing, credential theft, spam, illegal content, infringing material, or anything you do not have the rights to publish. Do not overload the platform, bypass limits, scrape without permission, share accounts, or try to access systems or data that are not yours.
 
-**Suspension.** Accounts that violate these terms, abuse the platform, or expose other users to risk may be suspended or terminated. Where possible, notice will be given before that happens.
+**Your content and generated code.** You keep ownership of the prompts, uploads, and generated source code you create through Likeable, where the law allows. You grant Likeable the rights needed to operate the service, including storing, processing, displaying, running, exporting, and backing up your playgrounds. You are responsible for reviewing generated code before using it in production or publishing it.
 
-**Limitation of liability.** Likeable is provided "as is". To the extent permitted by law, we are not liable for indirect or consequential damages arising from use of the service.
+**Playgrounds and secrets.** Playgrounds may run generated code, install dependencies, call external services, and store files needed for the app. Do not include secrets, credentials, regulated data, or private third-party data unless you intend that data to be processed in the playground and by the build agent.
 
-**Changes.** These terms may be updated as the service evolves. Material changes will be announced before they take effect.
+**Billing.** Free and paid build hours, project slots, and reset windows are shown in the app. Payments are processed by Stripe. Paid features are delivered according to the limits shown at purchase; future prices and limits may change prospectively.
+
+**Service availability.** Likeable is provided on a best-effort basis. Playgrounds may be queued, paused, restarted, archived, deleted, or temporarily unavailable for maintenance, security, capacity, or abuse-prevention reasons. Uninterrupted service is not guaranteed.
+
+**Suspension and removal.** Accounts or playgrounds that violate these terms, abuse the platform, create security risk, or expose other users to harm may be suspended, limited, or removed. Where practical, notice will be given before permanent action.
+
+**No warranty.** Likeable and generated output are provided "as is". Generated code may contain bugs, security issues, licensing issues, or inaccurate behavior. You are responsible for testing, security review, compliance review, and deployment decisions.
+
+**Limitation of liability.** To the extent permitted by law, Likeable is not liable for indirect, incidental, special, consequential, exemplary, or lost-profit damages arising from use of the service.
+
+**Changes and contact.** These terms may be updated as the service evolves. Material changes will be announced in the app or by email when appropriate. Contact support from Profile with questions.
 
 </details>
 
 <details>
-<summary>Privacy</summary>
+<summary>Privacy Policy</summary>
 
-A short summary of how Likeable handles your data.
+Last updated: May 25, 2026
 
 **What we collect**
 
 - Account info from Google when you sign in (name, email, profile picture).
-- The prompts you send and the messages Fibe returns.
-- Project data — generated source code, attached files, playground state.
-- Billing data when you pay for build hours or slots (handled by Stripe; card numbers are not stored).
-- Usage data such as IP address, browser, and timestamps, used for security and abuse prevention.
+- Prompts, chat messages, attached files, generated source code, playground state, preview URLs, export history, and support messages.
+- OAuth connection metadata for services you connect, such as GitHub export. Access tokens are stored only as needed to provide the connected feature.
+- Billing events when you buy build hours or slots. Stripe handles payment details; Likeable does not store full card numbers.
+- Usage, device, and security data such as IP address, browser, timestamps, request logs, quota usage, errors, and abuse-prevention signals.
 
 **How we use it**
 
-- To run the service: build playgrounds, deliver messages, store your projects.
-- To bill you and send receipts.
-- To improve reliability and prevent abuse.
-- To contact you about your account or about major service changes.
+- To authenticate you, build and run playgrounds, deliver messages, keep history, export code, and provide support.
+- To process payments, maintain quotas, send receipts, and prevent fraud or abuse.
+- To debug issues, improve reliability, protect the platform, and enforce the terms.
+- To contact you about your account, support requests, security issues, or major service changes.
 
 **Who we share it with**
 
-- Google (sign-in), Stripe (payments), GitHub (when you connect it for export), and the AI provider behind Fibe (to generate code from your prompts).
-- Your data is not sold.
+- Google for sign-in, Stripe for payments, GitHub when you connect export, hosting/infrastructure providers, email delivery providers, Fibe, and the AI providers needed to turn prompts and project context into code.
+- We do not sell your personal data or use your playground content for third-party advertising.
+
+**AI processing**
+
+Prompts, attachments, project context, and relevant generated code may be sent to Fibe and AI providers so they can generate, debug, and improve the playground you requested. Do not submit data you are not allowed to share with these processors.
+
+**Security**
+
+Likeable uses reasonable technical and organizational safeguards for account, project, and payment-related data. No internet service is perfectly secure, so you should avoid placing unnecessary secrets or sensitive data in prompts, attachments, or generated playgrounds.
 
 **Retention and deletion**
 
 - Active playgrounds and conversations are kept while your account is open.
 - Archived playgrounds remain downloadable for a limited time after archiving.
-- Deleting an account from Profile permanently removes its playgrounds, messages, payments, and connections.
+- Operational logs, backups, billing records, and security records may remain for a limited period where needed for reliability, fraud prevention, accounting, legal compliance, or dispute handling.
+- Deleting an account from Profile removes its playgrounds, messages, exports, and connected-service tokens from the active service.
 
 **Your choices**
 
 - Export any playground to GitHub or as a ZIP from the playground menu.
-- Delete individual playgrounds or the whole account from Profile.
-- Contact support with questions or requests for a copy of your data.
+- Disconnect GitHub by reconnecting or revoking access from GitHub, and delete individual playgrounds or the whole account from Profile.
+- Contact support from Profile with questions, correction requests, deletion requests, or requests for a copy of your data.
 
 </details>`,
   'builder.poweredBy': 'Powered by',
@@ -244,6 +263,7 @@ A short summary of how Likeable handles your data.
   'builder.composerHint.ready': 'Enter to send · Shift+Enter new line',
   'builder.composerHint.agentQueue': 'Agent running · message will queue',
   'builder.composerHint.agentSteer': 'Agent running · message will steer',
+  'builder.composerHint.improvingPrompt': 'Improving prompt...',
   'builder.composerHint.signIn': 'Sign in to send prompts',
   'builder.composerHint.loadingProjects': 'Loading playgrounds',
   'builder.composerHint.noProject': 'Create a playground first',
@@ -751,58 +771,77 @@ const uk: Record<keyof typeof en, string> = {
 <details>
 <summary>Умови використання</summary>
 
-Likeable — сервіс для створення застосунків через їхній опис. Користуючись Likeable, ви погоджуєтеся використовувати сервіс сумлінно.
+Останнє оновлення: 25 травня 2026
 
-**Прийнятне використання.** Не використовуйте Likeable для генерації чи хостингу шкідливого коду, матеріалів, що порушують права інших, або того, на що у вас немає прав. Автоматичний скрейпінг, спроби перевантажити платформу та спільне користування акаунтами заборонені.
+Likeable дає змогу створювати й запускати майданчики застосунків із текстових запитів. Коли ви входите, створюєте майданчик, надсилаєте запит або купуєте час збірки, ви погоджуєтеся з цими умовами.
 
-**Ваш контент.** Вам належать запити, які ви пишете, і вихідний код, згенерований для ваших майданчиків. Ви надаєте Likeable права, необхідні для роботи сервісу: зберігання проєктів і їх виконання на нашій інфраструктурі.
+**Акаунт.** Ви відповідаєте за дії у своєму акаунті. Бережіть спосіб входу і зверніться в підтримку з Профілю, якщо підозрюєте несанкціонований доступ.
 
-**Доступність сервісу.** Likeable надається за принципом найкращих зусиль. Майданчики можуть призупинятися, перезапускатися або бути тимчасово недоступні для обслуговування. Безперервна робота не гарантується.
+**Прийнятне використання.** Не використовуйте Likeable для створення, хостингу чи поширення шкідливого ПЗ, фішингу, викрадення облікових даних, спаму, незаконного контенту, матеріалів із порушенням прав або того, на що у вас немає прав. Не перевантажуйте платформу, не обходьте ліміти, не скрейпіть без дозволу, не передавайте акаунт іншим і не намагайтеся отримати доступ до чужих систем чи даних.
 
-**Призупинення.** Акаунти, які порушують ці умови, зловживають платформою чи створюють ризик для інших користувачів, можуть бути призупинені або закриті. За можливості — з попередженням.
+**Ваш контент і згенерований код.** Вам належать запити, вкладення та згенерований код, створені через Likeable, наскільки це дозволяє закон. Ви надаєте Likeable права, потрібні для роботи сервісу: зберігати, обробляти, показувати, запускати, експортувати й резервно копіювати майданчики. Ви відповідаєте за перевірку згенерованого коду перед використанням у production або публікацією.
 
-**Обмеження відповідальності.** Likeable надається "як є". У межах, дозволених законом, ми не несемо відповідальності за непрямі чи наслідкові збитки від використання сервісу.
+**Майданчики та секрети.** Майданчики можуть запускати згенерований код, встановлювати залежності, звертатися до зовнішніх сервісів і зберігати файли, потрібні застосунку. Не додавайте секрети, облікові дані, регульовані дані або приватні дані третіх осіб, якщо ви не хочете, щоб ці дані оброблялися в майданчику та агентом збірки.
 
-**Зміни.** Ці умови можуть оновлюватися з розвитком сервісу. Про істотні зміни попереджаємо до набуття чинності.
+**Білінг.** Безплатні й платні години збірки, слоти проєктів і вікна оновлення показані в застосунку. Платежі обробляє Stripe. Платні функції надаються в межах, показаних під час купівлі; майбутні ціни й ліміти можуть змінюватися для наступних покупок.
+
+**Доступність сервісу.** Likeable надається за принципом найкращих зусиль. Майданчики можуть ставати в чергу, призупинятися, перезапускатися, архівуватися, видалятися або бути тимчасово недоступні через обслуговування, безпеку, навантаження чи запобігання зловживанням. Безперервна робота не гарантується.
+
+**Призупинення та видалення.** Акаунти або майданчики, що порушують ці умови, зловживають платформою, створюють ризик безпеки або шкодять іншим користувачам, можуть бути призупинені, обмежені чи видалені. Де практично можливо, попереджаємо перед остаточною дією.
+
+**Без гарантій.** Likeable і згенерований результат надаються "як є". Згенерований код може містити помилки, вразливості, ліцензійні проблеми або неточну поведінку. Тестування, перевірка безпеки, перевірка відповідності та рішення про розгортання — ваша відповідальність.
+
+**Обмеження відповідальності.** У межах, дозволених законом, Likeable не відповідає за непрямі, випадкові, спеціальні, наслідкові, штрафні збитки або втрачений прибуток, що виникли через використання сервісу.
+
+**Зміни та контакт.** Ці умови можуть оновлюватися з розвитком сервісу. Про істотні зміни повідомляємо в застосунку або email, коли це доречно. З питаннями звертайтеся в підтримку з Профілю.
 
 </details>
 
 <details>
-<summary>Конфіденційність</summary>
+<summary>Політика конфіденційності</summary>
 
-Короткий опис того, як Likeable працює з даними.
+Останнє оновлення: 25 травня 2026
 
 **Що збираємо**
 
 - Інформацію акаунта з Google під час входу (імʼя, email, фото профілю).
-- Ваші запити та відповіді Fibe.
-- Дані проєктів — згенерований код, вкладені файли, стан майданчика.
-- Платіжні дані під час оплати годин збірки або місць (обробляються Stripe; номери карток не зберігаються).
-- Дані використання — IP, браузер, часові мітки — для безпеки та запобігання зловживанням.
+- Запити, повідомлення чату, вкладені файли, згенерований код, стан майданчиків, preview-посилання, історію експорту та звернення в підтримку.
+- Метадані OAuth-підключень для сервісів, які ви підключаєте, наприклад експорту GitHub. Токени доступу зберігаються лише настільки, наскільки це потрібно для підключеної функції.
+- Події білінгу під час купівлі годин збірки або слотів. Платіжні реквізити обробляє Stripe; Likeable не зберігає повні номери карток.
+- Дані використання, пристрою та безпеки: IP, браузер, часові мітки, журнали запитів, використання лімітів, помилки та сигнали запобігання зловживанням.
 
 **Як використовуємо**
 
-- Для роботи сервісу: створення майданчиків, доставка повідомлень, зберігання проєктів.
-- Для білінгу та надсилання чеків.
-- Для підвищення стабільності та запобігання зловживанням.
-- Для звʼязку щодо акаунта чи суттєвих змін у сервісі.
+- Для входу, створення й запуску майданчиків, доставки повідомлень, збереження історії, експорту коду та підтримки.
+- Для обробки платежів, підтримки лімітів, надсилання чеків і запобігання шахрайству чи зловживанням.
+- Для діагностики, підвищення стабільності, захисту платформи та виконання умов.
+- Для звʼязку щодо акаунта, звернень у підтримку, питань безпеки або важливих змін сервісу.
 
 **Кому передаємо**
 
-- Google (вхід), Stripe (платежі), GitHub (коли підключено для експорту) і AI-провайдеру за Fibe (для генерації коду із запитів).
-- Ваші дані не продаються.
+- Google для входу, Stripe для платежів, GitHub під час підключення експорту, провайдерам хостингу й інфраструктури, провайдерам email-доставки, Fibe та AI-провайдерам, потрібним для перетворення запитів і контексту проєкту на код.
+- Ми не продаємо персональні дані й не використовуємо контент майданчиків для сторонньої реклами.
+
+**AI-обробка**
+
+Запити, вкладення, контекст проєкту та релевантний згенерований код можуть передаватися Fibe та AI-провайдерам, щоб вони могли створювати, діагностувати й покращувати майданчик за вашим запитом. Не надсилайте дані, які вам не дозволено передавати цим обробникам.
+
+**Безпека**
+
+Likeable застосовує розумні технічні та організаційні заходи для захисту акаунтів, проєктів і платіжних даних. Жоден інтернет-сервіс не є повністю захищеним, тому не додавайте без потреби секрети чи чутливі дані в запити, вкладення або згенеровані майданчики.
 
 **Зберігання та видалення**
 
 - Активні майданчики й розмови зберігаються, поки акаунт активний.
 - Архівовані майданчики доступні для завантаження обмежений час після архівування.
-- Видалення акаунта з Профілю остаточно прибирає всі майданчики, повідомлення, платежі та підключення.
+- Операційні логи, резервні копії, білінгові записи та записи безпеки можуть зберігатися обмежений час, якщо це потрібно для стабільності, запобігання шахрайству, бухгалтерії, виконання закону або вирішення спорів.
+- Видалення акаунта з Профілю прибирає майданчики, повідомлення, експорти та токени підключених сервісів з активного сервісу.
 
 **Можливості**
 
 - Експорт будь-якого майданчика в GitHub або як ZIP — з меню майданчика.
-- Видалення окремих майданчиків або всього акаунта — з Профілю.
-- Звернення в підтримку з питаннями або щоб отримати копію даних.
+- Відключення GitHub через повторне підключення або відкликання доступу в GitHub, а також видалення окремих майданчиків або всього акаунта з Профілю.
+- Звернення в підтримку з Профілю щодо питань, виправлення, видалення або отримання копії даних.
 
 </details>`,
   'builder.poweredBy': 'На платформі',
@@ -848,6 +887,7 @@ Likeable — сервіс для створення застосунків че�
   'builder.composerHint.ready': 'Enter — надіслати · Shift+Enter — новий рядок',
   'builder.composerHint.agentQueue': 'Агент працює · повідомлення стане в чергу',
   'builder.composerHint.agentSteer': 'Агент працює · повідомлення скерує хід',
+  'builder.composerHint.improvingPrompt': 'Покращення запиту...',
   'builder.composerHint.signIn': 'Увійдіть, щоб надсилати запити',
   'builder.composerHint.loadingProjects': 'Завантаження майданчиків',
   'builder.composerHint.noProject': 'Спочатку створіть майданчик',

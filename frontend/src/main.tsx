@@ -398,9 +398,11 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const canvasStatusLabel = agentWorking ? t('builder.status.agentWorking') : previewMaintenance ? t('builder.status.maintenance') : activeProject?.status === 'ready' ? (previewReady ? t('builder.status.canvasLive') : t('builder.status.canvasStarting')) : isProjectStarting ? t('builder.status.canvasStarting') : projectArchived ? t('builder.status.canvasArchived') : activeProject?.status === 'stopped' ? t('builder.status.canvasStopped') : activeProject?.status === 'error' ? t('builder.status.canvasError') : t('builder.status.canvasIdle');
   const idleStopCountdown = activeProject?.status === 'ready' && activeProject.playgroundIdleStopAt ? formatResetCountdown(activeProject.playgroundIdleStopAt, quotaNow, resetCountdownLabels(t)) : '';
   const idleStopTooltip = idleStopCountdown ? t('builder.idleStop.tooltip', { time: idleStopCountdown }) : '';
-  const hasDraft = Boolean(prompt.trim()) || attachments.length > 0;
+  const promptHasText = Boolean(prompt.trim());
+  const hasDraft = promptHasText || attachments.length > 0;
   const composerDisabled = !signedIn || projectsLoading || noActiveProject || projectArchived;
-  const canSend = signedIn && !composerDisabled && hasDraft && !busy && !messageSubmitting && Boolean(activePreviewURL) && (activeProject?.status === 'ready' || previewReady);
+  const composerInputDisabled = composerDisabled || promptImproving;
+  const canSend = signedIn && !composerDisabled && hasDraft && !busy && !messageSubmitting && !promptImproving && Boolean(activePreviewURL) && (activeProject?.status === 'ready' || previewReady);
   const hasActiveNotification = rows.some((row) => row.kind === 'notification' && row.active);
   const canvasLoading = projectsLoading || isProjectStarting || Boolean(activePreviewURL && previewRuntimeActive && !previewMaintenance && (!previewReady || !iframeLoaded));
   const brandWorking = agentWorking || hasActiveNotification || canvasLoading;
@@ -457,7 +459,9 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       ? `${canvasStatusLabel} · ${selectedService.name}`
       : canvasStatusLabel;
   const StudioNextIcon = agentActivityActive ? CircleStop : projectArchived || noActiveProject ? FolderOpen : Sparkles;
-  const composerHintTone = !signedIn || projectsLoading || noActiveProject
+  const composerHintTone = promptImproving
+    ? 'pending'
+    : !signedIn || projectsLoading || noActiveProject
     ? 'blocked'
     : isProjectStarting
       ? 'pending'
@@ -466,7 +470,9 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
         : activeProject?.status === 'stopped' || projectArchived
           ? 'paused'
           : '';
-  const composerModeHint = agentActivityActive
+  const composerModeHint = promptImproving
+    ? t('builder.composerHint.improvingPrompt')
+    : agentActivityActive
     ? busyPolicy === 'queue'
       ? t('builder.composerHint.agentQueue')
       : t('builder.composerHint.agentSteer')
@@ -721,6 +727,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const createOrSend = async () => {
     if (!signedIn) return;
     if (!activeProject) return;
+    if (promptImproving) return;
     const text = prompt.trim();
     const files = attachments;
     if (!text && files.length === 0) return;
@@ -954,8 +961,8 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     });
   };
   const improveCurrentPrompt = async () => {
-    if (!activeProject || promptImproving) return;
-    const draft = prompt;
+    const draft = prompt.trim();
+    if (!activeProject || promptImproving || !draft) return;
     setPromptImproving(true);
     try {
       const response = await api<{ text: string; source?: string; warning?: string; chargedMs?: number }>(`/api/projects/${activeProject.id}/prompt-improve`, {
@@ -1067,24 +1074,24 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   };
   const chatDragHandlers = {
     onDragEnter: (event: React.DragEvent) => {
-      if (composerDisabled || !event.dataTransfer.types.includes('Files')) return;
+      if (composerInputDisabled || !event.dataTransfer.types.includes('Files')) return;
       if (event.cancelable) event.preventDefault();
       dragDepthRef.current += 1;
       setDraggingFiles(true);
     },
     onDragOver: (event: React.DragEvent) => {
-      if (composerDisabled || !event.dataTransfer.types.includes('Files')) return;
+      if (composerInputDisabled || !event.dataTransfer.types.includes('Files')) return;
       event.preventDefault();
       event.dataTransfer.dropEffect = 'copy';
     },
     onDragLeave: (event: React.DragEvent) => {
-      if (composerDisabled || !event.dataTransfer.types.includes('Files')) return;
+      if (composerInputDisabled || !event.dataTransfer.types.includes('Files')) return;
       event.preventDefault();
       dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
       if (dragDepthRef.current === 0) setDraggingFiles(false);
     },
     onDrop: (event: React.DragEvent) => {
-      if (composerDisabled || !event.dataTransfer.files.length) return;
+      if (composerInputDisabled || !event.dataTransfer.files.length) return;
       event.preventDefault();
       dragDepthRef.current = 0;
       setDraggingFiles(false);
@@ -1359,7 +1366,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
             {agentWorking && !agentDelayStatus && !hasActiveNotification && <AgentNotificationRow body={agentWorkingLabel} active />}
           </div>
           {draggingFiles && <div className="dropOverlay"><Paperclip size={24} /> {t('builder.dropFiles')}</div>}
-          <div className={`composer ${attachments.length > 0 ? 'hasAttachments' : ''}`}>
+          <div className={`composer ${attachments.length > 0 ? 'hasAttachments' : ''} ${promptImproving ? 'improving' : ''}`} aria-busy={promptImproving}>
             <input ref={fileInputRef} type="file" multiple hidden onChange={(event) => {
               if (event.currentTarget.files) void addFiles(event.currentTarget.files);
               event.currentTarget.value = '';
@@ -1378,11 +1385,11 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
                 ))}
               </div>
             )}
-            <button className="attachButton" type="button" onClick={() => fileInputRef.current?.click()} disabled={composerDisabled || attachments.length >= MAX_ATTACHMENTS} aria-label={t('builder.attachFiles')}>
+            <button className="attachButton" type="button" onClick={() => fileInputRef.current?.click()} disabled={composerInputDisabled || attachments.length >= MAX_ATTACHMENTS} aria-label={t('builder.attachFiles')}>
               <Paperclip size={22} />
             </button>
             <div className="composerTextSlot">
-              <textarea ref={textareaRef} value={prompt} onChange={(e) => setPrompt(e.target.value)} onKeyDown={handleComposerKeyDown} placeholder={inputPlaceholder} rows={1} disabled={composerDisabled} />
+              <textarea ref={textareaRef} value={prompt} onChange={(e) => setPrompt(e.target.value)} onKeyDown={handleComposerKeyDown} placeholder={inputPlaceholder} rows={1} disabled={composerInputDisabled} />
               {hourQuota && (
                 <span className="composerQuotaBadge tooltip" tabIndex={0} data-tip={hourQuotaTooltip} aria-label={`${t('builder.hours.left')}: ${hourQuotaLabel}`}>
                   {hourQuotaLabel}
@@ -1393,9 +1400,9 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
               {messageSubmitting ? <Loader2 className="spinIcon" size={22} /> : <Send size={22} />}
             </button>
             <div className="composerPromptTools">
-              <button type="button" onClick={() => void improveCurrentPrompt()} disabled={composerDisabled || promptImproving} aria-label={t('builder.promptTools.improve')} title={t('builder.promptTools.improve')}>{promptImproving ? <Loader2 size={13} className="spinIcon" /> : <Sparkles size={13} />} <span className="composerToolLabel">{t('builder.promptTools.improve')}</span></button>
-              <button type="button" onClick={() => fileInputRef.current?.click()} disabled={composerDisabled || attachments.length >= MAX_ATTACHMENTS} aria-label={t('builder.promptTools.reference')} title={t('builder.promptTools.reference')}><ImagePlus size={13} /> <span className="composerToolLabel">{t('builder.promptTools.reference')}</span></button>
-              <button type="button" onClick={openOnboardingTutorial} disabled={!signedIn} aria-label={t('builder.promptTools.starters')} title={t('builder.promptTools.starters')}><BookOpen size={13} /> <span className="composerToolLabel">{t('builder.promptTools.starters')}</span></button>
+              <button className={promptImproving ? 'improvingTool' : ''} type="button" onClick={() => void improveCurrentPrompt()} disabled={composerDisabled || promptImproving || !promptHasText} aria-label={t('builder.promptTools.improve')} title={t('builder.promptTools.improve')}>{promptImproving ? <Loader2 size={13} className="spinIcon" /> : <Sparkles size={13} />} <span className="composerToolLabel">{t('builder.promptTools.improve')}</span></button>
+              <button type="button" onClick={() => fileInputRef.current?.click()} disabled={composerInputDisabled || attachments.length >= MAX_ATTACHMENTS} aria-label={t('builder.promptTools.reference')} title={t('builder.promptTools.reference')}><ImagePlus size={13} /> <span className="composerToolLabel">{t('builder.promptTools.reference')}</span></button>
+              <button type="button" onClick={openOnboardingTutorial} disabled={!signedIn || promptImproving} aria-label={t('builder.promptTools.starters')} title={t('builder.promptTools.starters')}><BookOpen size={13} /> <span className="composerToolLabel">{t('builder.promptTools.starters')}</span></button>
               <span className={`composerModeHint ${agentActivityActive ? 'active' : composerHintTone}`} aria-live="polite">{composerModeHint}</span>
             </div>
           </div>

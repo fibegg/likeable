@@ -32,6 +32,11 @@ func (s *Server) handleProjectPromptImprove(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
+	body.Text = strings.TrimSpace(body.Text)
+	if body.Text == "" {
+		writeError(w, http.StatusBadRequest, "prompt text is required")
+		return
+	}
 	chargeMinutes := s.promptImproveChargeMinutes(r.Context())
 	if chargeMinutes > 0 {
 		allowed, err := s.hourAllowance(r.Context(), user)
