@@ -9308,21 +9308,22 @@ body {
 
 @media (max-width: 920px) {
   html[data-standalone="true"] .previewPane.chatExpanded {
-    --mobile-chat-overlay-bottom: max(env(safe-area-inset-bottom), var(--app-keyboard-overlay-inset, var(--app-keyboard-inset, 0px)));
-    --mobile-chat-bottom-fill: var(--mobile-chat-overlay-bottom);
+    --mobile-chat-overlay-bottom: var(--app-keyboard-overlay-inset, var(--app-keyboard-inset, 0px));
+    --mobile-chat-bottom-fill: 0px;
   }
 
   html[data-standalone="true"] .overlayChat:not(.collapsed):not(.minimized) .composer {
-    margin: 8px max(8px, env(safe-area-inset-right)) 8px max(8px, env(safe-area-inset-left));
-    padding: 8px;
+    margin: 8px max(8px, env(safe-area-inset-right)) 0 max(8px, env(safe-area-inset-left));
+    padding: 8px 8px max(8px, env(safe-area-inset-bottom));
     gap: 7px;
     border: 1px solid var(--border-subtle);
-    border-radius: 14px;
+    border-bottom-width: 0;
+    border-radius: 14px 14px 0 0;
     background:
       linear-gradient(180deg, rgba(8, 18, 24, .98), rgba(4, 9, 12, .99)),
       var(--bg-inset);
     box-shadow:
-      0 14px 32px rgba(0, 0, 0, .22),
+      0 -14px 32px rgba(0, 0, 0, .2),
       inset 0 1px 0 rgba(255, 255, 255, .035);
   }
 
