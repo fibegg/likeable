@@ -149,7 +149,8 @@ func (s *Server) handleProjectMessages(w http.ResponseWriter, r *http.Request, u
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if err := fibeClient.SendMessage(r.Context(), project.ConversationID, projecttext.AgentPromptWithArtefacts(project, agentText, promptArtefacts), attachmentPaths, busyPolicy); err != nil {
+	promptAttachments := promptAttachmentsFromMessageAttachments(localAttachments)
+	if err := fibeClient.SendMessage(r.Context(), project.ConversationID, projecttext.AgentPromptWithArtefactsAndAttachments(project, agentText, promptArtefacts, promptAttachments), attachmentPaths, busyPolicy); err != nil {
 		s.observePlatformError(err)
 		cleanupLocalAttachments()
 		_ = s.store.DeleteMessage(context.Background(), project.ID, messageID)
@@ -306,6 +307,40 @@ func unsupportedAttachmentMessage(attachments []MessageAttachment) string {
 		}
 	}
 	return "One of the attached files is not supported by this workspace. Try PNG, JPG, GIF, PDF, ZIP, text, CSV, Markdown, JSON, Word, or Excel."
+}
+
+func promptAttachmentsFromMessageAttachments(attachments []MessageAttachment) []projecttext.PromptAttachment {
+	out := make([]projecttext.PromptAttachment, 0, len(attachments))
+	for _, attachment := range attachments {
+		out = append(out, projecttext.PromptAttachment{
+			Filename:    attachment.Filename,
+			ContentType: attachment.ContentType,
+			Size:        attachment.Size,
+			Kind:        promptAttachmentKind(attachment),
+		})
+	}
+	return out
+}
+
+func promptAttachmentKind(attachment MessageAttachment) string {
+	contentType := strings.ToLower(strings.TrimSpace(strings.Split(attachment.ContentType, ";")[0]))
+	if strings.HasPrefix(contentType, "image/") {
+		return "image"
+	}
+	if strings.HasPrefix(contentType, "audio/") {
+		return "audio"
+	}
+	if strings.HasPrefix(contentType, "text/") {
+		return "text"
+	}
+	switch cleanAttachmentExtension(attachment.Filename) {
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".bmp", ".heic", ".heif", ".tif", ".tiff":
+		return "image"
+	case ".pdf":
+		return "pdf"
+	default:
+		return "file"
+	}
 }
 
 func messageAttachmentPaths(dataDir string, attachments []MessageAttachment) ([]string, error) {

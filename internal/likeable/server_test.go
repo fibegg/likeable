@@ -4172,6 +4172,24 @@ func TestAgentProjectPromptIncludesResolvedArtefactsInSystemContext(t *testing.T
 	}
 }
 
+func TestAgentProjectPromptIncludesUserAttachmentsInSystemContext(t *testing.T) {
+	project := &Project{ID: "project-attachments", Title: "Prompt app", ConversationID: "conv-attachments"}
+	prompt := projecttext.AgentPromptWithArtefactsAndAttachments(project, "Match the attached image", nil, []projecttext.PromptAttachment{
+		{Filename: "IMG_8364.png", ContentType: "image/png", Size: 1234, Kind: "image"},
+	})
+	for _, want := range []string{
+		"- user attachments:",
+		`filename: "IMG_8364.png", kind: "image", content_type: "image/png", size_bytes: 1234`,
+		"When the request refers to an attached image, screenshot, or file, use the user attachment context delivered with this same message.",
+		"Do not report a missing prompt artefact for ordinary attachments.",
+		"User request:\nMatch the attached image",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
 func TestResolvePromptArtefactMacrosLoadsConfiguredArtefacts(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {

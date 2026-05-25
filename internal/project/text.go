@@ -106,11 +106,22 @@ type PromptArtefact struct {
 	Content string
 }
 
+type PromptAttachment struct {
+	Filename    string
+	ContentType string
+	Size        int64
+	Kind        string
+}
+
 func AgentPrompt(project *domain.Project, userText string) string {
 	return AgentPromptWithArtefacts(project, userText, nil)
 }
 
 func AgentPromptWithArtefacts(project *domain.Project, userText string, artefacts []PromptArtefact) string {
+	return AgentPromptWithArtefactsAndAttachments(project, userText, artefacts, nil)
+}
+
+func AgentPromptWithArtefactsAndAttachments(project *domain.Project, userText string, artefacts []PromptArtefact, attachments []PromptAttachment) string {
 	return fmt.Sprintf(`[[LIKEABLE_SYSTEM_CONTEXT_START]]
 Likeable project context:
 - title: %s
@@ -128,6 +139,8 @@ Likeable project context:
 %s
 - prompt artefacts:
 %s
+- user attachments:
+%s
 
 [[LIKEABLE_AGENT_CONTRACT_START]]
 Operating contract:
@@ -138,6 +151,7 @@ Operating contract:
 - Keep the UI responsive and production-polished: clear hierarchy, useful empty/loading/error states, no overlapping text or controls.
 - Run the available build/test/start command after code changes. If a provider, key, permission, or workspace issue blocks the work, report the exact blocker instead of silently stopping.
 - Use prompt artefacts only when Likeable expands them in the system context. If a request references an unresolved {|artefact:name|} macro, report the missing artefact instead of inventing it.
+- When the request refers to an attached image, screenshot, or file, use the user attachment context delivered with this same message. Do not report a missing prompt artefact for ordinary attachments.
 [[LIKEABLE_AGENT_CONTRACT_END]]
 
 [[LIKEABLE_SYSTEM_CONTEXT_END]]
@@ -157,6 +171,7 @@ User request:
 		formatProjectServices(project),
 		formatProjectRepositories(project),
 		formatPromptArtefacts(artefacts),
+		formatPromptAttachments(attachments),
 		userText,
 	)
 }
@@ -178,6 +193,63 @@ func formatPromptArtefacts(artefacts []PromptArtefact) string {
 		return "  - none"
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+func formatPromptAttachments(attachments []PromptAttachment) string {
+	if len(attachments) == 0 {
+		return "  - none"
+	}
+	var b strings.Builder
+	for _, attachment := range attachments {
+		filename := promptAttachmentField(attachment.Filename)
+		if filename == "" {
+			continue
+		}
+		kind := promptAttachmentField(attachment.Kind)
+		if kind == "" {
+			kind = "file"
+		}
+		contentType := promptAttachmentField(attachment.ContentType)
+		if attachment.Size > 0 {
+			if contentType != "" {
+				fmt.Fprintf(&b, "  - filename: %q, kind: %q, content_type: %q, size_bytes: %d\n", filename, kind, contentType, attachment.Size)
+			} else {
+				fmt.Fprintf(&b, "  - filename: %q, kind: %q, size_bytes: %d\n", filename, kind, attachment.Size)
+			}
+			continue
+		}
+		if contentType != "" {
+			fmt.Fprintf(&b, "  - filename: %q, kind: %q, content_type: %q\n", filename, kind, contentType)
+		} else {
+			fmt.Fprintf(&b, "  - filename: %q, kind: %q\n", filename, kind)
+		}
+	}
+	if strings.TrimSpace(b.String()) == "" {
+		return "  - none"
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func promptAttachmentField(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	value = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return ' '
+		}
+		return r
+	}, value)
+	value = strings.Join(strings.Fields(value), " ")
+	value = strings.ReplaceAll(value, "[[", "[ [")
+	value = strings.ReplaceAll(value, "]]", "] ]")
+	const maxFieldRunes = 160
+	runes := []rune(value)
+	if len(runes) > maxFieldRunes {
+		value = string(runes[:maxFieldRunes]) + "..."
+	}
+	return value
 }
 
 func selectedServiceLine(project *domain.Project) string {
