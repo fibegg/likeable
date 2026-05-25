@@ -9313,15 +9313,26 @@ body {
 }
 
 @media (max-width: 920px) {
+  .overlayChat:not(.collapsed):not(.minimized) .composer {
+    margin: 10px max(12px, calc(env(safe-area-inset-right) + 12px)) 0 max(12px, calc(env(safe-area-inset-left) + 12px));
+    padding: 10px;
+    gap: 9px;
+  }
+
+  .overlayChat:not(.collapsed):not(.minimized) .composer .attachButton,
+  .overlayChat:not(.collapsed):not(.minimized) .composer .sendButton {
+    align-self: center;
+  }
+
   html[data-standalone="true"] .previewPane.chatExpanded {
     --mobile-chat-overlay-bottom: var(--app-keyboard-overlay-inset, var(--app-keyboard-inset, 0px));
     --mobile-chat-bottom-fill: 0px;
   }
 
   html[data-standalone="true"] .overlayChat:not(.collapsed):not(.minimized) .composer {
-    margin: 8px max(8px, env(safe-area-inset-right)) 0 max(8px, env(safe-area-inset-left));
-    padding: 8px 8px max(8px, env(safe-area-inset-bottom));
-    gap: 7px;
+    margin: 10px max(12px, calc(env(safe-area-inset-right) + 12px)) 0 max(12px, calc(env(safe-area-inset-left) + 12px));
+    padding: 10px 10px max(10px, env(safe-area-inset-bottom));
+    gap: 9px;
     border: 1px solid var(--border-subtle);
     border-bottom-width: 0;
     border-radius: 14px 14px 0 0;
