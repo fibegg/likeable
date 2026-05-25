@@ -62,8 +62,10 @@ export function installViewportCssVars() {
   scheduleUpdate();
   window.addEventListener('resize', scheduleUpdate);
   window.addEventListener('orientationchange', scheduleUpdate);
+  window.addEventListener('blur', scheduleUpdate);
   window.addEventListener('focusin', scheduleUpdate);
   window.addEventListener('focusout', scheduleUpdate);
+  document.addEventListener('visibilitychange', scheduleUpdate);
   visualViewport?.addEventListener('resize', scheduleUpdate);
   visualViewport?.addEventListener('scroll', scheduleUpdate);
 
@@ -72,8 +74,10 @@ export function installViewportCssVars() {
     timers.forEach((timer) => window.clearTimeout(timer));
     window.removeEventListener('resize', scheduleUpdate);
     window.removeEventListener('orientationchange', scheduleUpdate);
+    window.removeEventListener('blur', scheduleUpdate);
     window.removeEventListener('focusin', scheduleUpdate);
     window.removeEventListener('focusout', scheduleUpdate);
+    document.removeEventListener('visibilitychange', scheduleUpdate);
     visualViewport?.removeEventListener('resize', scheduleUpdate);
     visualViewport?.removeEventListener('scroll', scheduleUpdate);
   };
@@ -88,6 +92,7 @@ function currentKeyboardInset() {
   if (typeof window === 'undefined') return 0;
   const visualViewport = window.visualViewport;
   if (!visualViewport) return 0;
+  if (!textInputFocused()) return 0;
   return Math.max(0, currentLayoutViewportHeight() - visualViewport.height - visualViewportOffsetTop());
 }
 

@@ -22,6 +22,7 @@ import (
 )
 
 const maxConvertedImageDimension = 3072
+const maxInlineImageAttachmentBytes = 12 << 20
 
 type preparedAttachment struct {
 	path    string

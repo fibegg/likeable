@@ -775,95 +775,128 @@ func TestSendMessageUploadsConversationAttachments(t *testing.T) {
 	}
 }
 
-func TestSendMessagePassesImageAttachmentsInline(t *testing.T) {
+func TestSendMessageUploadsImageAttachments(t *testing.T) {
 	attachmentPath := filepath.Join(t.TempDir(), "screenshot.png")
 	if err := os.WriteFile(attachmentPath, []byte("png-bytes"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	var payload struct {
-		Text   string   `json:"text"`
-		Images []string `json:"images"`
-	}
+	var uploadConversationID string
+	var payload map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/agents/agent/uploads" {
-			t.Fatal("inline image should not be uploaded")
-		}
-		if r.Method != http.MethodPost || r.URL.Path != "/api/agents/agent/messages" {
+		switch r.Method + " " + r.URL.Path {
+		case http.MethodPost + " /api/agents/agent/uploads":
+			if err := r.ParseMultipartForm(1 << 20); err != nil {
+				t.Fatal(err)
+			}
+			uploadConversationID = r.FormValue("conversation_id")
+			writeJSONResponse(t, w, map[string]any{"filename": "uploaded-screenshot.png"})
+		case http.MethodPost + " /api/agents/agent/messages":
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatal(err)
+			}
+			writeJSONResponse(t, w, map[string]any{"ok": true})
+		default:
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
-		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			t.Fatal(err)
-		}
-		writeJSONResponse(t, w, map[string]any{"ok": true})
 	}))
 	defer server.Close()
 	client := newTestClient(t, server, "agent", "")
 	if err := client.SendMessage(t.Context(), "conv-1", "Use screenshot", []string{attachmentPath}, "queue"); err != nil {
 		t.Fatal(err)
 	}
-	if payload.Text != "Use screenshot" {
-		t.Fatalf("payload text=%q, want Use screenshot", payload.Text)
+	if uploadConversationID != "conv-1" {
+		t.Fatalf("upload conversation_id=%q, want conv-1", uploadConversationID)
 	}
-	if len(payload.Images) != 1 || payload.Images[0] != "data:image/png;base64,cG5nLWJ5dGVz" {
-		t.Fatalf("payload images=%#v, want inline PNG data URL", payload.Images)
+	if payload["text"] != "Use screenshot" {
+		t.Fatalf("payload=%#v, want text", payload)
+	}
+	if _, ok := payload["images"]; ok {
+		t.Fatalf("payload=%#v, want images omitted", payload)
+	}
+	attachments := payload["attachmentFilenames"].([]any)
+	if len(attachments) != 1 || attachments[0] != "uploaded-screenshot.png" {
+		t.Fatalf("attachments=%#v, want uploaded filename", attachments)
 	}
 }
 
-func TestSendMessageSniffsExtensionlessImageAttachmentsInline(t *testing.T) {
+func TestSendMessageUploadsSniffedExtensionlessImageAttachments(t *testing.T) {
 	attachmentPath := filepath.Join(t.TempDir(), "screenshot")
 	if err := os.WriteFile(attachmentPath, []byte("\x89PNG\r\n\x1a\npng-bytes"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	var payload struct {
-		Images []string `json:"images"`
-	}
+	var uploadCalled bool
+	var payload map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/agents/agent/uploads" {
-			t.Fatal("inline image should not be uploaded")
-		}
-		if r.Method != http.MethodPost || r.URL.Path != "/api/agents/agent/messages" {
+		switch r.Method + " " + r.URL.Path {
+		case http.MethodPost + " /api/agents/agent/uploads":
+			uploadCalled = true
+			writeJSONResponse(t, w, map[string]any{"filename": "uploaded-extensionless.png"})
+		case http.MethodPost + " /api/agents/agent/messages":
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatal(err)
+			}
+			writeJSONResponse(t, w, map[string]any{"ok": true})
+		default:
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
-		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			t.Fatal(err)
-		}
-		writeJSONResponse(t, w, map[string]any{"ok": true})
 	}))
 	defer server.Close()
 	client := newTestClient(t, server, "agent", "")
 	if err := client.SendMessage(t.Context(), "conv-1", "Use screenshot", []string{attachmentPath}, "queue"); err != nil {
 		t.Fatal(err)
 	}
-	if len(payload.Images) != 1 || !strings.HasPrefix(payload.Images[0], "data:image/png;base64,") {
-		t.Fatalf("payload images=%#v, want sniffed PNG data URL", payload.Images)
+	if !uploadCalled {
+		t.Fatal("expected extensionless image upload")
+	}
+	if _, ok := payload["images"]; ok {
+		t.Fatalf("payload=%#v, want images omitted", payload)
+	}
+	attachments := payload["attachmentFilenames"].([]any)
+	if len(attachments) != 1 || attachments[0] != "uploaded-extensionless.png" {
+		t.Fatalf("attachments=%#v, want uploaded filename", attachments)
 	}
 }
 
-func TestSendMessageConvertsUnsupportedImageAttachmentsInline(t *testing.T) {
+func TestSendMessageConvertsUnsupportedImageAttachmentsBeforeUpload(t *testing.T) {
 	attachmentPath := filepath.Join(t.TempDir(), "reference.bmp")
 	writeTestBMP(t, attachmentPath)
-	var payload struct {
-		Images []string `json:"images"`
-	}
+	var uploadedFilename string
+	var payload map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/agents/agent/uploads" {
-			t.Fatal("converted image should not be uploaded")
-		}
-		if r.Method != http.MethodPost || r.URL.Path != "/api/agents/agent/messages" {
+		switch r.Method + " " + r.URL.Path {
+		case http.MethodPost + " /api/agents/agent/uploads":
+			if err := r.ParseMultipartForm(1 << 20); err != nil {
+				t.Fatal(err)
+			}
+			files := r.MultipartForm.File["file"]
+			if len(files) != 1 {
+				t.Fatalf("upload files=%#v, want one file", files)
+			}
+			uploadedFilename = files[0].Filename
+			writeJSONResponse(t, w, map[string]any{"filename": "uploaded-reference.jpg"})
+		case http.MethodPost + " /api/agents/agent/messages":
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatal(err)
+			}
+			writeJSONResponse(t, w, map[string]any{"ok": true})
+		default:
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
-		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			t.Fatal(err)
-		}
-		writeJSONResponse(t, w, map[string]any{"ok": true})
 	}))
 	defer server.Close()
 	client := newTestClient(t, server, "agent", "")
 	if err := client.SendMessage(t.Context(), "conv-1", "Use screenshot", []string{attachmentPath}, "queue"); err != nil {
 		t.Fatal(err)
 	}
-	if len(payload.Images) != 1 || !strings.HasPrefix(payload.Images[0], "data:image/jpeg;base64,") {
-		t.Fatalf("payload images=%#v, want converted JPEG data URL", payload.Images)
+	if !strings.HasPrefix(uploadedFilename, "likeable-attachment-") || !strings.HasSuffix(uploadedFilename, ".jpg") {
+		t.Fatalf("uploaded filename=%q, want converted JPEG temp file", uploadedFilename)
+	}
+	if _, ok := payload["images"]; ok {
+		t.Fatalf("payload=%#v, want images omitted", payload)
+	}
+	attachments := payload["attachmentFilenames"].([]any)
+	if len(attachments) != 1 || attachments[0] != "uploaded-reference.jpg" {
+		t.Fatalf("attachments=%#v, want uploaded filename", attachments)
 	}
 }
 

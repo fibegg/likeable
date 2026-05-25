@@ -4399,7 +4399,6 @@ html.draggingCollapsedChat * {
     transform: none;
     max-height: var(--mobile-chat-available-height);
   }
-  html:not([data-android="true"]) .overlayChat:not(.collapsed):not(.minimized):focus-within,
   html:not([data-android="true"])[data-keyboard-open="true"] .overlayChat:not(.collapsed):not(.minimized) {
     height: var(--mobile-chat-available-height);
   }
@@ -9317,6 +9316,7 @@ body {
     margin: 10px max(12px, calc(env(safe-area-inset-right) + 12px)) 0 max(12px, calc(env(safe-area-inset-left) + 12px));
     padding: 10px;
     gap: 9px;
+    align-items: center;
   }
 
   .overlayChat:not(.collapsed):not(.minimized) .composer .attachButton,
@@ -9364,6 +9364,22 @@ body {
     grid-column: 1 / -1;
     margin-top: 0;
     border-radius: 12px;
+  }
+
+  .overlayChat:not(.collapsed):not(.minimized) .composer .composerTextSlot {
+    align-self: center;
+    align-items: center;
+  }
+
+  .overlayChat:not(.collapsed):not(.minimized) .chatPane.screenOpen .projectList {
+    padding-bottom: calc(14px + max(12px, env(safe-area-inset-bottom)));
+  }
+
+  .overlayChat:not(.collapsed):not(.minimized) .chatPane.screenOpen .newProjectRow {
+    align-items: center;
+    justify-content: center;
+    min-height: 48px;
+    line-height: 1;
   }
 }
 

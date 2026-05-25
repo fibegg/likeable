@@ -2,20 +2,16 @@ package fibe
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 
 	sdkfibe "github.com/fibegg/sdk/fibe"
 )
-
-const maxInlineImageAttachmentBytes = 12 << 20
 
 type ConversationLiveState struct {
 	ConversationID    string `json:"conversationId,omitempty"`
@@ -37,17 +33,8 @@ func (c *Client) SendMessage(ctx context.Context, conversationID, text string, a
 	}
 	defer cleanupPreparedAttachments(preparedAttachments)
 
-	images := make([]string, 0, len(preparedAttachments))
 	attachmentFilenames := make([]string, 0, len(preparedAttachments))
 	for _, attachment := range preparedAttachments {
-		imageDataURL, inline, err := inlineImageAttachmentDataURL(attachment.path)
-		if err != nil {
-			return err
-		}
-		if inline {
-			images = append(images, imageDataURL)
-			continue
-		}
 		upload, err := c.sdk.Agents.UploadByIdentifier(ctx, c.agentID, &sdkfibe.AgentUploadParams{
 			FilePath:       attachment.path,
 			ConversationID: conversationID,
@@ -68,37 +55,9 @@ func (c *Client) SendMessage(ctx context.Context, conversationID, text string, a
 		Text:                text,
 		ConversationID:      conversationID,
 		BusyPolicy:          busyPolicy,
-		Images:              images,
 		AttachmentFilenames: attachmentFilenames,
 	})
 	return wrapSDKError(err)
-}
-
-func inlineImageAttachmentDataURL(path string) (string, bool, error) {
-	contentType := inlineImageContentType(path)
-	if contentType == "" {
-		return "", false, nil
-	}
-	info, err := os.Stat(path)
-	if err != nil {
-		return "", false, fmt.Errorf("read image attachment: %w", err)
-	}
-	if info.Size() > maxInlineImageAttachmentBytes {
-		return "", false, nil
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return "", false, fmt.Errorf("read image attachment: %w", err)
-	}
-	return "data:" + contentType + ";base64," + base64.StdEncoding.EncodeToString(data), true, nil
-}
-
-func inlineImageContentType(path string) string {
-	contentType := attachmentContentType(path)
-	if supportedInlineImageContentType(contentType) {
-		return contentType
-	}
-	return ""
 }
 
 func (c *Client) StartAgentChat(ctx context.Context) error {
