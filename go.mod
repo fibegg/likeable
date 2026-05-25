@@ -4,6 +4,9 @@ go 1.24.0
 
 require (
 	github.com/google/uuid v1.6.0
+	github.com/hibiken/asynq v0.26.0
+	github.com/redis/go-redis/v9 v9.19.0
+	golang.org/x/image v0.36.0
 	golang.org/x/oauth2 v0.25.0
 	modernc.org/sqlite v1.34.4
 )
@@ -13,10 +16,8 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
-	github.com/hibiken/asynq v0.26.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/ncruces/go-strftime v0.1.9 // indirect
-	github.com/redis/go-redis/v9 v9.19.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/robfig/cron/v3 v3.0.1 // indirect
 	github.com/spf13/cast v1.10.0 // indirect

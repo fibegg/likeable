@@ -28,6 +28,14 @@ func writeError(w http.ResponseWriter, status int, message string) {
 	writeJSON(w, status, map[string]any{"error": message})
 }
 
+func writeErrorCode(w http.ResponseWriter, status int, code, message string) {
+	writeJSON(w, status, map[string]any{
+		"error":   message,
+		"code":    code,
+		"message": message,
+	})
+}
+
 func readAll(r io.Reader) []byte {
 	data, _ := io.ReadAll(io.LimitReader(r, 2<<20))
 	return data

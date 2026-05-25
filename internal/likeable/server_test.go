@@ -1748,8 +1748,15 @@ esac
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("message returned %d, want 400; body=%s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "workspace rejected this WEBP attachment") {
+	if !strings.Contains(rec.Body.String(), "could not convert this WEBP attachment") {
 		t.Fatalf("body=%s, want human-readable WEBP message", rec.Body.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload["code"] != "ATTACHMENT_UNSUPPORTED" {
+		t.Fatalf("code=%v, want ATTACHMENT_UNSUPPORTED", payload["code"])
 	}
 	messages, err := store.MessagesForProject(t.Context(), project.ID)
 	if err != nil {

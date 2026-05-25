@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"image"
+	"image/color"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +16,7 @@ import (
 	"time"
 
 	projecttext "github.com/fibegg/likeable/internal/project"
+	"golang.org/x/image/bmp"
 )
 
 func testFibeBaseURL() string {
@@ -797,6 +800,66 @@ func TestSendMessagePassesImageAttachmentsInline(t *testing.T) {
 	}
 }
 
+func TestSendMessageSniffsExtensionlessImageAttachmentsInline(t *testing.T) {
+	cliPath, logPath, stdinPath := fakeFibeCLI(t)
+	attachmentPath := filepath.Join(t.TempDir(), "screenshot")
+	if err := os.WriteFile(attachmentPath, []byte("\x89PNG\r\n\x1a\npng-bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	client := &Client{
+		apiKey:    "test",
+		agentID:   "agent",
+		cliPath:   cliPath,
+		cliDomain: testFibeCLIDomain(),
+		http:      http.DefaultClient,
+	}
+	if err := client.SendMessage(t.Context(), "conv-1", "Use screenshot", []string{attachmentPath}, "queue"); err != nil {
+		t.Fatal(err)
+	}
+	log := readFile(t, logPath)
+	if strings.Contains(log, "--attach") {
+		t.Fatalf("unexpected image upload args: %s", log)
+	}
+	var payload struct {
+		Images []string `json:"images"`
+	}
+	if err := json.Unmarshal([]byte(readFile(t, stdinPath)), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Images) != 1 || !strings.HasPrefix(payload.Images[0], "data:image/png;base64,") {
+		t.Fatalf("payload images=%#v, want sniffed PNG data URL", payload.Images)
+	}
+}
+
+func TestSendMessageConvertsUnsupportedImageAttachmentsInline(t *testing.T) {
+	cliPath, logPath, stdinPath := fakeFibeCLI(t)
+	attachmentPath := filepath.Join(t.TempDir(), "reference.bmp")
+	writeTestBMP(t, attachmentPath)
+	client := &Client{
+		apiKey:    "test",
+		agentID:   "agent",
+		cliPath:   cliPath,
+		cliDomain: testFibeCLIDomain(),
+		http:      http.DefaultClient,
+	}
+	if err := client.SendMessage(t.Context(), "conv-1", "Use screenshot", []string{attachmentPath}, "queue"); err != nil {
+		t.Fatal(err)
+	}
+	log := readFile(t, logPath)
+	if strings.Contains(log, "--attach") {
+		t.Fatalf("unexpected image upload args: %s", log)
+	}
+	var payload struct {
+		Images []string `json:"images"`
+	}
+	if err := json.Unmarshal([]byte(readFile(t, stdinPath)), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Images) != 1 || !strings.HasPrefix(payload.Images[0], "data:image/jpeg;base64,") {
+		t.Fatalf("payload images=%#v, want converted JPEG data URL", payload.Images)
+	}
+}
+
 func TestMessagesAndActivityFallBackToRuntimeWhenFibeSyncIsEmpty(t *testing.T) {
 	cliPath, _, _ := fakeFibeCLI(t)
 	runtimeStatusCalls := 0
@@ -1244,6 +1307,27 @@ func readFile(t *testing.T, path string) string {
 		t.Fatal(err)
 	}
 	return string(data)
+}
+
+func writeTestBMP(t *testing.T, path string) {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, 4, 4))
+	for y := 0; y < 4; y++ {
+		for x := 0; x < 4; x++ {
+			img.Set(x, y, color.RGBA{R: uint8(40 * x), G: uint8(50 * y), B: 180, A: 255})
+		}
+	}
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := bmp.Encode(file, img); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func writeJSONResponse(t *testing.T, w http.ResponseWriter, value any) {

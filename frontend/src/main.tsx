@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { BookOpen, ChevronDown, CircleHelp, CircleStop, ExternalLink, FolderOpen, ImagePlus, Languages, LayoutPanelLeft, Loader2, LogOut, Minimize2, MessageSquare, Paperclip, Send, Settings, Sparkles, UserRound, X } from 'lucide-react';
 import './styles.css';
 import { Admin } from './admin';
-import { api } from './api';
+import { ApiError, api } from './api';
 import { AgentNotificationRow, AppDialog, CanvasLoader, ConfirmDeleteProject, ConfirmExportProject, ConfirmNewProject, DeleteAllAccountDialog, EmptyCanvas, HelpPanel, OnboardingGallery, ProjectList, ServicePanel, UserMessageRow } from './builder_components';
 import { BASIC_CHAT_COLLAPSED_KEY, BASIC_CHAT_HEIGHT_KEY, BUILDER_MODE_KEY, COLLAPSED_CHAT_POSITION_KEY, MAX_ATTACHMENTS, SINGLE_VIEW_QUERY } from './config';
 import type { AppDialogConfig, BuilderMode, BusyPolicy, Feed, FeedRow, HourQuota, Message, Me, PendingAttachment, PreviewStatus, Project, ProjectArchiveResponse, ProjectExportResponse, ProjectListResponse, ProjectService, UserNotice } from './domain';
@@ -28,6 +28,10 @@ const PULL_REFRESH_TIMEOUT_MS = 3500;
 const PENDING_MESSAGE_RECONCILE_MS = 2 * 60_000;
 const BASIC_CHAT_MIN_PERSISTED_HEIGHT = 260;
 const STALE_PROJECT_DELETION_NOTICE_MS = 10 * 60_000;
+const MAX_INLINE_IMAGE_ATTACHMENT_BYTES = 12 * 1024 * 1024;
+const BROWSER_IMAGE_CONVERSION_TARGET_BYTES = 10 * 1024 * 1024;
+const MAX_BROWSER_CONVERTED_IMAGE_DIMENSION = 3072;
+const FIBE_INLINE_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif']);
 const MATRIX_RAIN_COLUMNS = [
   ['10101010', '01010101', '11010110', '00101011', '10110100', '01011001', '11101010', '00110101', '10010110', '01101011'],
   ['01011010', '10100101', '01101001', '10010110', '01010111', '11010010', '00101101', '10110101', '01001011', '11100100'],
@@ -765,7 +769,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       setPendingMessagesByProject((current) => removePendingMessage(current, activeProject.id, optimisticID));
       setPrompt(text);
       setAttachments(files);
-      setDialog({ title: t('dialog.requestFailed.title'), body: err instanceof Error ? err.message : t('dialog.requestFailed.title'), confirmLabel: t('common.close') });
+      setDialog({ title: t('dialog.requestFailed.title'), body: messageSendErrorBody(err, t), confirmLabel: t('common.close') });
     } finally {
       setMessageSubmitting(false);
       setBusy(false);
@@ -967,14 +971,15 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       setPromptImproving(false);
     }
   };
-  const addFiles = (fileList: FileList | File[]) => {
+  const addFiles = async (fileList: FileList | File[]) => {
     const nextFiles = Array.from(fileList).filter((file) => file.size > 0);
     if (nextFiles.length === 0) return;
+    const normalizedFiles = await Promise.all(nextFiles.map((file) => normalizeBrowserAttachment(file)));
     setAttachments((current) => {
       const slots = Math.max(0, MAX_ATTACHMENTS - current.length);
       return [
         ...current,
-        ...nextFiles.slice(0, slots).map((file) => ({
+        ...normalizedFiles.slice(0, slots).map((file) => ({
           id: `${file.name}-${file.size}-${file.lastModified}-${crypto.randomUUID()}`,
           file
         }))
@@ -1083,7 +1088,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       event.preventDefault();
       dragDepthRef.current = 0;
       setDraggingFiles(false);
-      addFiles(event.dataTransfer.files);
+      void addFiles(event.dataTransfer.files);
     }
   };
 
@@ -1356,7 +1361,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
           {draggingFiles && <div className="dropOverlay"><Paperclip size={24} /> {t('builder.dropFiles')}</div>}
           <div className={`composer ${attachments.length > 0 ? 'hasAttachments' : ''}`}>
             <input ref={fileInputRef} type="file" multiple hidden onChange={(event) => {
-              if (event.currentTarget.files) addFiles(event.currentTarget.files);
+              if (event.currentTarget.files) void addFiles(event.currentTarget.files);
               event.currentTarget.value = '';
             }} />
             {attachments.length > 0 && (
@@ -1535,6 +1540,119 @@ function projectPageTitle(title: string, serviceName: string | undefined, t: (ke
   const normalizedServiceName = (serviceName ?? '').trim();
   if (!normalizedServiceName) return title;
   return t('page.projectServiceTitle', { title, service: normalizedServiceName });
+}
+
+function messageSendErrorBody(err: unknown, t: (key: TranslationKey, params?: Record<string, string | number>) => string): string {
+  if (err instanceof ApiError) {
+    switch (err.code) {
+      case 'ATTACHMENT_LIMIT_EXCEEDED':
+        return t('error.attachmentLimit', { count: MAX_ATTACHMENTS });
+      case 'ATTACHMENT_TOO_LARGE':
+        return t('error.attachmentTooLarge');
+      case 'ATTACHMENT_UNSUPPORTED':
+        return t('error.attachmentUnsupported');
+      case 'AGENT_RUNTIME_STARTING':
+        return t('error.agentRuntimeStarting');
+      case 'AGENT_RUNTIME_UNAVAILABLE':
+        return t('error.agentRuntimeUnavailable');
+      case 'AGENT_RUNTIME_START_FAILED':
+        return t('error.agentRuntimeStartFailed');
+      case 'WORKSPACE_RATE_LIMITED':
+        return t('error.workspaceRateLimited');
+      case 'WORKSPACE_MESSAGE_FAILED':
+        return t('error.workspaceMessageFailed');
+    }
+  }
+  return err instanceof Error ? err.message : t('dialog.requestFailed.title');
+}
+
+async function normalizeBrowserAttachment(file: File): Promise<File> {
+  if (!shouldConvertBrowserImage(file)) return file;
+  try {
+    return await convertBrowserImageToJPEG(file);
+  } catch (err) {
+    console.warn('Attachment image conversion failed', err);
+    return file;
+  }
+}
+
+function shouldConvertBrowserImage(file: File): boolean {
+  const contentType = file.type.toLowerCase().split(';')[0].trim();
+  const filename = file.name.toLowerCase();
+  if (contentType === 'image/svg+xml' || filename.endsWith('.svg')) return false;
+  const looksLikeImage = contentType.startsWith('image/') || /\.(avif|bmp|gif|heic|heif|jpe?g|png|tiff?|webp)$/.test(filename);
+  if (!looksLikeImage) return false;
+  return !FIBE_INLINE_IMAGE_TYPES.has(contentType) || file.size > MAX_INLINE_IMAGE_ATTACHMENT_BYTES;
+}
+
+async function convertBrowserImageToJPEG(file: File): Promise<File> {
+  const image = await loadAttachmentImage(file);
+  const { width, height } = boundedImageDimensions(image.naturalWidth, image.naturalHeight, MAX_BROWSER_CONVERTED_IMAGE_DIMENSION);
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('canvas is not available');
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, width, height);
+  ctx.drawImage(image, 0, 0, width, height);
+  const blob = await bestEffortJPEGBlob(canvas);
+  const filename = convertedAttachmentFilename(file.name);
+  return new File([blob], filename, { type: 'image/jpeg', lastModified: file.lastModified });
+}
+
+function loadAttachmentImage(file: File): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('image could not be decoded'));
+    };
+    image.src = url;
+  });
+}
+
+async function bestEffortJPEGBlob(canvas: HTMLCanvasElement): Promise<Blob> {
+  let best: Blob | null = null;
+  for (const quality of [0.9, 0.82, 0.74, 0.66]) {
+    const blob = await canvasBlob(canvas, 'image/jpeg', quality);
+    best = blob;
+    if (blob.size <= BROWSER_IMAGE_CONVERSION_TARGET_BYTES) return blob;
+  }
+  return best ?? await canvasBlob(canvas, 'image/jpeg', 0.78);
+}
+
+function canvasBlob(canvas: HTMLCanvasElement, type: string, quality: number): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) resolve(blob);
+      else reject(new Error('canvas export failed'));
+    }, type, quality);
+  });
+}
+
+function boundedImageDimensions(width: number, height: number, maxDimension: number) {
+  const safeWidth = Math.max(1, width || maxDimension);
+  const safeHeight = Math.max(1, height || maxDimension);
+  const longest = Math.max(safeWidth, safeHeight);
+  if (longest <= maxDimension) return { width: safeWidth, height: safeHeight };
+  const scale = maxDimension / longest;
+  return {
+    width: Math.max(1, Math.round(safeWidth * scale)),
+    height: Math.max(1, Math.round(safeHeight * scale))
+  };
+}
+
+function convertedAttachmentFilename(filename: string): string {
+  const trimmed = filename.trim() || 'attachment';
+  const dot = trimmed.lastIndexOf('.');
+  const base = dot > 0 ? trimmed.slice(0, dot) : trimmed;
+  return `${base}.jpg`;
 }
 
 function improvePromptDraft(rawPrompt: string, projectTitle: string | undefined, t: (key: TranslationKey, params?: Record<string, string | number>) => string): string {

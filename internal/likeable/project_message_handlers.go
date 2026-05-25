@@ -30,7 +30,11 @@ func (s *Server) handleProjectMessages(w http.ResponseWriter, r *http.Request, u
 	}
 	text, attachmentHeaders, busyPolicy, err := parseProjectMessageRequest(w, r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		if multipartRequestTooLarge(err) {
+			writeErrorCode(w, http.StatusRequestEntityTooLarge, "ATTACHMENT_TOO_LARGE", attachmentTooLargeMessage())
+		} else {
+			writeErrorCode(w, http.StatusBadRequest, "INVALID_MESSAGE_REQUEST", err.Error())
+		}
 		return
 	}
 	text = strings.TrimSpace(text)
@@ -39,7 +43,7 @@ func (s *Server) handleProjectMessages(w http.ResponseWriter, r *http.Request, u
 		return
 	}
 	if len(attachmentHeaders) > maxMessageAttachments {
-		writeError(w, http.StatusBadRequest, fmt.Sprintf("too many attachments; max %d", maxMessageAttachments))
+		writeErrorCode(w, http.StatusBadRequest, "ATTACHMENT_LIMIT_EXCEEDED", fmt.Sprintf("too many attachments; max %d", maxMessageAttachments))
 		return
 	}
 	if project.Status != "ready" && projectNeedsReadinessRecovery(project) {
@@ -94,14 +98,14 @@ func (s *Server) handleProjectMessages(w http.ResponseWriter, r *http.Request, u
 		log.Printf("create workspace conversation for project %s: %v", project.ID, err)
 		if fibegateway.IsAgentRuntimeUnavailableError(err) {
 			if startErr := s.startProjectAgentChat(r.Context(), project, fibeClient, "create conversation"); startErr != nil {
-				writeError(w, http.StatusServiceUnavailable, agentRuntimeStartFailedMessage())
+				writeErrorCode(w, http.StatusServiceUnavailable, "AGENT_RUNTIME_START_FAILED", agentRuntimeStartFailedMessage())
 			} else {
-				writeError(w, http.StatusServiceUnavailable, agentRuntimeStartingMessage())
+				writeErrorCode(w, http.StatusServiceUnavailable, "AGENT_RUNTIME_STARTING", agentRuntimeStartingMessage())
 			}
 			return
 		}
-		status, message := workspaceSendFailureResponse(nil, err)
-		writeError(w, status, message)
+		status, code, message := workspaceSendFailureResponse(nil, err)
+		writeErrorCode(w, status, code, message)
 		return
 	}
 	s.clearPlatformBackoff()
@@ -152,12 +156,12 @@ func (s *Server) handleProjectMessages(w http.ResponseWriter, r *http.Request, u
 		log.Printf("send workspace message for project %s: %v", project.ID, err)
 		if fibegateway.IsAgentRuntimeUnavailableError(err) {
 			if startErr := s.startProjectAgentChat(r.Context(), project, fibeClient, "send message"); startErr != nil {
-				writeError(w, http.StatusServiceUnavailable, agentRuntimeStartFailedMessage())
+				writeErrorCode(w, http.StatusServiceUnavailable, "AGENT_RUNTIME_START_FAILED", agentRuntimeStartFailedMessage())
 				return
 			}
 		}
-		status, message := workspaceSendFailureResponse(localAttachments, err)
-		writeError(w, status, message)
+		status, code, message := workspaceSendFailureResponse(localAttachments, err)
+		writeErrorCode(w, status, code, message)
 		return
 	}
 	s.clearPlatformBackoff()
@@ -210,17 +214,20 @@ func normalizeBusyPolicy(raw string) string {
 	}
 }
 
-func workspaceSendFailureResponse(attachments []MessageAttachment, err error) (int, string) {
+func workspaceSendFailureResponse(attachments []MessageAttachment, err error) (int, string, string) {
+	if len(attachments) > 0 && workspaceAttachmentTooLargeFailure(err) {
+		return http.StatusRequestEntityTooLarge, "ATTACHMENT_TOO_LARGE", attachmentTooLargeMessage()
+	}
 	if len(attachments) > 0 && workspaceAttachmentFailure(err) {
-		return http.StatusBadRequest, unsupportedAttachmentMessage(attachments)
+		return http.StatusBadRequest, "ATTACHMENT_UNSUPPORTED", unsupportedAttachmentMessage(attachments)
 	}
 	if fibegateway.IsAgentRuntimeUnavailableError(err) {
-		return http.StatusServiceUnavailable, agentRuntimeUnavailableMessage()
+		return http.StatusServiceUnavailable, "AGENT_RUNTIME_UNAVAILABLE", agentRuntimeUnavailableMessage()
 	}
 	if isPlatformRateLimited(err) {
-		return http.StatusServiceUnavailable, "workspace platform is rate limited; try again shortly"
+		return http.StatusServiceUnavailable, "WORKSPACE_RATE_LIMITED", "workspace platform is rate limited; try again shortly"
 	}
-	return http.StatusBadGateway, "could not send the request to the workspace"
+	return http.StatusBadGateway, "WORKSPACE_MESSAGE_FAILED", "could not send the request to the workspace"
 }
 
 func agentRuntimeStartingMessage() string {
@@ -263,10 +270,39 @@ func workspaceAttachmentFailure(err error) bool {
 	return false
 }
 
+func multipartRequestTooLarge(err error) bool {
+	if err == nil {
+		return false
+	}
+	text := strings.ToLower(err.Error())
+	return containsAny(text, "request body too large", "multipart: message too large")
+}
+
+func workspaceAttachmentTooLargeFailure(err error) bool {
+	if err == nil {
+		return false
+	}
+	text := strings.ToLower(err.Error())
+	var platformErr *fibegateway.PlatformError
+	if errors.As(err, &platformErr) {
+		text = strings.ToLower(strings.Join([]string{
+			platformErr.Code,
+			platformErr.Message,
+			platformErr.Stderr,
+			err.Error(),
+		}, " "))
+	}
+	return containsAny(text, "file too large", "request body too large", "multipart", "http 413", "413")
+}
+
+func attachmentTooLargeMessage() string {
+	return "This attachment is too large for the workspace. Try a smaller file or a compressed screenshot."
+}
+
 func unsupportedAttachmentMessage(attachments []MessageAttachment) string {
 	for _, attachment := range attachments {
 		if strings.EqualFold(cleanAttachmentExtension(attachment.Filename), ".webp") {
-			return "The workspace rejected this WEBP attachment. Convert the image to PNG or JPG and try again."
+			return "Likeable could not convert this WEBP attachment for the workspace. Try PNG or JPG instead."
 		}
 	}
 	return "One of the attached files is not supported by this workspace. Try PNG, JPG, GIF, PDF, ZIP, text, CSV, Markdown, JSON, Word, or Excel."

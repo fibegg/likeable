@@ -7,11 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"mime"
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -32,14 +30,16 @@ func (c *Client) SendMessage(ctx context.Context, conversationID, text string, a
 	if strings.TrimSpace(busyPolicy) == "" {
 		busyPolicy = "queue"
 	}
+	preparedAttachments, err := prepareMessageAttachmentPaths(attachmentPaths)
+	if err != nil {
+		return err
+	}
+	defer cleanupPreparedAttachments(preparedAttachments)
+
 	args := []string{"agents", "send-message", c.agentID, "--conversation-id", conversationID, "--busy-policy", busyPolicy}
-	images := make([]string, 0, len(attachmentPaths))
-	for _, path := range attachmentPaths {
-		path = strings.TrimSpace(path)
-		if path == "" {
-			continue
-		}
-		imageDataURL, inline, err := inlineImageAttachmentDataURL(path)
+	images := make([]string, 0, len(preparedAttachments))
+	for _, attachment := range preparedAttachments {
+		imageDataURL, inline, err := inlineImageAttachmentDataURL(attachment.path)
 		if err != nil {
 			return err
 		}
@@ -47,7 +47,7 @@ func (c *Client) SendMessage(ctx context.Context, conversationID, text string, a
 			images = append(images, imageDataURL)
 			continue
 		}
-		args = append(args, "--attach", path)
+		args = append(args, "--attach", attachment.path)
 	}
 	payload := map[string]any{"text": text}
 	if len(images) > 0 {
@@ -76,14 +76,11 @@ func inlineImageAttachmentDataURL(path string) (string, bool, error) {
 }
 
 func inlineImageContentType(path string) string {
-	contentType := strings.ToLower(strings.TrimSpace(mime.TypeByExtension(filepath.Ext(path))))
-	contentType = strings.TrimSpace(strings.Split(contentType, ";")[0])
-	switch contentType {
-	case "image/png", "image/jpeg", "image/gif", "image/webp":
+	contentType := attachmentContentType(path)
+	if supportedInlineImageContentType(contentType) {
 		return contentType
-	default:
-		return ""
 	}
+	return ""
 }
 
 func (c *Client) StartAgentChat(ctx context.Context) error {
