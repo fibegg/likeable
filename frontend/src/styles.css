@@ -9313,16 +9313,16 @@ body {
   }
 
   html[data-standalone="true"] .overlayChat:not(.collapsed):not(.minimized) .composer {
-    margin: 0;
-    padding: 8px max(8px, env(safe-area-inset-right)) 8px max(8px, env(safe-area-inset-left));
+    margin: 8px max(8px, env(safe-area-inset-right)) 8px max(8px, env(safe-area-inset-left));
+    padding: 8px;
     gap: 7px;
-    border-width: 1px 0 0;
-    border-radius: 0;
+    border: 1px solid var(--border-subtle);
+    border-radius: 14px;
     background:
       linear-gradient(180deg, rgba(8, 18, 24, .98), rgba(4, 9, 12, .99)),
       var(--bg-inset);
     box-shadow:
-      0 -12px 30px rgba(0, 0, 0, .22),
+      0 14px 32px rgba(0, 0, 0, .22),
       inset 0 1px 0 rgba(255, 255, 255, .035);
   }
 
