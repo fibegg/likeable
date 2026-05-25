@@ -19,6 +19,7 @@ export function currentViewportHeight() {
   if (typeof window === 'undefined') return 0;
   const visualViewport = window.visualViewport;
   if (!visualViewport) return window.innerHeight;
+  if (standaloneDisplayMode()) return currentLayoutViewportHeight();
   const keyboardInset = currentKeyboardInset();
   return keyboardInset > KEYBOARD_INSET_THRESHOLD ? currentLayoutViewportHeight() : visualViewport.height;
 }
@@ -131,6 +132,12 @@ function textInputFocused() {
   const active = document.activeElement;
   if (!(active instanceof HTMLElement)) return false;
   return Boolean(active.closest('textarea, input, select, [contenteditable="true"]'));
+}
+
+function standaloneDisplayMode() {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+  const navigatorWithStandalone = navigator as Navigator & { standalone?: boolean };
+  return window.matchMedia?.('(display-mode: standalone)').matches || navigatorWithStandalone.standalone === true;
 }
 
 export function defaultBasicChatHeight() {

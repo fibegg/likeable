@@ -9386,6 +9386,14 @@ body {
     --mobile-chat-bottom-fill: 0px;
   }
 
+  html[data-standalone="true"]:not([data-android="true"])[data-keyboard-open="true"] .previewPane.chatExpanded {
+    --mobile-chat-keyboard-space: 0px;
+  }
+
+  html[data-standalone="true"]:not([data-android="true"])[data-keyboard-open="true"] .overlayChat:not(.collapsed):not(.minimized) {
+    height: min(var(--basic-chat-height, var(--mobile-chat-available-height)), var(--mobile-chat-available-height));
+  }
+
   html:not([data-android="true"])[data-keyboard-open="true"] .overlayChat:not(.collapsed):not(.minimized) .chatPane {
     background: rgba(5, 11, 15, .96);
   }
