@@ -6320,7 +6320,13 @@ body {
   border-radius: 12px;
   background: transparent;
   color: var(--amber-bright);
+  align-items: center;
   gap: 7px;
+  line-height: 1;
+}
+
+.newProjectRow svg {
+  flex: 0 0 auto;
 }
 
 .newProjectRow:hover {
