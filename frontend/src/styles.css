@@ -9381,6 +9381,31 @@ body {
     min-height: 48px;
     line-height: 1;
   }
+
+  html:not([data-android="true"])[data-keyboard-open="true"] .previewPane.chatExpanded {
+    --mobile-chat-bottom-fill: 0px;
+  }
+
+  html:not([data-android="true"])[data-keyboard-open="true"] .overlayChat:not(.collapsed):not(.minimized) .chatPane {
+    background: rgba(5, 11, 15, .96);
+  }
+
+  html:not([data-android="true"])[data-keyboard-open="true"] .overlayChat:not(.collapsed):not(.minimized) .composer {
+    margin: 0;
+    padding: 8px max(12px, calc(env(safe-area-inset-right) + 12px)) 8px max(12px, calc(env(safe-area-inset-left) + 12px));
+    border-width: 1px 0 0;
+    border-radius: 0;
+    background: rgba(4, 10, 13, .98);
+    box-shadow: none;
+  }
+
+  html:not([data-android="true"])[data-keyboard-open="true"] .overlayChat:not(.collapsed):not(.minimized) .composer textarea {
+    min-height: 44px;
+  }
+
+  html:not([data-android="true"])[data-keyboard-open="true"] .overlayChat:not(.collapsed):not(.minimized) .composerPromptTools {
+    display: none;
+  }
 }
 
 .profileHeaderActions {

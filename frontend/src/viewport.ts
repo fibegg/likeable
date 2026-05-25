@@ -37,12 +37,12 @@ export function installViewportCssVars() {
 
   const update = () => {
     frame = 0;
-    const visualHeight = visualViewport?.height ?? window.innerHeight;
-    const height = currentViewportHeight();
-    const width = currentViewportWidth();
-    const offsetTop = visualViewportOffsetTop();
-    const keyboardInset = currentKeyboardInset();
-    const keyboardOverlayInset = currentKeyboardOverlayInset(keyboardInset);
+    const visualHeight = Math.round(visualViewport?.height ?? window.innerHeight);
+    const height = Math.round(currentViewportHeight());
+    const width = Math.round(currentViewportWidth());
+    const offsetTop = Math.round(visualViewportOffsetTop());
+    const keyboardInset = Math.round(currentKeyboardInset());
+    const keyboardOverlayInset = Math.round(currentKeyboardOverlayInset(keyboardInset));
     root.style.setProperty('--app-viewport-height', `${height}px`);
     root.style.setProperty('--app-visual-viewport-height', `${visualHeight}px`);
     root.style.setProperty('--app-viewport-width', `${width}px`);

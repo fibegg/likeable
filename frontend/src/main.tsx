@@ -113,6 +113,17 @@ function isAndroidBrowserPlatform() {
   return isAndroidPlatform() && !isStandaloneDisplayMode();
 }
 
+function composerTextInputFocused() {
+  if (typeof document === 'undefined') return false;
+  const active = document.activeElement;
+  return active instanceof HTMLElement && Boolean(active.closest('.overlayChat textarea, .overlayChat input'));
+}
+
+function mobileKeyboardActive() {
+  if (typeof document === 'undefined') return false;
+  return document.documentElement.dataset.keyboardOpen === 'true' || composerTextInputFocused();
+}
+
 function App() {
   const [me, setMe] = useState<Me | null>(null);
   const [route, setRoute] = useState(location.pathname);
@@ -588,7 +599,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   }, [collapsedChatPosition]);
   useEffect(() => {
     const resize = () => {
-      if (!isAndroidPlatform()) updateBasicChatHeight((height) => height);
+      if (!isAndroidPlatform() && !mobileKeyboardActive()) updateBasicChatHeight((height) => height);
       setCollapsedChatPosition((position) => clampCollapsedChatPosition(position));
     };
     const visualViewport = window.visualViewport;
