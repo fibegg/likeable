@@ -3,9 +3,9 @@ package fibe
 import (
 	"errors"
 	"net/http"
-	"net/url"
-	"os"
 	"strings"
+
+	sdkfibe "github.com/fibegg/sdk/fibe"
 )
 
 type Client struct {
@@ -14,10 +14,9 @@ type Client struct {
 	agentID           string
 	marqueeID         string
 	templateVersionID string
-	cliPath           string
-	cliDomain         string
 	runtimeChatURL    string
 	http              *http.Client
+	sdk               *sdkfibe.Client
 }
 
 type Assignment struct {
@@ -34,7 +33,6 @@ type Config struct {
 	AgentID           string
 	MarqueeID         string
 	TemplateVersionID string
-	CLIPath           string
 	HTTP              *http.Client
 }
 
@@ -49,20 +47,25 @@ func NewClient(config Config) (*Client, error) {
 	if apiKey == "" || agentID == "" {
 		return nil, errors.New("platform API key or agent ID is not configured")
 	}
-	cliPath := firstNonEmpty(config.CLIPath, os.Getenv("FIBE_CLI_PATH"), "fibe")
 	httpClient := config.HTTP
 	if httpClient == nil {
 		httpClient = http.DefaultClient
 	}
+	sdkClient := sdkfibe.NewClient(
+		sdkfibe.WithBaseURL(baseURL),
+		sdkfibe.WithAPIKey(apiKey),
+		sdkfibe.WithHTTPClient(httpClient),
+		sdkfibe.WithDisableAutoConfig(),
+		sdkfibe.WithMaxRetries(0),
+	)
 	return &Client{
 		baseURL:           strings.TrimRight(baseURL, "/"),
 		apiKey:            apiKey,
 		agentID:           agentID,
 		marqueeID:         strings.TrimSpace(config.MarqueeID),
 		templateVersionID: strings.TrimSpace(config.TemplateVersionID),
-		cliPath:           cliPath,
-		cliDomain:         fibeCLIDomain(baseURL),
 		http:              httpClient,
+		sdk:               sdkClient,
 	}, nil
 }
 
@@ -90,12 +93,4 @@ func normalizeFibeBaseURL(baseURL string) string {
 		return "http://" + baseURL
 	}
 	return "https://" + baseURL
-}
-
-func fibeCLIDomain(baseURL string) string {
-	parsed, err := url.Parse(strings.TrimSpace(baseURL))
-	if err == nil && parsed.Host != "" {
-		return parsed.Host
-	}
-	return strings.TrimPrefix(strings.TrimPrefix(strings.TrimSpace(baseURL), "https://"), "http://")
 }

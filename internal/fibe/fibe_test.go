@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"image"
 	"image/color"
 	"net"
@@ -27,8 +28,22 @@ func testFibeNormalizedBaseURL() string {
 	return normalizeFibeBaseURL(testFibeBaseURL())
 }
 
-func testFibeCLIDomain() string {
-	return fibeCLIDomain(testFibeNormalizedBaseURL())
+func newTestClient(t *testing.T, server *httptest.Server, agentID, marqueeID string) *Client {
+	t.Helper()
+	if agentID == "" {
+		agentID = "agent"
+	}
+	client, err := NewClient(Config{
+		BaseURL:   server.URL,
+		APIKey:    "test",
+		AgentID:   agentID,
+		MarqueeID: marqueeID,
+		HTTP:      server.Client(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return client
 }
 
 func TestIsRetryableProvisioningError(t *testing.T) {
@@ -99,7 +114,7 @@ func TestIsRetryableProvisioningError(t *testing.T) {
 		},
 		{
 			name: "configuration failure",
-			err:  &PlatformError{Code: platformCodeCLINotConfigured, Message: "Fibe CLI path is not configured"},
+			err:  &PlatformError{Code: "FIBE_CONFIGURATION_ERROR", Message: "Fibe platform is not configured"},
 			want: false,
 		},
 		{
@@ -134,8 +149,7 @@ func TestPlatformErrorPublicProjectErrorKindDoesNotClassifyMirrorLagAsConfigurat
 	}
 }
 
-func TestNewClientUsesEnvCLIPathWhenConfigOmitted(t *testing.T) {
-	t.Setenv("FIBE_CLI_PATH", "/tmp/fibe-wrapper")
+func TestNewClientConfiguresSDK(t *testing.T) {
 	client, err := NewClient(Config{
 		BaseURL: testFibeBaseURL(),
 		APIKey:  "test",
@@ -144,8 +158,11 @@ func TestNewClientUsesEnvCLIPathWhenConfigOmitted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if client.cliPath != "/tmp/fibe-wrapper" {
-		t.Fatalf("cliPath=%q, want env wrapper", client.cliPath)
+	if client.BaseURL() != testFibeNormalizedBaseURL() {
+		t.Fatalf("baseURL=%q, want normalized platform URL", client.BaseURL())
+	}
+	if client.sdk == nil {
+		t.Fatal("sdk client was not configured")
 	}
 }
 
@@ -156,7 +173,7 @@ func TestIsIdempotentConversationCreateError(t *testing.T) {
 	if IsIdempotentConversationCreateError(&PlatformError{Code: "INTERNAL_ERROR", Status: 422, Message: "fibe: INTERNAL_ERROR (422): unexpected status 422"}) {
 		t.Fatal("generic 422 failure must not be treated as an idempotent duplicate")
 	}
-	if IsIdempotentConversationCreateError(&PlatformError{Code: platformCodeCLINotConfigured, Message: "Fibe CLI path is not configured"}) {
+	if IsIdempotentConversationCreateError(&PlatformError{Code: "FIBE_CONFIGURATION_ERROR", Message: "Fibe platform is not configured"}) {
 		t.Fatal("configuration failure must remain fatal")
 	}
 }
@@ -202,7 +219,7 @@ func TestIsAgentRuntimeUnavailableError(t *testing.T) {
 			t.Fatalf("IsAgentRuntimeUnavailableError(%v)=false, want true", err)
 		}
 	}
-	if IsAgentRuntimeUnavailableError(&PlatformError{Code: platformCodeCLINotConfigured, Message: "Fibe CLI path is not configured"}) {
+	if IsAgentRuntimeUnavailableError(&PlatformError{Code: "FIBE_CONFIGURATION_ERROR", Message: "Fibe platform is not configured"}) {
 		t.Fatal("configuration failure must not look like an agent runtime outage")
 	}
 }
@@ -222,33 +239,44 @@ func TestIsConversationMissingError(t *testing.T) {
 }
 
 func TestStartAgentChatUsesConfiguredMarquee(t *testing.T) {
-	cliPath, logPath, _ := fakeFibeCLI(t)
-	client := &Client{
-		apiKey:    "test",
-		agentID:   "agent-1",
-		marqueeID: "multipass",
-		cliPath:   cliPath,
-		cliDomain: testFibeCLIDomain(),
-		http:      http.DefaultClient,
-	}
+	var body map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/agents/agent-1/chats" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer test" {
+			t.Fatalf("Authorization=%q, want bearer key", got)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		writeJSONResponse(t, w, map[string]any{"id": 1, "status": "running"})
+	}))
+	defer server.Close()
+	client := newTestClient(t, server, "agent-1", "multipass")
 	if err := client.StartAgentChat(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	log := readFile(t, logPath)
-	if !strings.Contains(log, "agents start-chat agent-1 --marquee-id multipass") {
-		t.Fatalf("log=%s, want start-chat with configured marquee", log)
+	if body["marquee_id"] != "multipass" {
+		t.Fatalf("body=%#v, want configured marquee", body)
 	}
 }
 
-func TestControlPlaygroundLifecycleUsesCLI(t *testing.T) {
-	cliPath, logPath, _ := fakeFibeCLI(t)
-	client := &Client{
-		apiKey:    "test",
-		agentID:   "agent-1",
-		cliPath:   cliPath,
-		cliDomain: testFibeCLIDomain(),
-		http:      http.DefaultClient,
-	}
+func TestControlPlaygroundLifecycleUsesSDKActions(t *testing.T) {
+	var actions []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/playgrounds/123/operations" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		actions = append(actions, fmt.Sprint(body["action_type"]))
+		writeJSONResponse(t, w, map[string]any{"id": 123, "status": "running"})
+	}))
+	defer server.Close()
+	client := newTestClient(t, server, "agent-1", "")
 	if err := client.StartPlayground(t.Context(), "123"); err != nil {
 		t.Fatal(err)
 	}
@@ -258,37 +286,9 @@ func TestControlPlaygroundLifecycleUsesCLI(t *testing.T) {
 	if err := client.RestartPlayground(t.Context(), "123"); err != nil {
 		t.Fatal(err)
 	}
-	log := readFile(t, logPath)
-	for _, want := range []string{
-		"playgrounds start 123",
-		"playgrounds stop 123",
-		"playgrounds hard-restart 123",
-	} {
-		if !strings.Contains(log, want) {
-			t.Fatalf("missing CLI command %q; log=%s", want, log)
-		}
-	}
-}
-
-func TestControlPlaygroundAcceptsPlainTextSuccess(t *testing.T) {
-	dir := t.TempDir()
-	cliPath := filepath.Join(dir, "fibe")
-	script := `#!/bin/sh
-echo "Started playground"
-`
-	if err := os.WriteFile(cliPath, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	client := &Client{
-		apiKey:    "test",
-		agentID:   "agent-1",
-		cliPath:   cliPath,
-		cliDomain: testFibeCLIDomain(),
-		http:      http.DefaultClient,
-	}
-
-	if err := client.StartPlayground(t.Context(), "123"); err != nil {
-		t.Fatalf("plain-text success should not fail: %v", err)
+	want := []string{"start", "stop", "hard_restart"}
+	if strings.Join(actions, ",") != strings.Join(want, ",") {
+		t.Fatalf("actions=%v, want %v", actions, want)
 	}
 }
 
@@ -302,16 +302,37 @@ func TestCreateGreenfieldUsesTemplateVersionIDOnlyWhenConfigured(t *testing.T) {
 		{name: "present", templateVersionID: "42", wantPresent: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			cliPath, logPath, _ := fakeFibeCLI(t)
-
-			client := &Client{
-				apiKey:            "test",
-				agentID:           "agent",
-				templateVersionID: tc.templateVersionID,
-				cliPath:           cliPath,
-				cliDomain:         testFibeCLIDomain(),
-				http:              http.DefaultClient,
+			templatePath := filepath.Join(t.TempDir(), "template.yml")
+			if err := os.WriteFile(templatePath, []byte("services:\n  app:\n    image: test\n"), 0o600); err != nil {
+				t.Fatal(err)
 			}
+			t.Setenv("LIKEABLE_GREENFIELD_TEMPLATE_BODY_PATH", templatePath)
+			var body map[string]any
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodPost || r.URL.Path != "/api/greenfields" {
+					t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+				}
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Fatal(err)
+				}
+				writeJSONResponse(t, w, map[string]any{
+					"name": "test-app-0123456789abcdef",
+					"playground": map[string]any{
+						"id":          123,
+						"name":        "test-app-0123456789abcdef",
+						"playspec_id": 456,
+					},
+					"playspec": map[string]any{"id": 456},
+					"prop":     map[string]any{"id": 789},
+					"repo":     map[string]any{"repository_url": "http://gitea.test/owner/repo.git"},
+					"service_urls": []map[string]any{
+						{"name": "app", "type": "dynamic", "url": "http://lk-test.phoenix.test", "visibility": "external"},
+					},
+				})
+			}))
+			defer server.Close()
+			client := newTestClient(t, server, "agent", "marquee-1")
+			client.templateVersionID = tc.templateVersionID
 			project := &Project{
 				ID:             "01234567-89ab-cdef-0123-456789abcdef",
 				Title:          "Test app",
@@ -327,76 +348,76 @@ func TestCreateGreenfieldUsesTemplateVersionIDOnlyWhenConfigured(t *testing.T) {
 			if result.PlaygroundName != "test-app-0123456789abcdef" {
 				t.Fatalf("playground name=%q, want deterministic fallback", result.PlaygroundName)
 			}
-			log := readFile(t, logPath)
-			if !strings.Contains(log, "--name test-app-0123456789abcdef") {
-				t.Fatalf("log=%s, want deterministic --name", log)
+			if body["name"] != "test-app-0123456789abcdef" {
+				t.Fatalf("body=%#v, want deterministic name", body)
 			}
-			if strings.Contains(log, "--template-id") {
-				t.Fatal("greenfield CLI must not include --template-id")
+			if body["git_provider"] != "gitea" || body["private"] != true {
+				t.Fatalf("body=%#v, want private gitea greenfield", body)
 			}
-			hasTemplateVersionID := strings.Contains(log, "--template-version-id")
+			hasTemplateVersionID := body["template_version_id"] != nil
 			if hasTemplateVersionID != tc.wantPresent {
-				t.Fatalf("--template-version-id present=%v, want %v; log=%s", hasTemplateVersionID, tc.wantPresent, log)
+				t.Fatalf("template_version_id present=%v, want %v; body=%#v", hasTemplateVersionID, tc.wantPresent, body)
 			}
-			if tc.wantPresent && !strings.Contains(log, "--template-version-id 42") {
-				t.Fatalf("log=%s, want --template-version-id 42", log)
+			if tc.wantPresent && body["template_version_id"] != float64(42) {
+				t.Fatalf("body=%#v, want template_version_id 42", body)
 			}
-			if !strings.Contains(log, "--private") {
-				t.Fatalf("log=%s, want private greenfield", log)
+			if !tc.wantPresent && !strings.Contains(fmt.Sprint(body["template_body"]), "services:") {
+				t.Fatalf("body=%#v, want bundled template body", body)
 			}
-			if !strings.Contains(log, "--service-subdomain app=lk-0123456789abcdef") {
-				t.Fatalf("log=%s, want app service subdomain", log)
+			subdomains := body["service_subdomains"].(map[string]any)
+			if subdomains["app"] != "lk-0123456789abcdef" {
+				t.Fatalf("subdomains=%#v, want app service subdomain", subdomains)
 			}
-			if !strings.Contains(log, "--service-subdomain admin=lk-0123456789abcdef-admin") {
-				t.Fatalf("log=%s, want admin service subdomain", log)
+			if subdomains["admin"] != "lk-0123456789abcdef-admin" {
+				t.Fatalf("subdomains=%#v, want admin service subdomain", subdomains)
 			}
-			if !strings.Contains(log, "--var app_subdomain=lk-0123456789abcdef") {
-				t.Fatalf("log=%s, want app subdomain variable", log)
+			vars := body["variables"].(map[string]any)
+			if vars["app_subdomain"] != "lk-0123456789abcdef" {
+				t.Fatalf("variables=%#v, want app subdomain variable", vars)
 			}
-			if !strings.Contains(log, "--var subdomain=lk-0123456789abcdef") {
-				t.Fatalf("log=%s, want generic subdomain variable", log)
+			if vars["subdomain"] != "lk-0123456789abcdef" {
+				t.Fatalf("variables=%#v, want generic subdomain variable", vars)
 			}
-			if !strings.Contains(log, "--var SUBDOMAIN=lk-0123456789abcdef") {
-				t.Fatalf("log=%s, want uppercase generic subdomain variable", log)
+			if vars["SUBDOMAIN"] != "lk-0123456789abcdef" {
+				t.Fatalf("variables=%#v, want uppercase generic subdomain variable", vars)
 			}
-			if !strings.Contains(log, "--var admin_subdomain=lk-0123456789abcdef-admin") {
-				t.Fatalf("log=%s, want admin subdomain variable", log)
+			if vars["admin_subdomain"] != "lk-0123456789abcdef-admin" {
+				t.Fatalf("variables=%#v, want admin subdomain variable", vars)
 			}
 		})
 	}
 }
 
 func TestCreateGreenfieldRetriesWithoutUnknownServiceSubdomain(t *testing.T) {
-	dir := t.TempDir()
-	cliPath := filepath.Join(dir, "fibe")
-	logPath := filepath.Join(dir, "commands.log")
-	script := `#!/bin/sh
-printf '%s\n' "$*" >> "` + logPath + `"
-case "$*" in
-  *"greenfield"*--service-subdomain\ admin=*)
-    echo '{"error":{"code":"REMOTE_REQUEST_FAILED","status":422,"message":"fibe: REMOTE_REQUEST_FAILED (422): service_subdomains are invalid: unknown exposed service(s): admin"}}' >&2
-    exit 1
-    ;;
-  *"greenfield"*)
-    echo '{"status":"success","playground":{"id":123},"playspec":{"id":456},"prop":{"id":789},"repo":{"repository_url":"http://gitea.test/owner/repo.git"},"service_urls":[{"name":"app","type":"dynamic","url":"http://lk-test.phoenix.test","visibility":"external"}]}'
-    ;;
-  *)
-    echo "unexpected command: $*" >&2
-    exit 64
-    ;;
-esac
-`
-	if err := os.WriteFile(cliPath, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	client := &Client{
-		apiKey:    "test",
-		agentID:   "agent",
-		marqueeID: "30",
-		cliPath:   cliPath,
-		cliDomain: testFibeCLIDomain(),
-		http:      http.DefaultClient,
-	}
+	var requests []map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/greenfields" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		requests = append(requests, body)
+		if len(requests) == 1 {
+			writeJSONStatus(t, w, http.StatusUnprocessableEntity, map[string]any{
+				"error": map[string]any{
+					"code":    "REMOTE_REQUEST_FAILED",
+					"message": "fibe: REMOTE_REQUEST_FAILED (422): service_subdomains are invalid: unknown exposed service(s): admin",
+				},
+			})
+			return
+		}
+		writeJSONResponse(t, w, map[string]any{
+			"playground":   map[string]any{"id": 123},
+			"playspec":     map[string]any{"id": 456},
+			"prop":         map[string]any{"id": 789},
+			"repo":         map[string]any{"repository_url": "http://gitea.test/owner/repo.git"},
+			"service_urls": []map[string]any{{"name": "app", "type": "dynamic", "url": "http://lk-test.phoenix.test", "visibility": "external"}},
+		})
+	}))
+	defer server.Close()
+	client := newTestClient(t, server, "agent", "30")
 	project := &Project{
 		ID:             "01234567-89ab-cdef-0123-456789abcdef",
 		Title:          "Test app",
@@ -409,21 +430,22 @@ esac
 	if result.PlaygroundID != "123" {
 		t.Fatalf("playground id=%q, want retry success", result.PlaygroundID)
 	}
-	lines := strings.Split(strings.TrimSpace(readFile(t, logPath)), "\n")
-	if len(lines) != 2 {
-		t.Fatalf("commands=%v, want initial failed command plus retry", lines)
+	if len(requests) != 2 {
+		t.Fatalf("requests=%v, want initial failed request plus retry", requests)
 	}
-	if !strings.Contains(lines[0], "--service-subdomain admin=lk-0123456789abcdef-admin") {
-		t.Fatalf("first command=%q, want admin subdomain", lines[0])
+	firstSubdomains := requests[0]["service_subdomains"].(map[string]any)
+	if firstSubdomains["admin"] != "lk-0123456789abcdef-admin" {
+		t.Fatalf("first subdomains=%#v, want admin subdomain", firstSubdomains)
 	}
-	if strings.Contains(lines[1], "--service-subdomain admin=") {
-		t.Fatalf("retry command=%q, should omit unknown admin subdomain", lines[1])
+	retrySubdomains := requests[1]["service_subdomains"].(map[string]any)
+	if _, ok := retrySubdomains["admin"]; ok {
+		t.Fatalf("retry subdomains=%#v, should omit unknown admin", retrySubdomains)
 	}
-	if !strings.Contains(lines[1], "--service-subdomain app=lk-0123456789abcdef") {
-		t.Fatalf("retry command=%q, should keep app subdomain", lines[1])
+	if retrySubdomains["app"] != "lk-0123456789abcdef" {
+		t.Fatalf("retry subdomains=%#v, should keep app subdomain", retrySubdomains)
 	}
-	if !strings.Contains(lines[1], "--marquee-id 30") {
-		t.Fatalf("retry command=%q, should keep stored marquee id", lines[1])
+	if requests[1]["marquee_id"] != "30" {
+		t.Fatalf("retry body=%#v, should keep stored marquee id", requests[1])
 	}
 }
 
@@ -620,42 +642,27 @@ func TestParseGreenfieldStatusReturnsAllServicesAndRepos(t *testing.T) {
 }
 
 func TestCreateGreenfieldRecoversFailureByPlaygroundName(t *testing.T) {
-	dir := t.TempDir()
-	cliPath := filepath.Join(dir, "fibe")
-	logPath := filepath.Join(dir, "commands.log")
-	script := `#!/bin/sh
-printf '%s\n' "$*" >> "` + logPath + `"
-case "$*" in
-  *"greenfield"*)
-    printf '%s\n' '{"error":{"code":"INTERNAL_ERROR","message":"unexpected status 422","status":422}}' >&2
-    exit 1
-    ;;
-  *"playgrounds get hope-1111111122223333"*)
-    echo '{"id":41,"name":"hope-1111111122223333","status":"in_progress","playspec_id":44}'
-    ;;
-  *"playgrounds debug 41"*)
-    echo '{"diagnostics":{"playground":{"id":41,"name":"hope-1111111122223333","playspec_id":44,"status":"running"},"routes":[{"service":"app","playground_subdomain":"lk-1111111122223333","traefik_host":"lk-1111111122223333.troll-wish-copper.fibe.work"}]}}'
-    ;;
-  *"playspecs get 44"*)
-    echo '{"id":44,"services":[{"name":"app","type":"dynamic","prop_id":24,"repo_url":"https://git.example.test/owner/hope"}]}'
-    ;;
-  *)
-    echo "unexpected command: $*" >&2
-    exit 64
-    ;;
-esac
-`
-	if err := os.WriteFile(cliPath, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	client := &Client{
-		apiKey:    "test",
-		agentID:   "agent",
-		marqueeID: "21",
-		cliPath:   cliPath,
-		cliDomain: testFibeCLIDomain(),
-		http:      http.DefaultClient,
-	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method + " " + r.URL.Path {
+		case http.MethodPost + " /api/greenfields":
+			writeJSONStatus(t, w, http.StatusUnprocessableEntity, map[string]any{
+				"error": map[string]any{"code": "INTERNAL_ERROR", "message": "unexpected status 422"},
+			})
+		case http.MethodGet + " /api/playgrounds/hope-1111111122223333":
+			writeJSONResponse(t, w, map[string]any{"id": 41, "name": "hope-1111111122223333", "status": "in_progress", "playspec_id": 44})
+		case http.MethodGet + " /api/playgrounds/41/debug":
+			writeJSONResponse(t, w, map[string]any{"diagnostics": map[string]any{
+				"playground": map[string]any{"id": 41, "name": "hope-1111111122223333", "playspec_id": 44, "status": "running"},
+				"routes":     []map[string]any{{"service": "app", "playground_subdomain": "lk-1111111122223333", "traefik_host": "lk-1111111122223333.troll-wish-copper.fibe.work"}},
+			}})
+		case http.MethodGet + " /api/playspecs/44":
+			writeJSONResponse(t, w, map[string]any{"id": 44, "services": []map[string]any{{"name": "app", "type": "dynamic", "prop_id": 24, "repo_url": "https://git.example.test/owner/hope"}}})
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	client := newTestClient(t, server, "agent", "21")
 	result, err := client.CreateGreenfield(t.Context(), &Project{
 		ID:    "11111111-2222-3333-4444-555555555555",
 		Title: "Hope",
@@ -672,44 +679,32 @@ esac
 }
 
 func TestCreateGreenfieldRecoversHeadlessLinkFailureBySubdomain(t *testing.T) {
-	dir := t.TempDir()
-	cliPath := filepath.Join(dir, "fibe")
-	logPath := filepath.Join(dir, "commands.log")
-	script := `#!/bin/sh
-printf '%s\n' "$*" >> "` + logPath + `"
-case "$*" in
-  *"greenfield"*)
-    printf '%s\n' 'waiting for playground 32 to reach running...' >&2
-    printf '%s\n' 'status: running' >&2
-    printf '%s\n' '{"error":{"code":"LOCAL_PLAYGROUNDS_DIR_MISSING","message":"directory /opt/fibe/playgrounds does not exist","status":404}}' >&2
-    exit 1
-    ;;
-  *"playgrounds list"*)
-    echo '{"Data":[{"id":32,"name":"hope-ugsj58bp","status":"running","playspec_id":42}],"Meta":{"total_pages":1}}'
-    ;;
-  *"playgrounds debug 32"*)
-    echo '{"diagnostics":{"playground":{"id":32,"playspec_id":42,"status":"running"},"routes":[{"service":"frontend","playground_subdomain":"lk-1111111122223333","traefik_host":"lk-1111111122223333.troll-wish-copper.fibe.work"}]}}'
-    ;;
-  *"playspecs get 42"*)
-    echo '{"id":42,"services":[{"name":"frontend","type":"dynamic","prop_id":23,"repo_url":"https://git.example.test/owner/hope"}]}'
-    ;;
-  *)
-    echo "unexpected command: $*" >&2
-    exit 64
-    ;;
-esac
-`
-	if err := os.WriteFile(cliPath, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	client := &Client{
-		apiKey:    "test",
-		agentID:   "agent",
-		marqueeID: "21",
-		cliPath:   cliPath,
-		cliDomain: testFibeCLIDomain(),
-		http:      http.DefaultClient,
-	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method + " " + r.URL.Path {
+		case http.MethodPost + " /api/greenfields":
+			writeJSONStatus(t, w, http.StatusNotFound, map[string]any{
+				"error": map[string]any{"code": "LOCAL_PLAYGROUNDS_DIR_MISSING", "message": "directory /opt/fibe/playgrounds does not exist"},
+			})
+		case http.MethodGet + " /api/playgrounds/hope-1111111122223333":
+			writeJSONStatus(t, w, http.StatusNotFound, map[string]any{"error": map[string]any{"code": "RESOURCE_NOT_FOUND", "message": "not found"}})
+		case http.MethodGet + " /api/playgrounds":
+			writeJSONResponse(t, w, map[string]any{
+				"data": []map[string]any{{"id": 32, "name": "hope-ugsj58bp", "status": "running", "playspec_id": 42}},
+				"meta": map[string]any{"page": 1, "per_page": 100, "total": 1},
+			})
+		case http.MethodGet + " /api/playgrounds/32/debug":
+			writeJSONResponse(t, w, map[string]any{"diagnostics": map[string]any{
+				"playground": map[string]any{"id": 32, "playspec_id": 42, "status": "running"},
+				"routes":     []map[string]any{{"service": "frontend", "playground_subdomain": "lk-1111111122223333", "traefik_host": "lk-1111111122223333.troll-wish-copper.fibe.work"}},
+			}})
+		case http.MethodGet + " /api/playspecs/42":
+			writeJSONResponse(t, w, map[string]any{"id": 42, "services": []map[string]any{{"name": "frontend", "type": "dynamic", "prop_id": 23, "repo_url": "https://git.example.test/owner/hope"}}})
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.String())
+		}
+	}))
+	defer server.Close()
+	client := newTestClient(t, server, "agent", "21")
 	result, err := client.CreateGreenfield(t.Context(), &Project{
 		ID:    "11111111-2222-3333-4444-555555555555",
 		Title: "Hope",
@@ -736,60 +731,74 @@ func TestFrameBlockingHeaderDetectsIframeBlockers(t *testing.T) {
 	}
 }
 
-func TestSendMessagePassesConversationAttachmentsThroughCLI(t *testing.T) {
-	cliPath, logPath, stdinPath := fakeFibeCLI(t)
+func TestSendMessageUploadsConversationAttachments(t *testing.T) {
 	attachmentPath := filepath.Join(t.TempDir(), "notes.txt")
 	if err := os.WriteFile(attachmentPath, []byte("hello"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	client := &Client{
-		apiKey:    "test",
-		agentID:   "agent",
-		cliPath:   cliPath,
-		cliDomain: testFibeCLIDomain(),
-		http:      http.DefaultClient,
-	}
+	var uploadConversationID string
+	var payload map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method + " " + r.URL.Path {
+		case http.MethodPost + " /api/agents/agent/uploads":
+			if err := r.ParseMultipartForm(1 << 20); err != nil {
+				t.Fatal(err)
+			}
+			uploadConversationID = r.FormValue("conversation_id")
+			writeJSONResponse(t, w, map[string]any{"filename": "uploaded-notes.txt"})
+		case http.MethodPost + " /api/agents/agent/messages":
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatal(err)
+			}
+			writeJSONResponse(t, w, map[string]any{"ok": true})
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	client := newTestClient(t, server, "agent", "")
 	if err := client.SendMessage(t.Context(), "conv-1", "Use attachment", []string{attachmentPath}, "steer"); err != nil {
 		t.Fatal(err)
 	}
-	log := readFile(t, logPath)
-	if !strings.Contains(log, "agents send-message agent --conversation-id conv-1 --busy-policy steer --attach "+attachmentPath+" -f -") {
-		t.Fatalf("unexpected CLI args: %s", log)
-	}
-	var payload map[string]any
-	if err := json.Unmarshal([]byte(readFile(t, stdinPath)), &payload); err != nil {
-		t.Fatal(err)
+	if uploadConversationID != "conv-1" {
+		t.Fatalf("upload conversation_id=%q, want conv-1", uploadConversationID)
 	}
 	if payload["text"] != "Use attachment" {
 		t.Fatalf("payload=%#v, want text", payload)
 	}
+	if payload["conversation_id"] != "conv-1" || payload["busy_policy"] != "steer" {
+		t.Fatalf("payload=%#v, want conversation and busy policy", payload)
+	}
+	attachments := payload["attachmentFilenames"].([]any)
+	if len(attachments) != 1 || attachments[0] != "uploaded-notes.txt" {
+		t.Fatalf("attachments=%#v, want uploaded filename", attachments)
+	}
 }
 
 func TestSendMessagePassesImageAttachmentsInline(t *testing.T) {
-	cliPath, logPath, stdinPath := fakeFibeCLI(t)
 	attachmentPath := filepath.Join(t.TempDir(), "screenshot.png")
 	if err := os.WriteFile(attachmentPath, []byte("png-bytes"), 0o600); err != nil {
 		t.Fatal(err)
-	}
-	client := &Client{
-		apiKey:    "test",
-		agentID:   "agent",
-		cliPath:   cliPath,
-		cliDomain: testFibeCLIDomain(),
-		http:      http.DefaultClient,
-	}
-	if err := client.SendMessage(t.Context(), "conv-1", "Use screenshot", []string{attachmentPath}, "queue"); err != nil {
-		t.Fatal(err)
-	}
-	log := readFile(t, logPath)
-	if strings.Contains(log, "--attach") {
-		t.Fatalf("unexpected image upload args: %s", log)
 	}
 	var payload struct {
 		Text   string   `json:"text"`
 		Images []string `json:"images"`
 	}
-	if err := json.Unmarshal([]byte(readFile(t, stdinPath)), &payload); err != nil {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/agents/agent/uploads" {
+			t.Fatal("inline image should not be uploaded")
+		}
+		if r.Method != http.MethodPost || r.URL.Path != "/api/agents/agent/messages" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		writeJSONResponse(t, w, map[string]any{"ok": true})
+	}))
+	defer server.Close()
+	client := newTestClient(t, server, "agent", "")
+	if err := client.SendMessage(t.Context(), "conv-1", "Use screenshot", []string{attachmentPath}, "queue"); err != nil {
 		t.Fatal(err)
 	}
 	if payload.Text != "Use screenshot" {
@@ -801,29 +810,28 @@ func TestSendMessagePassesImageAttachmentsInline(t *testing.T) {
 }
 
 func TestSendMessageSniffsExtensionlessImageAttachmentsInline(t *testing.T) {
-	cliPath, logPath, stdinPath := fakeFibeCLI(t)
 	attachmentPath := filepath.Join(t.TempDir(), "screenshot")
 	if err := os.WriteFile(attachmentPath, []byte("\x89PNG\r\n\x1a\npng-bytes"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	client := &Client{
-		apiKey:    "test",
-		agentID:   "agent",
-		cliPath:   cliPath,
-		cliDomain: testFibeCLIDomain(),
-		http:      http.DefaultClient,
-	}
-	if err := client.SendMessage(t.Context(), "conv-1", "Use screenshot", []string{attachmentPath}, "queue"); err != nil {
-		t.Fatal(err)
-	}
-	log := readFile(t, logPath)
-	if strings.Contains(log, "--attach") {
-		t.Fatalf("unexpected image upload args: %s", log)
-	}
 	var payload struct {
 		Images []string `json:"images"`
 	}
-	if err := json.Unmarshal([]byte(readFile(t, stdinPath)), &payload); err != nil {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/agents/agent/uploads" {
+			t.Fatal("inline image should not be uploaded")
+		}
+		if r.Method != http.MethodPost || r.URL.Path != "/api/agents/agent/messages" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		writeJSONResponse(t, w, map[string]any{"ok": true})
+	}))
+	defer server.Close()
+	client := newTestClient(t, server, "agent", "")
+	if err := client.SendMessage(t.Context(), "conv-1", "Use screenshot", []string{attachmentPath}, "queue"); err != nil {
 		t.Fatal(err)
 	}
 	if len(payload.Images) != 1 || !strings.HasPrefix(payload.Images[0], "data:image/png;base64,") {
@@ -832,27 +840,26 @@ func TestSendMessageSniffsExtensionlessImageAttachmentsInline(t *testing.T) {
 }
 
 func TestSendMessageConvertsUnsupportedImageAttachmentsInline(t *testing.T) {
-	cliPath, logPath, stdinPath := fakeFibeCLI(t)
 	attachmentPath := filepath.Join(t.TempDir(), "reference.bmp")
 	writeTestBMP(t, attachmentPath)
-	client := &Client{
-		apiKey:    "test",
-		agentID:   "agent",
-		cliPath:   cliPath,
-		cliDomain: testFibeCLIDomain(),
-		http:      http.DefaultClient,
-	}
-	if err := client.SendMessage(t.Context(), "conv-1", "Use screenshot", []string{attachmentPath}, "queue"); err != nil {
-		t.Fatal(err)
-	}
-	log := readFile(t, logPath)
-	if strings.Contains(log, "--attach") {
-		t.Fatalf("unexpected image upload args: %s", log)
-	}
 	var payload struct {
 		Images []string `json:"images"`
 	}
-	if err := json.Unmarshal([]byte(readFile(t, stdinPath)), &payload); err != nil {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/agents/agent/uploads" {
+			t.Fatal("converted image should not be uploaded")
+		}
+		if r.Method != http.MethodPost || r.URL.Path != "/api/agents/agent/messages" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		writeJSONResponse(t, w, map[string]any{"ok": true})
+	}))
+	defer server.Close()
+	client := newTestClient(t, server, "agent", "")
+	if err := client.SendMessage(t.Context(), "conv-1", "Use screenshot", []string{attachmentPath}, "queue"); err != nil {
 		t.Fatal(err)
 	}
 	if len(payload.Images) != 1 || !strings.HasPrefix(payload.Images[0], "data:image/jpeg;base64,") {
@@ -861,7 +868,6 @@ func TestSendMessageConvertsUnsupportedImageAttachmentsInline(t *testing.T) {
 }
 
 func TestMessagesAndActivityFallBackToRuntimeWhenFibeSyncIsEmpty(t *testing.T) {
-	cliPath, _, _ := fakeFibeCLI(t)
 	runtimeStatusCalls := 0
 	runtime := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -880,25 +886,21 @@ func TestMessagesAndActivityFallBackToRuntimeWhenFibeSyncIsEmpty(t *testing.T) {
 	}))
 	defer runtime.Close()
 	fibeAPI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/agents/agent/runtime_status" {
+		switch r.URL.Path {
+		case "/api/agents/agent/messages", "/api/agents/agent/activity":
+			writeJSONResponse(t, w, map[string]any{"content": []any{}})
+		case "/api/agents/agent/runtime_status":
+			runtimeStatusCalls++
+			if got := r.Header.Get("Authorization"); got != "Bearer test" {
+				t.Fatalf("Authorization=%q, want bearer key", got)
+			}
+			writeJSONResponse(t, w, map[string]any{"chat_url": runtime.URL})
+		default:
 			http.NotFound(w, r)
-			return
 		}
-		runtimeStatusCalls++
-		if got := r.Header.Get("Authorization"); got != "Bearer test" {
-			t.Fatalf("Authorization=%q, want bearer key", got)
-		}
-		writeJSONResponse(t, w, map[string]any{"chat_url": runtime.URL})
 	}))
 	defer fibeAPI.Close()
-	client := &Client{
-		baseURL:   fibeAPI.URL,
-		apiKey:    "test",
-		agentID:   "agent",
-		cliPath:   cliPath,
-		cliDomain: testFibeCLIDomain(),
-		http:      fibeAPI.Client(),
-	}
+	client := newTestClient(t, fibeAPI, "agent", "")
 	messages, err := client.Messages(t.Context(), "conv-1")
 	if err != nil {
 		t.Fatal(err)
@@ -919,15 +921,21 @@ func TestMessagesAndActivityFallBackToRuntimeWhenFibeSyncIsEmpty(t *testing.T) {
 }
 
 func TestConversationLiveStateFetchesRuntimeStreamState(t *testing.T) {
-	cliPath, logPath, _ := fakeFibeCLI(t)
-
-	client := &Client{
-		apiKey:    "test",
-		agentID:   "agent",
-		cliPath:   cliPath,
-		cliDomain: testFibeCLIDomain(),
-		http:      http.DefaultClient,
-	}
+	var query string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/agents/agent/live_state" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		query = r.URL.RawQuery
+		writeJSONResponse(t, w, map[string]any{"content": map[string]any{
+			"conversation_id": "conv-1",
+			"isProcessing":    true,
+			"streamText":      "working",
+			"queuedTurns":     1,
+		}})
+	}))
+	defer server.Close()
+	client := newTestClient(t, server, "agent", "")
 	live, err := client.ConversationLiveState(t.Context(), "conv-1")
 	if err != nil {
 		t.Fatal(err)
@@ -935,17 +943,41 @@ func TestConversationLiveStateFetchesRuntimeStreamState(t *testing.T) {
 	if !live.IsProcessing || live.StreamText == "" || live.QueuedTurns != 1 {
 		t.Fatalf("live=%+v, want processing stream state", live)
 	}
-	if !strings.Contains(readFile(t, logPath), "agents live-state agent --conversation-id conv-1") {
-		t.Fatalf("live-state command was not scoped to conversation: %s", readFile(t, logPath))
+	if query != "conversation_id=conv-1" {
+		t.Fatalf("query=%q, want conversation_id=conv-1", query)
 	}
 }
 
 func TestDeleteProjectResourcesDeletesFibeAndGiteaResources(t *testing.T) {
 	var paths []string
-	cliPath, logPath, _ := fakeFibeCLI(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		paths = append(paths, r.Method+" "+r.URL.Path)
+		path := r.Method + " " + r.URL.Path
+		if r.URL.RawQuery != "" {
+			path += "?" + r.URL.RawQuery
+		}
+		paths = append(paths, path)
 		switch r.Method + " " + r.URL.Path {
+		case http.MethodGet + " /api/playspecs/456":
+			writeJSONResponse(t, w, map[string]any{
+				"id":                      456,
+				"source_template":         map[string]any{"id": 321, "name": "shared-template"},
+				"source_template_version": map[string]any{"id": 654},
+			})
+		case http.MethodGet + " /api/import_templates/321/versions":
+			writeJSONResponse(t, w, map[string]any{
+				"data": []map[string]any{{"id": 654, "source": map[string]any{"prop_id": 789, "prop_repository_url": serverURLFromRequest(r) + "/owner/repo.git"}}},
+				"meta": map[string]any{"page": 1, "per_page": 25, "total": 1},
+			})
+		case http.MethodDelete + " /api/playgrounds/123",
+			http.MethodDelete + " /api/playspecs/456",
+			http.MethodDelete + " /api/import_templates/321/versions/654",
+			http.MethodDelete + " /api/import_templates/321",
+			http.MethodDelete + " /api/props/789",
+			http.MethodDelete + " /api/props/790",
+			http.MethodDelete + " /api/agents/agent/conversations":
+			w.WriteHeader(http.StatusNoContent)
+		case http.MethodGet + " /api/agents/agent/gitea_token":
+			writeJSONResponse(t, w, map[string]any{"token": "gitea-token", "gitea_host": serverURLFromRequest(r), "username": "agent"})
 		case http.MethodDelete + " /api/v1/repos/owner/repo":
 			if got := r.Header.Get("Authorization"); got != "token gitea-token" {
 				t.Fatalf("Authorization=%q, want token gitea-token", got)
@@ -959,14 +991,7 @@ func TestDeleteProjectResourcesDeletesFibeAndGiteaResources(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := &Client{
-		baseURL:   server.URL,
-		apiKey:    "test",
-		agentID:   "agent",
-		cliPath:   cliPath,
-		cliDomain: testFibeCLIDomain(),
-		http:      server.Client(),
-	}
+	client := newTestClient(t, server, "agent", "")
 	err := client.DeleteProjectResources(t.Context(), &Project{
 		PlaygroundID: "123",
 		PlayspecID:   "456",
@@ -983,6 +1008,16 @@ func TestDeleteProjectResourcesDeletesFibeAndGiteaResources(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, path := range []string{
+		"GET /api/playspecs/456",
+		"GET /api/import_templates/321/versions",
+		"DELETE /api/playgrounds/123",
+		"DELETE /api/playspecs/456",
+		"DELETE /api/import_templates/321/versions/654",
+		"DELETE /api/import_templates/321",
+		"DELETE /api/props/789",
+		"DELETE /api/props/790",
+		"DELETE /api/agents/agent/conversations?conversation_id=likeable-123",
+		"GET /api/agents/agent/gitea_token",
 		"DELETE /api/v1/repos/owner/repo",
 		"DELETE /api/v1/repos/owner/admin",
 	} {
@@ -990,117 +1025,65 @@ func TestDeleteProjectResourcesDeletesFibeAndGiteaResources(t *testing.T) {
 			t.Fatalf("missing request %s; got %v", path, paths)
 		}
 	}
-	log := readFile(t, logPath)
-	for _, want := range []string{
-		"agents gitea-token agent",
-		"playspecs get 456",
-		"templates versions list 321",
-		"playgrounds delete 123",
-		"playspecs delete 456",
-		"templates versions destroy 321 654",
-		"templates delete 321",
-		"props delete 789",
-		"props delete 790",
-		"agents delete-conversation agent --conversation-id likeable-123",
-	} {
-		if !strings.Contains(log, want) {
-			t.Fatalf("missing CLI command %q; log=%s", want, log)
-		}
-	}
 }
 
 func TestDeleteProjectResourcesTreatsMissingRemoteResourcesAsDeleted(t *testing.T) {
-	dir := t.TempDir()
-	cliPath := filepath.Join(dir, "fibe")
-	logPath := filepath.Join(dir, "commands.log")
-	script := `#!/bin/sh
-printf '%s\n' "$*" >> "` + logPath + `"
-case "$*" in
-  *"playgrounds delete"*|*"agents delete-conversation"*)
-    echo '{"error":{"message":"Resource not found","code":"RESOURCE_NOT_FOUND","status":404}}' >&2
-    exit 1
-    ;;
-  *)
-    echo '{"ok":true}'
-    ;;
-esac
-`
-	if err := os.WriteFile(cliPath, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	client := &Client{
-		apiKey:    "test",
-		agentID:   "agent",
-		cliPath:   cliPath,
-		cliDomain: testFibeCLIDomain(),
-		http:      http.DefaultClient,
-	}
+	var paths []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.Method + " " + r.URL.Path
+		if r.URL.RawQuery != "" {
+			path += "?" + r.URL.RawQuery
+		}
+		paths = append(paths, path)
+		writeJSONStatus(t, w, http.StatusNotFound, map[string]any{"error": map[string]any{"message": "Resource not found", "code": "RESOURCE_NOT_FOUND"}})
+	}))
+	defer server.Close()
+	client := newTestClient(t, server, "agent", "")
 	if err := client.DeleteProjectResources(t.Context(), &Project{PlaygroundID: "missing", ConversationID: "conv-missing"}); err != nil {
 		t.Fatal(err)
 	}
-	log := readFile(t, logPath)
 	for _, want := range []string{
-		"playgrounds delete missing",
-		"agents delete-conversation agent --conversation-id conv-missing",
+		"DELETE /api/playgrounds/missing",
+		"DELETE /api/agents/agent/conversations?conversation_id=conv-missing",
 	} {
-		if !strings.Contains(log, want) {
-			t.Fatalf("missing CLI command %q; log=%s", want, log)
+		if !containsString(paths, want) {
+			t.Fatalf("missing request %q; paths=%v", want, paths)
 		}
 	}
 }
 
 func TestDeleteProjectResourcesSkipsGiteaRepoWhenTokenEndpointIsMissing(t *testing.T) {
-	dir := t.TempDir()
-	cliPath := filepath.Join(dir, "fibe")
-	logPath := filepath.Join(dir, "commands.log")
-	script := `#!/bin/sh
-printf '%s\n' "$*" >> "` + logPath + `"
-case "$*" in
-  *"agents gitea-token"*)
-    echo '{"error":{"message":"Resource not found","code":"RESOURCE_NOT_FOUND","status":404}}' >&2
-    exit 1
-    ;;
-  *)
-    echo '{"ok":true}'
-    ;;
-esac
-`
-	if err := os.WriteFile(cliPath, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Fatalf("unexpected Gitea request after missing token endpoint: %s %s", r.Method, r.URL.Path)
+		if r.URL.Path == "/api/agents/agent/gitea_token" {
+			writeJSONStatus(t, w, http.StatusNotFound, map[string]any{"error": map[string]any{"message": "Resource not found", "code": "RESOURCE_NOT_FOUND"}})
+			return
+		}
+		t.Fatalf("unexpected request after missing token endpoint: %s %s", r.Method, r.URL.Path)
 	}))
 	defer server.Close()
-	client := &Client{
-		apiKey:    "test",
-		agentID:   "agent",
-		cliPath:   cliPath,
-		cliDomain: testFibeCLIDomain(),
-		http:      server.Client(),
-	}
+	client := newTestClient(t, server, "agent", "")
 	if err := client.DeleteProjectResources(t.Context(), &Project{RepoURL: server.URL + "/owner/repo.git"}); err != nil {
 		t.Fatal(err)
 	}
-	if log := readFile(t, logPath); !strings.Contains(log, "agents gitea-token agent") {
-		t.Fatalf("missing gitea token command; log=%s", log)
-	}
 }
 
-func TestDeleteProjectResourcesDoesNotRetryPermanentCommandFailures(t *testing.T) {
-	client := &Client{
-		apiKey:    "test",
-		agentID:   "agent",
-		cliPath:   filepath.Join(t.TempDir(), "missing-fibe"),
-		cliDomain: testFibeCLIDomain(),
-		http:      http.DefaultClient,
-	}
+func TestDeleteProjectResourcesDoesNotRetryPermanentAPIFailures(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		writeJSONStatus(t, w, http.StatusUnauthorized, map[string]any{"error": map[string]any{"message": "unauthorized", "code": "UNAUTHORIZED"}})
+	}))
+	defer server.Close()
+	client := newTestClient(t, server, "agent", "")
 	start := time.Now()
 	if err := client.DeleteProjectResources(t.Context(), &Project{PlaygroundID: "123"}); err == nil {
-		t.Fatal("expected missing CLI path to fail")
+		t.Fatal("expected API failure")
 	}
 	if elapsed := time.Since(start); elapsed > time.Second {
-		t.Fatalf("permanent command failure took %s; want no long retry", elapsed)
+		t.Fatalf("permanent API failure took %s; want no long retry", elapsed)
+	}
+	if calls != 1 {
+		t.Fatalf("calls=%d, want no retry", calls)
 	}
 }
 
@@ -1131,8 +1114,8 @@ func TestResourceDeleteRetryableUsesStructuredPlatformError(t *testing.T) {
 			err:  &PlatformError{Code: "UNAUTHORIZED", Status: http.StatusUnauthorized, Message: "unauthorized"},
 		},
 		{
-			name: "malformed cli stderr does not retry",
-			err:  parsePlatformError("404 Not Found", errors.New("exit status 1")),
+			name: "unknown platform error does not retry",
+			err:  &PlatformError{Code: platformCodeUnknown, Message: "404 Not Found"},
 		},
 	}
 
@@ -1336,6 +1319,23 @@ func writeJSONResponse(t *testing.T, w http.ResponseWriter, value any) {
 	if err := json.NewEncoder(w).Encode(value); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func writeJSONStatus(t *testing.T, w http.ResponseWriter, status int, value any) {
+	t.Helper()
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(value); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func serverURLFromRequest(r *http.Request) string {
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	return scheme + "://" + r.Host
 }
 
 func containsString(values []string, want string) bool {

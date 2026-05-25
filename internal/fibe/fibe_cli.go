@@ -1,20 +1,16 @@
 package fibe
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"os/exec"
 	"strings"
+
+	sdkfibe "github.com/fibegg/sdk/fibe"
 )
 
 const (
-	platformCodeUnknown          = "UNKNOWN_ERROR"
-	platformCodeCLINotConfigured = "FIBE_CLI_NOT_CONFIGURED"
-	platformCodeCLINotFound      = "FIBE_CLI_NOT_FOUND"
+	platformCodeUnknown = "UNKNOWN_ERROR"
 )
 
 type PlatformError struct {
@@ -47,8 +43,6 @@ func (e *PlatformError) Unwrap() error {
 func (e *PlatformError) PublicProjectErrorKind() string {
 	message := strings.ToLower(strings.TrimSpace(e.Message + "\n" + e.Stderr))
 	switch {
-	case e.Code == platformCodeCLINotConfigured || e.Code == platformCodeCLINotFound:
-		return "configuration"
 	case e.Status == 401 || e.Status == 403:
 		return "configuration"
 	case isProvisioningConfigurationPlatformError(e, message):
@@ -79,8 +73,6 @@ func IsRetryableProvisioningError(err error) bool {
 		return true
 	}
 	switch code {
-	case platformCodeCLINotConfigured, platformCodeCLINotFound:
-		return false
 	case "UNAUTHORIZED", "FORBIDDEN", "VALIDATION_FAILED", "BAD_REQUEST", "INVALID_ARGUMENT", "NOT_FOUND":
 		return false
 	case "INTERNAL_ERROR", "SERVICE_UNAVAILABLE", "TIMEOUT", "RATE_LIMITED", "TOO_MANY_REQUESTS":
@@ -187,87 +179,6 @@ func IsPlaygroundMissingError(err error) bool {
 	return strings.Contains(message, "playground") && containsAny(message, "not found", "missing")
 }
 
-func (c *Client) runCLI(ctx context.Context, args []string, input any, out any) error {
-	if strings.TrimSpace(c.cliPath) == "" {
-		return &PlatformError{
-			Code:    platformCodeCLINotConfigured,
-			Message: "Fibe CLI path is not configured",
-		}
-	}
-	fullArgs := append([]string{"--domain", c.cliDomain, "--api-key", c.apiKey, "--output", "json"}, args...)
-	cmd := exec.CommandContext(ctx, c.cliPath, fullArgs...)
-	cmd.Env = append(os.Environ(),
-		"FIBE_DOMAIN="+c.cliDomain,
-		"FIBE_API_KEY="+c.apiKey,
-		"FIBE_OUTPUT=json",
-		"NO_COLOR=1",
-	)
-	if input != nil {
-		data, err := json.Marshal(input)
-		if err != nil {
-			return err
-		}
-		cmd.Stdin = bytes.NewReader(data)
-	}
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return parsePlatformError(stderr.String(), err)
-	}
-	if out == nil {
-		return nil
-	}
-	data := bytes.TrimSpace(stdout.Bytes())
-	if len(data) == 0 {
-		return nil
-	}
-	return json.Unmarshal(data, out)
-}
-
-type cliErrorEnvelope struct {
-	Error struct {
-		Message string         `json:"message"`
-		Code    string         `json:"code"`
-		Status  int            `json:"status"`
-		Details map[string]any `json:"details"`
-	} `json:"error"`
-}
-
-func parsePlatformError(stderr string, err error) error {
-	clean := sanitizeCLIError(stderr, err)
-	var payload cliErrorEnvelope
-	if json.Unmarshal([]byte(clean), &payload) == nil && payload.Error.Message != "" {
-		return &PlatformError{
-			Code:    firstNonEmpty(payload.Error.Code, platformCodeUnknown),
-			Status:  payload.Error.Status,
-			Message: payload.Error.Message,
-			Details: payload.Error.Details,
-			Stderr:  clean,
-			Cause:   err,
-		}
-	}
-
-	code := platformCodeUnknown
-	if errors.Is(err, exec.ErrNotFound) {
-		code = platformCodeCLINotFound
-	}
-	return &PlatformError{
-		Code:    code,
-		Message: clean,
-		Stderr:  clean,
-		Cause:   err,
-	}
-}
-
-func sanitizeCLIError(stderr string, err error) string {
-	message := strings.TrimSpace(stderr)
-	if message == "" {
-		message = err.Error()
-	}
-	return strings.TrimSpace(strings.ReplaceAll(message, "\x00", ""))
-}
-
 func containsAny(value string, needles ...string) bool {
 	for _, needle := range needles {
 		if strings.Contains(value, needle) {
@@ -275,4 +186,27 @@ func containsAny(value string, needles ...string) bool {
 		}
 	}
 	return false
+}
+
+func wrapSDKError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var apiErr *sdkfibe.APIError
+	if errors.As(err, &apiErr) {
+		return &PlatformError{
+			Code:    firstNonEmpty(apiErr.Code, platformCodeUnknown),
+			Status:  apiErr.StatusCode,
+			Message: firstNonEmpty(apiErr.Message, err.Error()),
+			Details: apiErr.Details,
+			Stderr:  err.Error(),
+			Cause:   err,
+		}
+	}
+	return &PlatformError{
+		Code:    platformCodeUnknown,
+		Message: err.Error(),
+		Stderr:  err.Error(),
+		Cause:   err,
+	}
 }

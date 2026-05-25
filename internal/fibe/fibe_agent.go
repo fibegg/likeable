@@ -11,6 +11,8 @@ import (
 	"net/url"
 	"os"
 	"strings"
+
+	sdkfibe "github.com/fibegg/sdk/fibe"
 )
 
 const maxInlineImageAttachmentBytes = 12 << 20
@@ -26,7 +28,6 @@ type ConversationLiveState struct {
 }
 
 func (c *Client) SendMessage(ctx context.Context, conversationID, text string, attachmentPaths []string, busyPolicy string) error {
-	var out map[string]any
 	if strings.TrimSpace(busyPolicy) == "" {
 		busyPolicy = "queue"
 	}
@@ -36,8 +37,8 @@ func (c *Client) SendMessage(ctx context.Context, conversationID, text string, a
 	}
 	defer cleanupPreparedAttachments(preparedAttachments)
 
-	args := []string{"agents", "send-message", c.agentID, "--conversation-id", conversationID, "--busy-policy", busyPolicy}
 	images := make([]string, 0, len(preparedAttachments))
+	attachmentFilenames := make([]string, 0, len(preparedAttachments))
 	for _, attachment := range preparedAttachments {
 		imageDataURL, inline, err := inlineImageAttachmentDataURL(attachment.path)
 		if err != nil {
@@ -47,13 +48,30 @@ func (c *Client) SendMessage(ctx context.Context, conversationID, text string, a
 			images = append(images, imageDataURL)
 			continue
 		}
-		args = append(args, "--attach", attachment.path)
+		upload, err := c.sdk.Agents.UploadByIdentifier(ctx, c.agentID, &sdkfibe.AgentUploadParams{
+			FilePath:       attachment.path,
+			ConversationID: conversationID,
+		})
+		if err != nil {
+			return wrapSDKError(err)
+		}
+		if upload == nil || strings.TrimSpace(upload.Filename) == "" {
+			return &PlatformError{
+				Code:    "VALIDATION_FAILED",
+				Status:  422,
+				Message: "attachment upload did not return a filename",
+			}
+		}
+		attachmentFilenames = append(attachmentFilenames, upload.Filename)
 	}
-	payload := map[string]any{"text": text}
-	if len(images) > 0 {
-		payload["images"] = images
-	}
-	return c.runCLI(ctx, append(args, "-f", "-"), payload, &out)
+	_, err = c.sdk.Agents.ChatByIdentifier(ctx, c.agentID, &sdkfibe.AgentChatParams{
+		Text:                text,
+		ConversationID:      conversationID,
+		BusyPolicy:          busyPolicy,
+		Images:              images,
+		AttachmentFilenames: attachmentFilenames,
+	})
+	return wrapSDKError(err)
 }
 
 func inlineImageAttachmentDataURL(path string) (string, bool, error) {
@@ -90,8 +108,8 @@ func (c *Client) StartAgentChat(ctx context.Context) error {
 			Message: "Fibe Marquee is not configured for this project",
 		}
 	}
-	var out map[string]any
-	return c.runCLI(ctx, []string{"agents", "start-chat", c.agentID, "--marquee-id", c.marqueeID}, nil, &out)
+	_, err := c.sdk.Agents.StartChatByAgentIdentifier(ctx, c.agentID, c.marqueeID)
+	return wrapSDKError(err)
 }
 
 func IsAgentRuntimeUnavailableError(err error) bool {
@@ -137,12 +155,8 @@ func IsConversationMissingError(err error) bool {
 }
 
 func (c *Client) Interrupt(ctx context.Context, conversationID string) error {
-	var out map[string]any
-	args := []string{"agents", "interrupt", c.agentID}
-	if strings.TrimSpace(conversationID) != "" {
-		args = append(args, "--conversation-id", conversationID)
-	}
-	return c.runCLI(ctx, args, nil, &out)
+	_, err := c.sdk.Agents.InterruptByIdentifier(ctx, c.agentID, &sdkfibe.AgentConversationParams{ConversationID: strings.TrimSpace(conversationID)})
+	return wrapSDKError(err)
 }
 
 func (c *Client) StartPlayground(ctx context.Context, playgroundID string) error {
@@ -162,23 +176,33 @@ func (c *Client) controlPlayground(ctx context.Context, action, playgroundID str
 	if playgroundID == "" {
 		return errors.New("playground ID is required")
 	}
-	return c.runCLI(ctx, []string{"playgrounds", action, playgroundID}, nil, nil)
+	actionType := strings.ReplaceAll(strings.TrimSpace(action), "-", "_")
+	if actionType == "restart" {
+		actionType = sdkfibe.PlaygroundActionHardRestart
+	}
+	_, err := c.sdk.Playgrounds.ActionByIdentifier(ctx, playgroundID, &sdkfibe.PlaygroundActionParams{ActionType: actionType})
+	return wrapSDKError(err)
 }
 
 func (c *Client) Messages(ctx context.Context, conversationID string) ([]any, error) {
-	var out struct {
-		Content []any `json:"content"`
-	}
-	err := c.runCLI(ctx, []string{"agents", "messages", c.agentID, "--conversation-id", conversationID}, nil, &out)
-	return c.recordsWithRuntimeFallback(ctx, conversationID, "messages", out.Content, err)
+	out, err := c.sdk.Agents.GetMessagesByIdentifierWithParams(ctx, c.agentID, &sdkfibe.AgentDataParams{ConversationID: conversationID})
+	return c.recordsWithRuntimeFallback(ctx, conversationID, "messages", agentDataRecords(out), wrapSDKError(err))
 }
 
 func (c *Client) Activity(ctx context.Context, conversationID string) ([]any, error) {
-	var out struct {
-		Content []any `json:"content"`
+	out, err := c.sdk.Agents.GetActivityByIdentifierWithParams(ctx, c.agentID, &sdkfibe.AgentDataParams{ConversationID: conversationID})
+	return c.recordsWithRuntimeFallback(ctx, conversationID, "activities", agentDataRecords(out), wrapSDKError(err))
+}
+
+func agentDataRecords(out *sdkfibe.AgentData) []any {
+	if out == nil || out.Content == nil {
+		return nil
 	}
-	err := c.runCLI(ctx, []string{"agents", "activity", c.agentID, "--conversation-id", conversationID}, nil, &out)
-	return c.recordsWithRuntimeFallback(ctx, conversationID, "activities", out.Content, err)
+	records, ok := out.Content.([]any)
+	if ok {
+		return records
+	}
+	return []any{out.Content}
 }
 
 func (c *Client) recordsWithRuntimeFallback(ctx context.Context, conversationID, resource string, records []any, cliErr error) ([]any, error) {
@@ -227,30 +251,14 @@ func (c *Client) resolveRuntimeChatURL(ctx context.Context) (string, error) {
 	if strings.TrimSpace(c.runtimeChatURL) != "" {
 		return c.runtimeChatURL, nil
 	}
-	endpoint := strings.TrimRight(c.baseURL, "/") + "/api/agents/" + url.PathEscape(c.agentID) + "/runtime_status"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	out, err := c.sdk.Agents.RuntimeStatusByIdentifier(ctx, c.agentID)
 	if err != nil {
-		return "", err
+		return "", wrapSDKError(err)
 	}
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-	res, err := c.http.Do(req)
-	if err != nil {
-		return "", err
+	chatURL := ""
+	if out != nil && out.ChatURL != nil {
+		chatURL = strings.TrimSpace(*out.ChatURL)
 	}
-	defer res.Body.Close()
-	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(res.Body, 512))
-		return "", fmt.Errorf("runtime status returned HTTP %d: %s", res.StatusCode, strings.TrimSpace(string(body)))
-	}
-	var out struct {
-		ChatURL    string `json:"chat_url"`
-		ChatURLAlt string `json:"chatUrl"`
-	}
-	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
-		return "", err
-	}
-	chatURL := strings.TrimSpace(firstNonEmpty(out.ChatURL, out.ChatURLAlt))
 	if chatURL == "" {
 		return "", errors.New("runtime chat URL is missing")
 	}
@@ -259,10 +267,21 @@ func (c *Client) resolveRuntimeChatURL(ctx context.Context) (string, error) {
 }
 
 func (c *Client) ConversationLiveState(ctx context.Context, conversationID string) (*ConversationLiveState, error) {
-	var out ConversationLiveState
-	err := c.runCLI(ctx, []string{"agents", "live-state", c.agentID, "--conversation-id", conversationID}, nil, &out)
-	if out.ConversationID == "" {
-		out.ConversationID = out.ConversationIDAlt
+	out, err := c.sdk.Agents.LiveStateByIdentifier(ctx, c.agentID, &sdkfibe.AgentDataParams{ConversationID: conversationID})
+	if out == nil {
+		return &ConversationLiveState{}, wrapSDKError(err)
 	}
-	return &out, err
+	result := &ConversationLiveState{
+		ConversationID:    out.ConversationID,
+		ConversationIDAlt: out.ConversationIDAlt,
+		IsProcessing:      out.IsProcessing,
+		StreamText:        out.StreamText,
+		CurrentActivityID: out.CurrentActivityID,
+		QueuedTurns:       out.QueuedTurns,
+		StartedAt:         out.StartedAt,
+	}
+	if result.ConversationID == "" {
+		result.ConversationID = result.ConversationIDAlt
+	}
+	return result, wrapSDKError(err)
 }

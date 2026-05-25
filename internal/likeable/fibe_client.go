@@ -38,7 +38,6 @@ func (s *Server) fibeClientFromConfig(cfg map[string]string, assignment fibe.Ass
 		AgentID:           assignment.AgentID,
 		MarqueeID:         assignment.MarqueeID,
 		TemplateVersionID: strings.TrimSpace(cfg["fibe_template_version_id"]),
-		CLIPath:           strings.TrimSpace(cfg["fibe_cli_path"]),
 		HTTP:              s.http,
 	})
 }

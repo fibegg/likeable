@@ -16,9 +16,9 @@ For local development without Google OAuth, `bin/dev` enables `ADMIN_EMAIL=admin
 
 The compose stack includes Redis. Redis backs request rate limits and Asynq background jobs for project provisioning, deletion, quota sweeps, archive cleanup, and email delivery.
 
-Runtime environment is intentionally small: `BASE_URL`, `ADMIN_EMAIL`, `REDIS_URL`, optional `FIBE_CLI_VERSION`, and local-only `LIKEABLE_DEV_AUTH`. Product settings are configured from Admin, not environment variables.
+Runtime environment is intentionally small: `BASE_URL`, `ADMIN_EMAIL`, `REDIS_URL`, and local-only `LIKEABLE_DEV_AUTH`. Product settings are configured from Admin, not environment variables.
 
-The container keeps a baked `fibe` CLI fallback, but startup installs the latest released SDK into `/data/.fibe/bin` and prepends that directory to `PATH`. Set `FIBE_CLI_VERSION` to pin a specific SDK release.
+Likeable talks to Fibe through the Go SDK built into the application binary; the runtime image does not install or shell out to the `fibe` CLI.
 
 After the first admin login, open Admin and configure:
 

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -210,27 +209,26 @@ func TestProvisionProjectTaskDoesNotRetryDefaultTemplateConfigurationFailure(t *
 		t.Fatal(err)
 	}
 	defer store.Close()
-	dir := t.TempDir()
-	cliPath := filepath.Join(dir, "fibe")
-	script := `#!/bin/sh
-case "$*" in
-  *"greenfield"*)
-    echo '{"error":{"code":"REMOTE_REQUEST_FAILED","status":422,"message":"fibe: GREENFIELD_DEFAULT_TEMPLATE_VERSION_UNAVAILABLE (422): Default greenfield template version is configured but is not available"}}' >&2
-    exit 1
-    ;;
-  *)
-    echo "unexpected command: $*" >&2
-    exit 64
-    ;;
-esac
-`
-	if err := os.WriteFile(cliPath, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	fibeAPI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/api/greenfields" {
+			writeJSONStatus(t, w, http.StatusUnprocessableEntity, map[string]any{
+				"error": map[string]any{
+					"code":    "GREENFIELD_DEFAULT_TEMPLATE_VERSION_UNAVAILABLE",
+					"message": "Default greenfield template version is configured but is not available",
+				},
+			})
+			return
+		}
+		if r.Method == http.MethodGet && r.URL.Path == "/api/playgrounds" {
+			writeJSONResponse(t, w, map[string]any{"data": []any{}, "meta": map[string]any{"page": 1, "per_page": 100, "total": 0}})
+			return
+		}
+		writeJSONStatus(t, w, http.StatusNotFound, map[string]any{"error": map[string]any{"code": "RESOURCE_NOT_FOUND", "message": "not found"}})
+	}))
+	defer fibeAPI.Close()
 	if err := store.UpsertConfig(t.Context(), map[string]string{
-		"fibe_base_url": "server.test:3000",
+		"fibe_base_url": fibeAPI.URL,
 		"fibe_api_key":  "test-key",
-		"fibe_cli_path": cliPath,
 	}, secretConfigKeys); err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +248,7 @@ esac
 	if err := store.CreateProject(t.Context(), project); err != nil {
 		t.Fatal(err)
 	}
-	server := &Server{store: store}
+	server := &Server{store: store, http: fibeAPI.Client()}
 	payload, err := json.Marshal(projectJobPayload{UserID: user.ID, UserEmail: user.Email, ProjectID: project.ID})
 	if err != nil {
 		t.Fatal(err)
@@ -345,7 +343,7 @@ func TestProvisionProjectStartsAssignedAgentChat(t *testing.T) {
 	if err := store.CreateProject(t.Context(), project); err != nil {
 		t.Fatal(err)
 	}
-	server := &Server{store: store, http: previewServer.Client()}
+	server := &Server{store: store, http: fakeFibeHTTPClient(previewServer.Client(), fakeFibeTransportConfig{Mode: "default", LogPath: logPath})}
 
 	if err := server.provisionProject(t.Context(), user.ID, user.Email, project, ""); err != nil {
 		t.Fatal(err)

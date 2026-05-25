@@ -28,7 +28,6 @@ services:
       ADDR: ":8080"
       DATABASE_PATH: "/data/likeable.db"
       BASE_URL: "http://localhost:8080"
-      FIBE_CLI_VERSION: "${FIBE_CLI_VERSION:-}"
       HOME: "/tmp"
       REDIS_URL: "redis://redis:6379/0"
     depends_on:

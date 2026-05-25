@@ -1361,7 +1361,7 @@ func TestProjectPreviewStatusPromotesLaunchingReadyWorkspace(t *testing.T) {
 	}, secretConfigKeys); err != nil {
 		t.Fatal(err)
 	}
-	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: previewServer.Client()}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: fakeFibeHTTPClient(previewServer.Client(), fakeFibeTransportConfig{Mode: "default"})}
 	user, _ := store.UpsertUser(t.Context(), "a@example.com", "A", "")
 	if err := store.CreateSession(t.Context(), user.ID, "token-a", time.Hour); err != nil {
 		t.Fatal(err)
@@ -1425,7 +1425,7 @@ func TestProjectMessagePromotesLaunchingReadyWorkspace(t *testing.T) {
 	}, secretConfigKeys); err != nil {
 		t.Fatal(err)
 	}
-	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: previewServer.Client()}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: fakeFibeHTTPClient(previewServer.Client(), fakeFibeTransportConfig{Mode: "default", StdinPath: stdinPath})}
 	user, _ := store.UpsertUser(t.Context(), "a@example.com", "A", "")
 	if err := store.CreateSession(t.Context(), user.ID, "token-a", time.Hour); err != nil {
 		t.Fatal(err)
@@ -1588,6 +1588,12 @@ esac
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	installFakeFibeTransport(t, fakeFibeTransportConfig{
+		Mode:        "default",
+		StdinPath:   stdinPath,
+		MarkerPath:  markerPath,
+		ReleasePath: releasePath,
+	})
 	t.Cleanup(func() { _ = os.WriteFile(releasePath, []byte("release"), 0o644) })
 
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
@@ -1791,6 +1797,7 @@ esac
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	installFakeFibeTransport(t, fakeFibeTransportConfig{Mode: "default", LogPath: logPath})
 
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {
@@ -1868,7 +1875,7 @@ func TestProjectFeedTriggersReadinessRecovery(t *testing.T) {
 	}, secretConfigKeys); err != nil {
 		t.Fatal(err)
 	}
-	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: previewServer.Client()}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: fakeFibeHTTPClient(previewServer.Client(), fakeFibeTransportConfig{Mode: "default"})}
 	user, _ := store.UpsertUser(t.Context(), "a@example.com", "A", "")
 	if err := store.CreateSession(t.Context(), user.ID, "token-a", time.Hour); err != nil {
 		t.Fatal(err)
@@ -1923,6 +1930,7 @@ exit 64
 	if err := os.WriteFile(cliPath, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	installFakeFibeTransport(t, fakeFibeTransportConfig{Mode: "default", LogPath: logPath})
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -2342,6 +2350,7 @@ esac
 	if err := os.WriteFile(cliPath, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	installFakeFibeTransport(t, fakeFibeTransportConfig{Mode: "default", LogPath: logPath})
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -2418,6 +2427,7 @@ esac
 	if err := os.WriteFile(cliPath, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	installFakeFibeTransport(t, fakeFibeTransportConfig{Mode: "default", LogPath: logPath})
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -2500,6 +2510,7 @@ esac
 	if err := os.WriteFile(cliPath, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	installFakeFibeTransport(t, fakeFibeTransportConfig{Mode: "default", LogPath: logPath})
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -3061,7 +3072,7 @@ func TestProjectsListRefreshesStoppedPlaygroundStatus(t *testing.T) {
 	}, secretConfigKeys); err != nil {
 		t.Fatal(err)
 	}
-	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: previewServer.Client()}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: fakeFibeHTTPClient(previewServer.Client(), fakeFibeTransportConfig{Mode: "project-state", Status: "stopped", PreviewURL: previewServer.URL})}
 	user, _ := store.UpsertUser(t.Context(), "a@example.com", "A", "")
 	if err := store.CreateSession(t.Context(), user.ID, "token-a", time.Hour); err != nil {
 		t.Fatal(err)
@@ -3125,7 +3136,7 @@ func TestPreviewStatusReturnsRefreshedProjectStatus(t *testing.T) {
 	}, secretConfigKeys); err != nil {
 		t.Fatal(err)
 	}
-	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: previewServer.Client()}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: fakeFibeHTTPClient(previewServer.Client(), fakeFibeTransportConfig{Mode: "project-state", Status: "stopped", PreviewURL: previewServer.URL})}
 	user, _ := store.UpsertUser(t.Context(), "a@example.com", "A", "")
 	if err := store.CreateSession(t.Context(), user.ID, "token-a", time.Hour); err != nil {
 		t.Fatal(err)
@@ -3469,6 +3480,7 @@ esac
 	if err := os.WriteFile(cliPath, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	installFakeFibeTransport(t, fakeFibeTransportConfig{Mode: "default", LogPath: logPath})
 	if err := store.UpsertConfig(t.Context(), map[string]string{
 		"fibe_base_url": "server.test:3000",
 		"fibe_api_key":  "test-key",
@@ -3539,7 +3551,7 @@ func TestProfileDeleteAllKeepsLocalDataWhenFibeCleanupFails(t *testing.T) {
 	}
 	defer store.Close()
 	if err := store.UpsertConfig(t.Context(), map[string]string{
-		"fibe_base_url": "server.test:3000",
+		"fibe_base_url": "http://127.0.0.1:1",
 		"fibe_api_key":  "test-key",
 		"fibe_cli_path": "/does/not/exist",
 		"signup_mode":   "all",
@@ -3641,6 +3653,7 @@ esac
 	if err := os.WriteFile(cliPath, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	installFakeFibeTransport(t, fakeFibeTransportConfig{Mode: "hydration-fail"})
 	if err := store.UpsertConfig(t.Context(), map[string]string{
 		"fibe_base_url": "server.test:3000",
 		"fibe_api_key":  "test-key",
@@ -3658,6 +3671,7 @@ esac
 		UserID:         user.ID,
 		Title:          "Hydration fails",
 		ConversationID: "conv-delete-hydration-fails",
+		AgentID:        "agent-1",
 		PlaygroundID:   "playground-bad",
 		Status:         "deleting",
 	}
@@ -4474,6 +4488,11 @@ esac
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	installFakeFibeTransport(t, fakeFibeTransportConfig{
+		Mode:      "default",
+		LogPath:   logPath,
+		StdinPath: stdinPath,
+	})
 	return path, logPath, stdinPath
 }
 

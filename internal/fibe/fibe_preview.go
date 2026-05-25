@@ -10,11 +10,9 @@ import (
 	"net/url"
 	"strings"
 	"time"
-)
 
-type playgroundStatus struct {
-	Status string `json:"status"`
-}
+	sdkfibe "github.com/fibegg/sdk/fibe"
+)
 
 type PreviewEmbeddingBlockedError struct {
 	Header string
@@ -48,7 +46,27 @@ func (c *Client) WaitPlaygroundReady(ctx context.Context, playgroundID string) e
 	if playgroundID == "" {
 		return errors.New("workspace creation did not return an id")
 	}
-	return c.runCLI(ctx, []string{"wait", "playground", playgroundID, "--status", "running", "--timeout", "8m", "--interval", "3s"}, nil, nil)
+	deadline := time.After(8 * time.Minute)
+	for {
+		status, err := c.sdk.Playgrounds.StatusByIdentifier(ctx, playgroundID)
+		if err != nil {
+			return wrapSDKError(err)
+		}
+		currentStatus := strings.ToLower(strings.TrimSpace(status.Status))
+		if currentStatus == "running" || currentStatus == "ready" {
+			return nil
+		}
+		if currentStatus == "error" || currentStatus == "failed" || currentStatus == "destroyed" {
+			return wrapSDKError(sdkfibe.NewPlaygroundTerminalStateError(status))
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-deadline:
+			return &PreviewTimeoutError{Status: currentStatus}
+		case <-time.After(3 * time.Second):
+		}
+	}
 }
 
 func (c *Client) PlaygroundReady(ctx context.Context, playgroundID string) (bool, string, error) {
@@ -56,9 +74,9 @@ func (c *Client) PlaygroundReady(ctx context.Context, playgroundID string) (bool
 	if playgroundID == "" {
 		return false, "", errors.New("workspace creation did not return an id")
 	}
-	var status playgroundStatus
-	if err := c.runCLI(ctx, []string{"playgrounds", "get", playgroundID}, nil, &status); err != nil {
-		return false, "", err
+	status, err := c.sdk.Playgrounds.StatusByIdentifier(ctx, playgroundID)
+	if err != nil {
+		return false, "", wrapSDKError(err)
 	}
 	currentStatus := strings.ToLower(strings.TrimSpace(status.Status))
 	return currentStatus == "running" || currentStatus == "ready", currentStatus, nil

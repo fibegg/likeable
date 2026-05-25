@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 
 	projecttext "github.com/fibegg/likeable/internal/project"
+	sdkfibe "github.com/fibegg/sdk/fibe"
 )
 
 type GreenfieldResult struct {
@@ -44,12 +46,11 @@ type GreenfieldService struct {
 }
 
 func (c *Client) CreateConversation(ctx context.Context, conversationID, title string) error {
-	var out map[string]any
-	args := []string{"agents", "create-conversation", c.agentID, "--conversation-id", conversationID}
-	if strings.TrimSpace(title) != "" {
-		args = append(args, "--title", title)
-	}
-	return c.runCLI(ctx, args, nil, &out)
+	_, err := c.sdk.Agents.CreateConversationByIdentifier(ctx, c.agentID, &sdkfibe.AgentConversationParams{
+		ConversationID: conversationID,
+		Title:          title,
+	})
+	return wrapSDKError(err)
 }
 
 func (c *Client) EnsureConversation(ctx context.Context, conversationID, title string) error {
@@ -63,26 +64,29 @@ func (c *Client) EnsureConversation(ctx context.Context, conversationID, title s
 func (c *Client) CreateGreenfield(ctx context.Context, project *Project) (*GreenfieldResult, error) {
 	name := firstNonEmpty(project.PlaygroundName, projecttext.SourceNameForProject(project))
 	serviceSubdomains := projecttext.ServiceSubdomains(project)
-	args := c.greenfieldArgs(name, serviceSubdomains)
-	for key, value := range greenfieldVariables(project) {
-		args = append(args, "--var", key+"="+value)
+	params, err := c.greenfieldParams(name, serviceSubdomains, greenfieldVariables(project))
+	if err != nil {
+		return nil, err
 	}
-	var status map[string]any
-	if err := c.runCLI(ctx, args, nil, &status); err != nil {
-		if filtered, ok := serviceSubdomainsWithoutUnknowns(serviceSubdomains, err); ok {
-			args = c.greenfieldArgs(name, filtered)
-			for key, value := range greenfieldVariables(project) {
-				args = append(args, "--var", key+"="+value)
+	status, err := c.sdk.Greenfield.Create(ctx, params)
+	if err != nil {
+		platformErr := wrapSDKError(err)
+		if filtered, ok := serviceSubdomainsWithoutUnknowns(serviceSubdomains, platformErr); ok {
+			params, err = c.greenfieldParams(name, filtered, greenfieldVariables(project))
+			if err != nil {
+				return nil, err
 			}
 			status = nil
-			if retryErr := c.runCLI(ctx, args, nil, &status); retryErr != nil {
-				return c.recoverGreenfieldAfterCreateError(ctx, project, name, retryErr)
+			if retryStatus, retryErr := c.sdk.Greenfield.Create(ctx, params); retryErr != nil {
+				return c.recoverGreenfieldAfterCreateError(ctx, project, name, wrapSDKError(retryErr))
+			} else {
+				status = retryStatus
 			}
 		} else {
-			return c.recoverGreenfieldAfterCreateError(ctx, project, name, err)
+			return c.recoverGreenfieldAfterCreateError(ctx, project, name, platformErr)
 		}
 	}
-	result := parseGreenfieldStatus(status)
+	result := parseGreenfieldStatus(objectMap(status))
 	if result.PlaygroundID == "" {
 		return nil, errors.New("workspace creation did not return an id")
 	}
@@ -101,18 +105,58 @@ func (c *Client) CreateGreenfield(ctx context.Context, project *Project) (*Green
 	return result, nil
 }
 
-func (c *Client) greenfieldArgs(name string, serviceSubdomains map[string]string) []string {
-	args := []string{"greenfield", "--name", name, "--git-provider", "gitea", "--private", "--wait-timeout", "10m"}
+func (c *Client) greenfieldParams(name string, serviceSubdomains map[string]string, variables map[string]string) (*sdkfibe.GreenfieldCreateParams, error) {
+	private := true
+	params := &sdkfibe.GreenfieldCreateParams{
+		Name:              name,
+		GitProvider:       "gitea",
+		Private:           &private,
+		ServiceSubdomains: serviceSubdomains,
+		Variables:         stringMapAny(variables),
+	}
 	if c.marqueeID != "" {
-		args = append(args, "--marquee-id", c.marqueeID)
+		params.MarqueeIdentifier = c.marqueeID
 	}
 	if c.templateVersionID != "" {
-		args = append(args, "--template-version-id", c.templateVersionID)
+		id, err := strconv.ParseInt(c.templateVersionID, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("configured template version id %q is not numeric: %w", c.templateVersionID, err)
+		}
+		params.TemplateVersionID = &id
+		return params, nil
 	}
-	for service, subdomain := range serviceSubdomains {
-		args = append(args, "--service-subdomain", service+"="+subdomain)
+	body, err := greenfieldTemplateBody()
+	if err != nil {
+		return nil, err
 	}
-	return args
+	params.TemplateBody = body
+	return params, nil
+}
+
+func greenfieldTemplateBody() (string, error) {
+	path := strings.TrimSpace(os.Getenv("LIKEABLE_GREENFIELD_TEMPLATE_BODY_PATH"))
+	if path == "" {
+		path = "/usr/local/share/likeable/go-fibe-greenfield.yaml"
+	}
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("read greenfield template body: %w", err)
+	}
+	return string(data), nil
+}
+
+func stringMapAny(values map[string]string) map[string]any {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(values))
+	for key, value := range values {
+		out[key] = value
+	}
+	return out
 }
 
 func (c *Client) recoverGreenfieldAfterCreateError(ctx context.Context, project *Project, name string, err error) (*GreenfieldResult, error) {
@@ -213,11 +257,11 @@ func (c *Client) GreenfieldByPlaygroundName(ctx context.Context, playgroundName 
 	if playgroundName == "" {
 		return nil, errors.New("workspace name is not available")
 	}
-	var playground map[string]any
-	if err := c.runCLI(ctx, []string{"playgrounds", "get", playgroundName}, nil, &playground); err != nil {
-		return nil, err
+	playground, err := c.sdk.Playgrounds.GetByIdentifier(ctx, playgroundName)
+	if err != nil {
+		return nil, wrapSDKError(err)
 	}
-	result := greenfieldResultFromPlayground(playground)
+	result := greenfieldResultFromPlayground(objectMap(playground))
 	if result.PlaygroundID == "" {
 		return nil, fmt.Errorf("workspace %q did not return an id", playgroundName)
 	}
@@ -235,9 +279,9 @@ func (c *Client) GreenfieldByPlaygroundID(ctx context.Context, playgroundID stri
 	if playgroundID == "" {
 		return nil, errors.New("workspace id is not available")
 	}
-	var debug map[string]any
-	if err := c.runCLI(ctx, []string{"playgrounds", "debug", playgroundID}, nil, &debug); err != nil {
-		return nil, err
+	debug, err := c.sdk.Playgrounds.DebugWithParamsByIdentifier(ctx, playgroundID, nil)
+	if err != nil {
+		return nil, wrapSDKError(err)
 	}
 	result := greenfieldResultFromDebug(debug)
 	if result.PlaygroundID == "" {
@@ -250,18 +294,16 @@ func (c *Client) GreenfieldByPlaygroundID(ctx context.Context, playgroundID stri
 }
 
 func (c *Client) listPlaygrounds(ctx context.Context, page, perPage int) ([]map[string]any, bool, error) {
-	var raw map[string]any
-	if err := c.runCLI(ctx, []string{"playgrounds", "list", "--page", strconv.Itoa(page), "--per-page", strconv.Itoa(perPage)}, nil, &raw); err != nil {
-		return nil, false, err
+	raw, err := c.sdk.Playgrounds.List(ctx, &sdkfibe.PlaygroundListParams{Page: page, PerPage: perPage})
+	if err != nil {
+		return nil, false, wrapSDKError(err)
 	}
-	items := objectSlice(firstAny(raw["Data"], raw["data"], raw["items"], raw["playgrounds"]))
-	meta := anyMap(firstAny(raw["Meta"], raw["meta"]))
-	hasMore := false
-	if totalPages := numberInt(firstAny(meta["total_pages"], meta["totalPages"])); totalPages > page {
-		hasMore = true
-	} else if nextPage := numberInt(firstAny(meta["next_page"], meta["nextPage"])); nextPage > page {
-		hasMore = true
-	} else if len(items) == perPage {
+	items := make([]map[string]any, 0, len(raw.Data))
+	for i := range raw.Data {
+		items = append(items, objectMap(raw.Data[i]))
+	}
+	hasMore := raw.Meta.Total > int64(page*perPage)
+	if !hasMore && raw.Meta.Total == 0 && len(items) == perPage {
 		hasMore = true
 	}
 	return items, hasMore, nil
@@ -315,11 +357,12 @@ func (c *Client) hydrateGreenfieldSource(ctx context.Context, result *Greenfield
 	if result == nil || result.PlayspecID == "" {
 		return nil
 	}
-	var playspec map[string]any
-	if err := c.runCLI(ctx, []string{"playspecs", "get", result.PlayspecID}, nil, &playspec); err != nil {
-		return err
+	playspec, err := c.sdk.Playspecs.GetByIdentifier(ctx, result.PlayspecID)
+	if err != nil {
+		return wrapSDKError(err)
 	}
-	for _, service := range objectSlice(playspec["services"]) {
+	rawPlayspec := objectMap(playspec)
+	for _, service := range objectSlice(rawPlayspec["services"]) {
 		name := serviceName(service)
 		propID := numberString(firstAny(service["prop_id"], service["propID"]))
 		repoURL := firstNonEmpty(fmt.Sprint(service["repo_url"]), fmt.Sprint(service["repository_url"]), fmt.Sprint(service["clone_url"]), fmt.Sprint(service["html_url"]))
@@ -848,6 +891,24 @@ func anyMap(raw any) map[string]any {
 		return value
 	}
 	return map[string]any{}
+}
+
+func objectMap(raw any) map[string]any {
+	if raw == nil {
+		return map[string]any{}
+	}
+	if value, ok := raw.(map[string]any); ok {
+		return value
+	}
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return map[string]any{}
+	}
+	var out map[string]any
+	if err := json.Unmarshal(data, &out); err != nil {
+		return map[string]any{}
+	}
+	return out
 }
 
 func objectSlice(raw any) []map[string]any {

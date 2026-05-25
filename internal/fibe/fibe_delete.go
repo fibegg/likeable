@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,15 +26,18 @@ const (
 )
 
 func (c *Client) GiteaToken(ctx context.Context) (map[string]string, error) {
-	var raw map[string]any
-	if err := c.runCLI(ctx, []string{"agents", "gitea-token", c.agentID}, nil, &raw); err != nil {
-		return nil, err
+	token, err := c.sdk.Agents.GetGiteaTokenByIdentifier(ctx, c.agentID)
+	if err != nil {
+		return nil, wrapSDKError(err)
 	}
-	out := map[string]string{}
-	for key, value := range raw {
-		out[key] = fmt.Sprint(value)
+	if token == nil {
+		return nil, &PlatformError{Code: platformCodeUnknown, Message: "agent Gitea token response was empty"}
 	}
-	return out, nil
+	return map[string]string{
+		"token":      token.Token,
+		"gitea_host": token.GiteaHost,
+		"username":   token.Username,
+	}, nil
 }
 
 func (c *Client) DeleteProjectResources(ctx context.Context, project *Project) error {
@@ -94,13 +98,15 @@ func (c *Client) projectTemplateSource(ctx context.Context, project *Project) (p
 	if project == nil || strings.TrimSpace(project.PlayspecID) == "" {
 		return out, nil
 	}
-	var playspec map[string]any
-	if err := c.runCLI(ctx, []string{"playspecs", "get", project.PlayspecID}, nil, &playspec); err != nil {
+	playspecResult, err := c.sdk.Playspecs.GetByIdentifier(ctx, project.PlayspecID)
+	if err != nil {
+		err = wrapSDKError(err)
 		if resourceAlreadyDeleted(err) {
 			return out, nil
 		}
 		return out, err
 	}
+	playspec := objectMap(playspecResult)
 	sourceTemplate := anyMap(firstAny(playspec["source_template"], playspec["sourceTemplate"]))
 	sourceVersion := anyMap(firstAny(playspec["source_template_version"], playspec["sourceTemplateVersion"]))
 	out.TemplateID = numberString(firstAny(sourceTemplate["id"], playspec["source_template_id"], playspec["sourceTemplateID"]))
@@ -121,20 +127,28 @@ func (c *Client) projectTemplateVersionOwnedBySource(ctx context.Context, source
 	if project == nil || strings.TrimSpace(source.TemplateID) == "" || strings.TrimSpace(source.TemplateVersionID) == "" {
 		return false, nil
 	}
-	var raw map[string]any
-	if err := c.runCLI(ctx, []string{"templates", "versions", "list", source.TemplateID}, nil, &raw); err != nil {
+	versions, err := c.sdk.ImportTemplates.ListVersionsByIdentifier(ctx, source.TemplateID, nil)
+	if err != nil {
+		err = wrapSDKError(err)
 		if resourceAlreadyDeleted(err) {
 			return false, nil
 		}
 		return false, err
 	}
-	for _, item := range objectSlice(firstAny(raw["Data"], raw["data"], raw["items"], raw["template_versions"], raw["templateVersions"])) {
-		if numberString(item["id"]) != source.TemplateVersionID {
+	for _, item := range versions.Data {
+		if item.ID == nil || strconv.FormatInt(*item.ID, 10) != source.TemplateVersionID {
 			continue
 		}
-		versionSource := anyMap(item["source"])
-		propID := numberString(firstAny(versionSource["prop_id"], versionSource["propID"]))
-		repoURL := firstNonEmpty(fmt.Sprint(versionSource["prop_repository_url"]), fmt.Sprint(versionSource["repository_url"]), fmt.Sprint(versionSource["repo_url"]))
+		propID := ""
+		repoURL := ""
+		if item.Source != nil {
+			if item.Source.PropID != nil {
+				propID = strconv.FormatInt(*item.Source.PropID, 10)
+			}
+			if item.Source.PropRepositoryURL != nil {
+				repoURL = *item.Source.PropRepositoryURL
+			}
+		}
 		for _, projectPropID := range projectPropIDs(project) {
 			if propID != "" && propID == projectPropID {
 				return true, nil
@@ -211,9 +225,13 @@ func sameNormalizedURL(a, b string) bool {
 }
 
 func (c *Client) deleteTemplateVersionWithRetry(ctx context.Context, templateID, versionID string) error {
+	parsedVersionID, parseErr := strconv.ParseInt(strings.TrimSpace(versionID), 10, 64)
+	if parseErr != nil {
+		return fmt.Errorf("template version id %q is not numeric: %w", versionID, parseErr)
+	}
 	var lastErr error
 	for attempt := 0; attempt < resourceDeleteMaxAttempts; attempt++ {
-		err := c.runCLI(ctx, []string{"templates", "versions", "destroy", templateID, versionID}, nil, nil)
+		err := wrapSDKError(c.sdk.ImportTemplates.DestroyVersionByIdentifier(ctx, templateID, parsedVersionID))
 		if resourceAlreadyDeleted(err) {
 			return nil
 		}
@@ -254,7 +272,20 @@ func (c *Client) deleteFibeResourceWithRetry(ctx context.Context, resource, id s
 }
 
 func (c *Client) deleteFibeResource(ctx context.Context, resource, id string) error {
-	err := c.runCLI(ctx, []string{resource, "delete", id}, nil, nil)
+	var err error
+	switch resource {
+	case "playgrounds":
+		err = c.sdk.Playgrounds.DeleteByIdentifier(ctx, id)
+	case "playspecs":
+		err = c.sdk.Playspecs.DeleteByIdentifier(ctx, id)
+	case "templates":
+		err = c.sdk.ImportTemplates.DeleteByIdentifier(ctx, id)
+	case "props":
+		err = c.sdk.Props.DeleteByIdentifier(ctx, id)
+	default:
+		return fmt.Errorf("unsupported Fibe resource %q", resource)
+	}
+	err = wrapSDKError(err)
 	if resourceAlreadyDeleted(err) {
 		return nil
 	}
@@ -340,7 +371,7 @@ func (c *Client) DeleteGiteaRepo(ctx context.Context, repoURL string) error {
 }
 
 func (c *Client) DeleteConversation(ctx context.Context, conversationID string) error {
-	err := c.runCLI(ctx, []string{"agents", "delete-conversation", c.agentID, "--conversation-id", conversationID}, nil, nil)
+	err := wrapSDKError(c.sdk.Agents.DeleteConversationByIdentifier(ctx, c.agentID, conversationID))
 	if resourceAlreadyDeleted(err) {
 		return nil
 	}
