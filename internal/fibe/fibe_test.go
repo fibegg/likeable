@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"image/png"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -900,6 +901,49 @@ func TestSendMessageConvertsUnsupportedImageAttachmentsBeforeUpload(t *testing.T
 	}
 }
 
+func TestSendMessageConvertsLargePixelImageAttachmentsBeforeUpload(t *testing.T) {
+	attachmentPath := filepath.Join(t.TempDir(), "screenshot.png")
+	writeTestPNG(t, attachmentPath, 2400, 1800)
+	var uploadedFilename string
+	var payload map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method + " " + r.URL.Path {
+		case http.MethodPost + " /api/agents/agent/uploads":
+			if err := r.ParseMultipartForm(8 << 20); err != nil {
+				t.Fatal(err)
+			}
+			files := r.MultipartForm.File["file"]
+			if len(files) != 1 {
+				t.Fatalf("upload files=%#v, want one file", files)
+			}
+			uploadedFilename = files[0].Filename
+			writeJSONResponse(t, w, map[string]any{"filename": "uploaded-screenshot.jpg"})
+		case http.MethodPost + " /api/agents/agent/messages":
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatal(err)
+			}
+			writeJSONResponse(t, w, map[string]any{"ok": true})
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	client := newTestClient(t, server, "agent", "")
+	if err := client.SendMessage(t.Context(), "conv-1", "Use screenshot", []string{attachmentPath}, "queue"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(uploadedFilename, "likeable-attachment-") || !strings.HasSuffix(uploadedFilename, ".jpg") {
+		t.Fatalf("uploaded filename=%q, want converted JPEG temp file", uploadedFilename)
+	}
+	if _, ok := payload["images"]; ok {
+		t.Fatalf("payload=%#v, want images omitted", payload)
+	}
+	attachments := payload["attachmentFilenames"].([]any)
+	if len(attachments) != 1 || attachments[0] != "uploaded-screenshot.jpg" {
+		t.Fatalf("attachments=%#v, want uploaded filename", attachments)
+	}
+}
+
 func TestMessagesAndActivityFallBackToRuntimeWhenFibeSyncIsEmpty(t *testing.T) {
 	runtimeStatusCalls := 0
 	runtime := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1338,6 +1382,27 @@ func writeTestBMP(t *testing.T, path string) {
 		t.Fatal(err)
 	}
 	if err := bmp.Encode(file, img); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeTestPNG(t *testing.T, path string, width, height int) {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, width, height))
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			img.Set(x, y, color.RGBA{R: uint8(x % 255), G: uint8(y % 255), B: 210, A: 255})
+		}
+	}
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := png.Encode(file, img); err != nil {
 		_ = file.Close()
 		t.Fatal(err)
 	}

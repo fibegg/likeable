@@ -28,9 +28,10 @@ const PULL_REFRESH_TIMEOUT_MS = 3500;
 const PENDING_MESSAGE_RECONCILE_MS = 2 * 60_000;
 const BASIC_CHAT_MIN_PERSISTED_HEIGHT = 260;
 const STALE_PROJECT_DELETION_NOTICE_MS = 10 * 60_000;
-const MAX_INLINE_IMAGE_ATTACHMENT_BYTES = 12 * 1024 * 1024;
-const BROWSER_IMAGE_CONVERSION_TARGET_BYTES = 10 * 1024 * 1024;
-const MAX_BROWSER_CONVERTED_IMAGE_DIMENSION = 3072;
+const MAX_INLINE_IMAGE_ATTACHMENT_BYTES = 4 * 1024 * 1024;
+const BROWSER_IMAGE_CONVERSION_TARGET_BYTES = 3 * 1024 * 1024;
+const MAX_BROWSER_CONVERTED_IMAGE_DIMENSION = 2048;
+const MAX_BROWSER_SOURCE_IMAGE_PIXELS = 4_000_000;
 const FIBE_INLINE_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif']);
 const MATRIX_RAIN_COLUMNS = [
   ['10101010', '01010101', '11010110', '00101011', '10110100', '01011001', '11101010', '00110101', '10010110', '01101011'],
@@ -992,12 +993,16 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const addFiles = async (fileList: FileList | File[]) => {
     const nextFiles = Array.from(fileList).filter((file) => file.size > 0);
     if (nextFiles.length === 0) return;
-    const normalizedFiles = await Promise.all(nextFiles.map((file) => normalizeBrowserAttachment(file)));
+    const slots = Math.max(0, MAX_ATTACHMENTS - attachments.length);
+    const normalizedFiles: File[] = [];
+    for (const file of nextFiles.slice(0, slots)) {
+      normalizedFiles.push(await normalizeBrowserAttachment(file));
+    }
     setAttachments((current) => {
-      const slots = Math.max(0, MAX_ATTACHMENTS - current.length);
+      const remainingSlots = Math.max(0, MAX_ATTACHMENTS - current.length);
       return [
         ...current,
-        ...normalizedFiles.slice(0, slots).map((file) => ({
+        ...normalizedFiles.slice(0, remainingSlots).map((file) => ({
           id: `${file.name}-${file.size}-${file.lastModified}-${crypto.randomUUID()}`,
           file
         }))
@@ -1585,26 +1590,36 @@ function messageSendErrorBody(err: unknown, t: (key: TranslationKey, params?: Re
 }
 
 async function normalizeBrowserAttachment(file: File): Promise<File> {
-  if (!shouldConvertBrowserImage(file)) return file;
+  if (!browserAttachmentLooksLikeRasterImage(file)) return file;
   try {
-    return await convertBrowserImageToJPEG(file);
+    const image = await loadAttachmentImage(file);
+    if (!shouldConvertBrowserImage(file, image)) return file;
+    return await convertBrowserImageToJPEG(file, image);
   } catch (err) {
     console.warn('Attachment image conversion failed', err);
     return file;
   }
 }
 
-function shouldConvertBrowserImage(file: File): boolean {
+function browserAttachmentLooksLikeRasterImage(file: File): boolean {
   const contentType = file.type.toLowerCase().split(';')[0].trim();
   const filename = file.name.toLowerCase();
   if (contentType === 'image/svg+xml' || filename.endsWith('.svg')) return false;
-  const looksLikeImage = contentType.startsWith('image/') || /\.(avif|bmp|gif|heic|heif|jpe?g|png|tiff?|webp)$/.test(filename);
-  if (!looksLikeImage) return false;
-  return !FIBE_INLINE_IMAGE_TYPES.has(contentType) || file.size > MAX_INLINE_IMAGE_ATTACHMENT_BYTES;
+  return contentType.startsWith('image/') || /\.(avif|bmp|gif|heic|heif|jpe?g|png|tiff?|webp)$/.test(filename);
 }
 
-async function convertBrowserImageToJPEG(file: File): Promise<File> {
-  const image = await loadAttachmentImage(file);
+function shouldConvertBrowserImage(file: File, image: HTMLImageElement): boolean {
+  const contentType = file.type.toLowerCase().split(';')[0].trim();
+  const width = image.naturalWidth || image.width || 0;
+  const height = image.naturalHeight || image.height || 0;
+  return !FIBE_INLINE_IMAGE_TYPES.has(contentType)
+    || file.size > MAX_INLINE_IMAGE_ATTACHMENT_BYTES
+    || width > MAX_BROWSER_CONVERTED_IMAGE_DIMENSION
+    || height > MAX_BROWSER_CONVERTED_IMAGE_DIMENSION
+    || width * height > MAX_BROWSER_SOURCE_IMAGE_PIXELS;
+}
+
+async function convertBrowserImageToJPEG(file: File, image: HTMLImageElement): Promise<File> {
   const { width, height } = boundedImageDimensions(image.naturalWidth, image.naturalHeight, MAX_BROWSER_CONVERTED_IMAGE_DIMENSION);
   const canvas = document.createElement('canvas');
   canvas.width = width;
@@ -1637,7 +1652,7 @@ function loadAttachmentImage(file: File): Promise<HTMLImageElement> {
 
 async function bestEffortJPEGBlob(canvas: HTMLCanvasElement): Promise<Blob> {
   let best: Blob | null = null;
-  for (const quality of [0.9, 0.82, 0.74, 0.66]) {
+  for (const quality of [0.86, 0.78, 0.7, 0.62]) {
     const blob = await canvasBlob(canvas, 'image/jpeg', quality);
     best = blob;
     if (blob.size <= BROWSER_IMAGE_CONVERSION_TARGET_BYTES) return blob;

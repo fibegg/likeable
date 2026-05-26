@@ -21,8 +21,9 @@ import (
 	_ "image/png"
 )
 
-const maxConvertedImageDimension = 3072
-const maxInlineImageAttachmentBytes = 12 << 20
+const maxDeliveredImageDimension = 2048
+const maxDeliveredImagePixels = 4_000_000
+const maxDeliveredImageAttachmentBytes = 4 << 20
 
 type preparedAttachment struct {
 	path    string
@@ -95,7 +96,16 @@ func shouldConvertImageAttachment(path, contentType string) bool {
 		return true
 	}
 	info, err := os.Stat(path)
-	return err == nil && info.Size() > maxInlineImageAttachmentBytes
+	if err == nil && info.Size() > maxDeliveredImageAttachmentBytes {
+		return true
+	}
+	width, height, ok := imageAttachmentDimensions(path)
+	if !ok {
+		return false
+	}
+	return width > maxDeliveredImageDimension ||
+		height > maxDeliveredImageDimension ||
+		int64(width)*int64(height) > maxDeliveredImagePixels
 }
 
 func convertedJPEGAttachment(path string) ([]byte, error) {
@@ -113,11 +123,11 @@ func convertedJPEGAttachment(path string) ([]byte, error) {
 		maxDimension int
 		quality      int
 	}{
-		{maxConvertedImageDimension, 88},
-		{maxConvertedImageDimension, 80},
-		{2400, 82},
-		{1800, 82},
-		{1400, 80},
+		{maxDeliveredImageDimension, 86},
+		{maxDeliveredImageDimension, 78},
+		{1800, 78},
+		{1400, 76},
+		{1100, 74},
 	}
 	for i, attempt := range attempts {
 		img := flattenAndResizeImage(src, attempt.maxDimension)
@@ -125,11 +135,24 @@ func convertedJPEGAttachment(path string) ([]byte, error) {
 		if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: attempt.quality}); err != nil {
 			return nil, err
 		}
-		if buf.Len() <= maxInlineImageAttachmentBytes || i == len(attempts)-1 {
+		if buf.Len() <= maxDeliveredImageAttachmentBytes || i == len(attempts)-1 {
 			return buf.Bytes(), nil
 		}
 	}
 	return nil, nil
+}
+
+func imageAttachmentDimensions(path string) (int, int, bool) {
+	file, err := os.Open(path)
+	if err != nil {
+		return 0, 0, false
+	}
+	defer file.Close()
+	config, _, err := image.DecodeConfig(file)
+	if err != nil || config.Width <= 0 || config.Height <= 0 {
+		return 0, 0, false
+	}
+	return config.Width, config.Height, true
 }
 
 func flattenAndResizeImage(src image.Image, maxDimension int) image.Image {
