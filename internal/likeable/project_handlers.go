@@ -359,6 +359,15 @@ func (s *Server) controlProjectPlayground(ctx context.Context, user *User, proje
 	nextStatus := "launching"
 	switch action {
 	case "start":
+		if strings.TrimSpace(project.PreviewURL) != "" {
+			updated, ready, _, _, err := s.promoteProjectFromReachablePreview(actionCtx, user.ID, project)
+			if err == nil && ready && updated != nil {
+				if err := s.store.TouchProjectPlaygroundUsage(ctx, updated.ID, user.ID); err != nil {
+					return nil, err
+				}
+				return s.store.ProjectForUser(ctx, user.ID, updated.ID)
+			}
+		}
 		err = fibeClient.StartPlayground(actionCtx, playgroundID)
 	case "stop":
 		nextStatus = "stopped"
@@ -641,6 +650,7 @@ func (s *Server) handleProjectPreviewStatus(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	readinessRefreshed := false
+	resourceStatusRefreshed := false
 	if projectNeedsReadinessRecovery(project) && user != nil {
 		ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 		updated, err := s.refreshProjectReadiness(ctx, user, project)
@@ -659,11 +669,32 @@ func (s *Server) handleProjectPreviewStatus(w http.ResponseWriter, r *http.Reque
 		cancel()
 		if err == nil && updated != nil {
 			project = updated
+			resourceStatusRefreshed = true
 		} else if err != nil {
 			log.Printf("preview status project resource refresh %s: %v", project.ID, err)
 		}
 	}
 	if project.Status == "stopped" {
+		if !resourceStatusRefreshed && strings.TrimSpace(project.PreviewURL) != "" {
+			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+			updated, ready, status, maintenance, err := s.promoteProjectFromReachablePreview(ctx, project.UserID, project)
+			cancel()
+			if err == nil && updated != nil {
+				project = updated
+			} else if err != nil {
+				log.Printf("stopped preview status probe for project %s failed: %v", project.ID, err)
+			}
+			if ready || maintenance {
+				writeJSON(w, http.StatusOK, map[string]any{
+					"ready":       ready,
+					"maintenance": maintenance,
+					"status":      publicPreviewProbeStatus(status),
+					"checkedAt":   nowString(),
+					"project":     project,
+				})
+				return
+			}
+		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"ready":     false,
 			"status":    "stopped",

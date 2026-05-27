@@ -1317,6 +1317,62 @@ func TestProjectPreviewStatusPromotesReachablePreviewWithoutPlatformConfig(t *te
 	}
 }
 
+func TestProjectPreviewStatusPromotesStoppedReachablePreview(t *testing.T) {
+	previewServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte("<!doctype html><title>already running</title>"))
+	}))
+	defer previewServer.Close()
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: previewServer.Client()}
+	user, _ := store.UpsertUser(t.Context(), "stopped-preview@example.com", "Stopped Preview", "")
+	if err := store.CreateSession(t.Context(), user.ID, "stopped-preview-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{
+		ID:             "project-stopped-preview-ready",
+		UserID:         user.ID,
+		Title:          "Stopped Preview",
+		ConversationID: "conv-stopped-preview",
+		PlaygroundID:   "playground-stopped-preview",
+		PreviewURL:     previewServer.URL,
+		Status:         "stopped",
+	}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/projects/project-stopped-preview-ready/preview-status", nil)
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "stopped-preview-token"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("preview-status returned %d: %s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Ready  bool   `json:"ready"`
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.Ready || body.Status != "200 OK" {
+		t.Fatalf("body=%+v, want reachable stopped preview promoted", body)
+	}
+	updated, err := store.ProjectForUser(t.Context(), user.ID, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Status != "ready" {
+		t.Fatalf("status=%q, want ready", updated.Status)
+	}
+}
+
 func TestProjectPreviewStatusMarksReachablePreviewReady(t *testing.T) {
 	previewServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
@@ -3791,6 +3847,73 @@ func TestProjectPlaygroundLifecycleActions(t *testing.T) {
 	}
 }
 
+func TestProjectPlaygroundStartPromotesReachableStoppedPreview(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	_, logPath, _ := fakeFibeCLI(t)
+	previewServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte("<!doctype html><title>already running</title>"))
+	}))
+	defer previewServer.Close()
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url": "server.test:3000",
+		"fibe_api_key":  "test-key",
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{
+		store:  store,
+		config: RuntimeConfig{BaseURL: "http://example.test"},
+		http:   fakeFibeHTTPClient(previewServer.Client(), fakeFibeTransportConfig{Mode: "default", LogPath: logPath}),
+	}
+	user, err := store.UpsertUser(t.Context(), "project-start-preview@example.com", "Project Start Preview", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateSession(t.Context(), user.ID, "project-start-preview-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{
+		ID:             "project-start-preview",
+		UserID:         user.ID,
+		Title:          "Start Preview",
+		ConversationID: "conv-start-preview",
+		AgentID:        "agent-1",
+		MarqueeID:      "server-1",
+		PlaygroundID:   "playground-start-preview",
+		PreviewURL:     previewServer.URL,
+		Status:         "stopped",
+	}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/projects/project-start-preview/playground", strings.NewReader(`{"action":"start"}`))
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "project-start-preview-token"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("start returned %d, want 202; body=%s", rec.Code, rec.Body.String())
+	}
+	stored, err := store.ProjectForUser(t.Context(), user.ID, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != "ready" || stored.PlaygroundLastUsedAt == "" {
+		t.Fatalf("project=%+v, want ready with touched usage", stored)
+	}
+	if log, err := os.ReadFile(logPath); err == nil && strings.Contains(string(log), "playgrounds start playground-start-preview") {
+		t.Fatalf("unexpected Fibe start for reachable preview; log=%s", log)
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		t.Fatal(err)
+	}
+}
+
 func TestProductionProjectPlaygroundCannotBeStopped(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {
@@ -3980,6 +4103,69 @@ func TestProductionProjectStartSweepStartsStoppedProductionProjects(t *testing.T
 	}
 	if strings.Contains(log, "playgrounds start playground-ordinary-sweep") {
 		t.Fatalf("unexpected ordinary start command; log=%s", log)
+	}
+}
+
+func TestProductionProjectStartSweepPromotesReachableStoppedPreview(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	_, logPath, _ := fakeFibeCLI(t)
+	previewServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte("<!doctype html><title>already running</title>"))
+	}))
+	defer previewServer.Close()
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url": "server.test:3000",
+		"fibe_api_key":  "test-key",
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{
+		store:  store,
+		config: RuntimeConfig{BaseURL: "http://example.test"},
+		http:   fakeFibeHTTPClient(previewServer.Client(), fakeFibeTransportConfig{Mode: "default", LogPath: logPath}),
+	}
+	user, err := store.UpsertUser(t.Context(), "production-sweep-preview@example.com", "Production Sweep Preview", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{
+		ID:             "project-production-sweep-preview",
+		UserID:         user.ID,
+		Title:          "Production Sweep Preview",
+		ConversationID: "conv-production-sweep-preview",
+		AgentID:        "agent-1",
+		MarqueeID:      "server-1",
+		PlaygroundID:   "playground-production-sweep-preview",
+		PreviewURL:     previewServer.URL,
+		Status:         "stopped",
+	}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+	if granted, err := store.GrantProjectProduction(t.Context(), user.ID, project.ID, "cs_production_sweep_preview", time.Now().UTC().Add(30*24*time.Hour)); err != nil || !granted {
+		t.Fatalf("production grant=%v err=%v, want granted", granted, err)
+	}
+
+	if err := server.handleStartProductionProjectsSweepTask(t.Context(), asynq.NewTask(taskStartProductionProjectsSweep, nil)); err != nil {
+		t.Fatalf("production start sweep returned error: %v", err)
+	}
+
+	stored, err := store.ProjectForUser(t.Context(), user.ID, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != "ready" || stored.ProductionExpiresAt == "" || stored.PlaygroundLastUsedAt == "" {
+		t.Fatalf("project=%+v, want ready production project with touched usage", stored)
+	}
+	if log, err := os.ReadFile(logPath); err == nil && strings.Contains(string(log), "playgrounds start playground-production-sweep-preview") {
+		t.Fatalf("unexpected Fibe start for reachable production preview; log=%s", log)
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		t.Fatal(err)
 	}
 }
 

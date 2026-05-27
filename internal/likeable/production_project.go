@@ -27,6 +27,19 @@ func (s *Server) startProductionProjectIfStopped(ctx context.Context, userID, pr
 		log.Printf("load production user for start %s: %v", userID, err)
 		return
 	}
+	if strings.TrimSpace(project.PreviewURL) != "" {
+		probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		updated, ready, _, _, err := s.promoteProjectFromReachablePreview(probeCtx, user.ID, project)
+		cancel()
+		if err == nil && ready && updated != nil {
+			if err := s.store.TouchProjectPlaygroundUsage(ctx, project.ID, user.ID); err != nil {
+				log.Printf("touch already-running production project usage project=%s playground=%s: %v", project.ID, playgroundID, err)
+				return
+			}
+			s.clearPlatformBackoff()
+			return
+		}
+	}
 	fibeClient, err := s.fibeClientForProject(ctx, project, user.Email)
 	if err != nil {
 		log.Printf("load Fibe client for production start project=%s playground=%s: %v", project.ID, playgroundID, err)
