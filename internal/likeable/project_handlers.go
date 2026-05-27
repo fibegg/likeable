@@ -423,7 +423,7 @@ func (s *Server) handleProjectDomain(w http.ResponseWriter, r *http.Request, use
 			writeError(w, http.StatusConflict, "project CNAME target is not available")
 			return
 		}
-		if existing := strings.TrimSpace(project.CustomDomain); existing != "" && existing != domain {
+		if existing := strings.TrimSpace(project.CustomDomain); existing != "" && existing != domain && projectCustomDomainRoutingSynced(project) {
 			if err := s.syncProjectCustomDomainRouting(r.Context(), project, ""); err != nil {
 				log.Printf("clear old custom domain routing for project %s: %v", project.ID, err)
 				writeError(w, http.StatusBadGateway, "could not update custom domain routing")
@@ -436,7 +436,7 @@ func (s *Server) handleProjectDomain(w http.ResponseWriter, r *http.Request, use
 			return
 		}
 	case http.MethodDelete:
-		if strings.TrimSpace(project.CustomDomain) != "" {
+		if projectCustomDomainRoutingSynced(project) {
 			if err := s.syncProjectCustomDomainRouting(r.Context(), project, ""); err != nil {
 				log.Printf("clear custom domain routing for project %s: %v", project.ID, err)
 				writeError(w, http.StatusBadGateway, "could not update custom domain routing")

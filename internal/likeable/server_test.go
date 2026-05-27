@@ -4588,6 +4588,59 @@ func TestProjectCustomDomainDeleteClearsFibeRouting(t *testing.T) {
 	}
 }
 
+func TestProjectCustomDomainDeletePendingDNSSkipsFibeRoutingClear(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	fibeCalls := 0
+	fibeServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fibeCalls++
+		t.Fatalf("unexpected Fibe request for pending DNS domain delete: %s %s", r.Method, r.URL.Path)
+	}))
+	defer fibeServer.Close()
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url": fibeServer.URL,
+		"fibe_api_key":  "test-key",
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: fibeServer.Client()}
+	user, err := store.UpsertUser(t.Context(), "domain-pending-clear@example.com", "Domain Pending Clear", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateSession(t.Context(), user.ID, "domain-pending-clear-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{ID: "project-domain-pending-clear", UserID: user.ID, Title: "Domain Pending Clear", ConversationID: "conv-domain-pending-clear", AgentID: "agent-1", MarqueeID: "server-1", PlaygroundID: "123", Status: "ready", PreviewURL: "https://app-target.example.test"}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertProjectDomain(t.Context(), user.ID, project.ID, "app.customer.example", "app-target.example.test"); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/projects/project-domain-pending-clear/domain", nil)
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "domain-pending-clear-token"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("domain delete returned %d: %s", rec.Code, rec.Body.String())
+	}
+	if fibeCalls != 0 {
+		t.Fatalf("fibeCalls=%d, want none for pending DNS delete", fibeCalls)
+	}
+	stored, err := store.ProjectForUser(t.Context(), user.ID, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.CustomDomain != "" || stored.CustomDomainStatus != "" || stored.CustomDomainTarget != "" {
+		t.Fatalf("custom domain=%q status=%q target=%q, want deleted", stored.CustomDomain, stored.CustomDomainStatus, stored.CustomDomainTarget)
+	}
+}
+
 func TestProjectDomainVerifySweepMarksDNSVerifiedCNAME(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {

@@ -81,6 +81,12 @@ func (s *Server) syncProjectCustomDomainRouting(ctx context.Context, project *Pr
 	return client.RolloutPlayground(ctx, project.PlaygroundID)
 }
 
+func projectCustomDomainRoutingSynced(project *Project) bool {
+	return project != nil &&
+		strings.TrimSpace(project.CustomDomain) != "" &&
+		strings.TrimSpace(project.CustomDomainStatus) == store.ProjectDomainStatusActive
+}
+
 func projectCustomDomainServiceHosts(project *Project, domain string) map[string][]string {
 	if project == nil {
 		return nil
