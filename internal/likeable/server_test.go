@@ -3846,6 +3846,78 @@ func TestProductionProjectPlaygroundCannotBeStopped(t *testing.T) {
 	}
 }
 
+func TestProductionProjectPlaygroundStartRuntimeBillingReturnsConflict(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url": "server.test:3000",
+		"fibe_api_key":  "test-key",
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	logPath := filepath.Join(t.TempDir(), "fibe.log")
+	server := &Server{
+		store:  store,
+		config: RuntimeConfig{BaseURL: "http://example.test"},
+		http:   fakeFibeHTTPClient(http.DefaultClient, fakeFibeTransportConfig{Mode: "runtime-billing-required", LogPath: logPath}),
+	}
+	user, err := store.UpsertUser(t.Context(), "production-start-billing@example.com", "Production Start Billing", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateSession(t.Context(), user.ID, "production-start-billing-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{
+		ID:             "project-production-start-billing",
+		UserID:         user.ID,
+		Title:          "Production Billing",
+		ConversationID: "conv-production-start-billing",
+		AgentID:        "agent-1",
+		MarqueeID:      "server-1",
+		PlaygroundID:   "playground-production-start-billing",
+		Status:         "stopped",
+	}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+	if granted, err := store.GrantProjectProduction(t.Context(), user.ID, project.ID, "cs_production_start_billing", time.Now().UTC().Add(30*24*time.Hour)); err != nil || !granted {
+		t.Fatalf("production grant=%v err=%v, want granted", granted, err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/projects/project-production-start-billing/playground", strings.NewReader(`{"action":"start"}`))
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "production-start-billing-token"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("start returned %d, want 409; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "production runtime is not funded yet") {
+		t.Fatalf("body=%s, want runtime billing message", rec.Body.String())
+	}
+	stored, err := store.ProjectForUser(t.Context(), user.ID, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != "stopped" {
+		t.Fatalf("status=%q, want stopped after blocked start", stored.Status)
+	}
+	notices, err := store.NoticesForUser(t.Context(), user.ID, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(notices) != 1 || notices[0].Severity != "warning" || !strings.Contains(notices[0].Body, "Production runtime paused") || !strings.Contains(notices[0].Body, "not funded") {
+		t.Fatalf("notices=%+v, want one runtime billing warning", notices)
+	}
+	if log := readFile(t, logPath); strings.Count(log, "playgrounds start playground-production-start-billing") != 1 {
+		t.Fatalf("log=%s, want one start attempt", log)
+	}
+}
+
 func TestProductionProjectStartSweepStartsStoppedProductionProjects(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {

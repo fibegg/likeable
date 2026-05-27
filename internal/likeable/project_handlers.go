@@ -302,7 +302,8 @@ func (s *Server) handleProjectPlaygroundAction(w http.ResponseWriter, r *http.Re
 		writeError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
-	updated, err := s.controlProjectPlayground(r.Context(), user, project, strings.ToLower(strings.TrimSpace(body.Action)))
+	action := strings.ToLower(strings.TrimSpace(body.Action))
+	updated, err := s.controlProjectPlayground(r.Context(), user, project, action)
 	if err != nil {
 		if errors.Is(err, errProjectExportOnly) || errors.Is(err, errProjectRetiring) || errors.Is(err, errProductionProjectCannotStop) {
 			writeError(w, http.StatusConflict, developmentBlockedMessage(err))
@@ -310,6 +311,12 @@ func (s *Server) handleProjectPlaygroundAction(w http.ResponseWriter, r *http.Re
 		}
 		if errors.Is(err, errInvalidPlaygroundAction) || errors.Is(err, errProjectPlaygroundMissing) {
 			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if action == "start" && strings.TrimSpace(project.ProductionExpiresAt) != "" && fibegateway.IsRuntimeBillingRequiredError(err) {
+			log.Printf("project playground start blocked by Fibe runtime billing project=%s playground=%s: %v", project.ID, strings.TrimSpace(project.PlaygroundID), err)
+			s.notifyProductionProjectStartBlocked(r.Context(), user, project)
+			writeError(w, http.StatusConflict, "production runtime is not funded yet; support has been notified and Likeable will retry starting it automatically")
 			return
 		}
 		log.Printf("project playground action %s for project %s: %v", body.Action, project.ID, err)
