@@ -22,11 +22,11 @@ COPY internal ./internal
 COPY --from=frontend /src/dist ./internal/likeable/web-dist
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -buildid=" -o /out/likeable ./cmd/likeable
 
-FROM debian:bookworm-slim AS runtime
-RUN apt-get update \
-  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates curl git \
-  && rm -rf /var/lib/apt/lists/*
-RUN useradd --uid 10001 --create-home --home-dir /home/likeable --shell /usr/sbin/nologin likeable && mkdir -p /data && chown -R likeable:likeable /data
+FROM alpine:3.22 AS runtime
+RUN apk add --no-cache ca-certificates curl git \
+  && adduser -D -u 10001 -h /home/likeable -s /sbin/nologin likeable \
+  && mkdir -p /data \
+  && chown -R likeable:likeable /data
 COPY --from=backend /out/likeable /usr/local/bin/likeable
 RUN mkdir -p /usr/local/share/likeable
 COPY scripts/go-fibe-greenfield.yaml /usr/local/share/likeable/go-fibe-greenfield.yaml
