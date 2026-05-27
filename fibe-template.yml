@@ -6,7 +6,7 @@ x-fibe.gg:
       default: "https://github.com/fibegg/likeable"
     REPO_BRANCH:
       name: Repository branch
-      default: "likeable-launch-hardening"
+      default: "main"
     SUBDOMAIN:
       name: Subdomain
       default: "@"
