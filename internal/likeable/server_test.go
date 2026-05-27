@@ -3846,6 +3846,63 @@ func TestProductionProjectPlaygroundCannotBeStopped(t *testing.T) {
 	}
 }
 
+func TestProductionProjectStartSweepStartsStoppedProductionProjects(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	cliPath, logPath, _ := fakeFibeCLI(t)
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url": "server.test:3000",
+		"fibe_api_key":  "test-key",
+		"fibe_cli_path": cliPath,
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	user, err := store.UpsertUser(t.Context(), "production-sweep@example.com", "Production Sweep", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	production := &Project{ID: "project-production-sweep", UserID: user.ID, Title: "Production Sweep", ConversationID: "conv-production-sweep", AgentID: "agent-1", PlaygroundID: "playground-production-sweep", Status: "stopped"}
+	ordinary := &Project{ID: "project-ordinary-sweep", UserID: user.ID, Title: "Ordinary Sweep", ConversationID: "conv-ordinary-sweep", AgentID: "agent-1", PlaygroundID: "playground-ordinary-sweep", Status: "stopped"}
+	for _, project := range []*Project{production, ordinary} {
+		if err := store.CreateProject(t.Context(), project); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if granted, err := store.GrantProjectProduction(t.Context(), user.ID, production.ID, "cs_production_sweep", time.Now().UTC().Add(30*24*time.Hour)); err != nil || !granted {
+		t.Fatalf("production grant=%v err=%v, want granted", granted, err)
+	}
+
+	if err := server.handleStartProductionProjectsSweepTask(t.Context(), asynq.NewTask(taskStartProductionProjectsSweep, nil)); err != nil {
+		t.Fatalf("production start sweep returned error: %v", err)
+	}
+
+	storedProduction, err := store.ProjectForUser(t.Context(), user.ID, production.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if storedProduction.Status != "launching" || storedProduction.ProductionExpiresAt == "" || storedProduction.PlaygroundIdleStopAt != "" {
+		t.Fatalf("production project=%+v, want launching production project without idle stop", storedProduction)
+	}
+	storedOrdinary, err := store.ProjectForUser(t.Context(), user.ID, ordinary.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if storedOrdinary.Status != "stopped" {
+		t.Fatalf("ordinary project status=%q, want stopped", storedOrdinary.Status)
+	}
+	log := readFile(t, logPath)
+	if !strings.Contains(log, "playgrounds start playground-production-sweep") {
+		t.Fatalf("missing production start command; log=%s", log)
+	}
+	if strings.Contains(log, "playgrounds start playground-ordinary-sweep") {
+		t.Fatalf("unexpected ordinary start command; log=%s", log)
+	}
+}
+
 func TestProjectCustomDomainRequiresProductionProject(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {

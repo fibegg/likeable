@@ -518,6 +518,51 @@ func (s *Store) DeletingProjects(ctx context.Context, limit int) ([]Project, err
 	return out, nil
 }
 
+func (s *Store) StoppedProductionProjects(ctx context.Context, limit int) ([]Project, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 100
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, user_id, title, conversation_id, agent_id, marquee_id, playground_id, playground_name, playspec_id, prop_id, repo_url, preview_url, selected_service_name, status, error_message, provisioning_lock_until, cleanup_last_error, playground_last_used_at, created_at, updated_at
+		FROM projects
+		WHERE status = 'stopped' AND TRIM(playground_id) != ''
+			AND EXISTS (
+				SELECT 1
+				FROM project_production_grants
+				WHERE project_production_grants.project_id = projects.id
+					AND project_production_grants.expires_at > ?
+			)
+		ORDER BY updated_at ASC
+		LIMIT ?
+	`, nowString(), limit)
+	if err != nil {
+		return nil, err
+	}
+	var out []Project
+	for rows.Next() {
+		project, err := scanProject(rows)
+		if err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		out = append(out, *project)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := s.attachProjectResourcesForProjects(ctx, out); err != nil {
+		return nil, err
+	}
+	if out == nil {
+		out = []Project{}
+	}
+	return out, nil
+}
+
 func (s *Store) IdleProjectsForPlaygroundStop(ctx context.Context, cutoff time.Time, limit int) ([]Project, error) {
 	if limit <= 0 || limit > 1000 {
 		limit = 100

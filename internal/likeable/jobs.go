@@ -28,23 +28,25 @@ const projectCleanupSweepTimeout = 30 * time.Second
 const projectDeletionSweepInterval = 5 * time.Minute
 const projectDeletionSweepUniqueTTL = 4 * time.Minute
 const projectDomainVerificationSweepUniqueTTL = 50 * time.Minute
+const productionProjectStartSweepUniqueTTL = 30 * time.Minute
 const maxConcurrentProjectCleanup = 1
 const defaultJobWorkerConcurrency = 32
 const idleProjectStopAfter = domain.PlaygroundIdleStopAfter
 
 const (
-	taskProvisionProject            = "likeable:project:provision"
-	taskRecoverProject              = "likeable:project:recover"
-	taskDeleteProjectResources      = "likeable:project:delete_resources"
-	taskDeleteAccount               = "likeable:account:delete"
-	taskProjectDeletionSweep        = "likeable:project:deletion_sweep"
-	taskArchiveDeleteProject        = "likeable:project:archive_delete"
-	taskStopIdleProjectsSweep       = "likeable:project:stop_idle_sweep"
-	taskStopIdleProject             = "likeable:project:stop_idle"
-	taskMonitorProjectNotifications = "likeable:project:monitor_notifications"
-	taskSendEmail                   = "likeable:email:send"
-	taskProjectQuotaSweep           = "likeable:project_quota:sweep"
-	taskProjectDomainVerifySweep    = "likeable:project_domain:verify_sweep"
+	taskProvisionProject             = "likeable:project:provision"
+	taskRecoverProject               = "likeable:project:recover"
+	taskDeleteProjectResources       = "likeable:project:delete_resources"
+	taskDeleteAccount                = "likeable:account:delete"
+	taskProjectDeletionSweep         = "likeable:project:deletion_sweep"
+	taskArchiveDeleteProject         = "likeable:project:archive_delete"
+	taskStopIdleProjectsSweep        = "likeable:project:stop_idle_sweep"
+	taskStopIdleProject              = "likeable:project:stop_idle"
+	taskStartProductionProjectsSweep = "likeable:project:start_production_sweep"
+	taskMonitorProjectNotifications  = "likeable:project:monitor_notifications"
+	taskSendEmail                    = "likeable:email:send"
+	taskProjectQuotaSweep            = "likeable:project_quota:sweep"
+	taskProjectDomainVerifySweep     = "likeable:project_domain:verify_sweep"
 )
 
 var errProjectCleanupConcurrencyLimit = errors.New("project cleanup concurrency limit reached")
@@ -84,6 +86,7 @@ func newJobSystem(redisOpt asynq.RedisClientOpt, s *Server) *JobSystem {
 	mux.HandleFunc(taskArchiveDeleteProject, s.handleArchiveDeleteProjectTask)
 	mux.HandleFunc(taskStopIdleProjectsSweep, s.handleStopIdleProjectsSweepTask)
 	mux.HandleFunc(taskStopIdleProject, s.handleStopIdleProjectTask)
+	mux.HandleFunc(taskStartProductionProjectsSweep, s.handleStartProductionProjectsSweepTask)
 	mux.HandleFunc(taskMonitorProjectNotifications, s.handleMonitorProjectNotificationsTask)
 	mux.HandleFunc(taskSendEmail, s.handleSendEmailTask)
 	mux.HandleFunc(taskProjectQuotaSweep, s.handleProjectQuotaSweepTask)
@@ -272,6 +275,20 @@ func (s *Server) enqueueProjectDomainVerifySweep(ctx context.Context, delay time
 	}
 }
 
+func (s *Server) enqueueStartProductionProjectsSweep(ctx context.Context, delay time.Duration) {
+	if s.jobs == nil {
+		return
+	}
+	opts := []asynq.Option{asynq.Queue("low"), asynq.MaxRetry(2), asynq.Timeout(15 * time.Minute), asynq.Unique(productionProjectStartSweepUniqueTTL)}
+	if delay > 0 {
+		opts = append(opts, asynq.ProcessIn(delay))
+	}
+	_, err := s.jobs.client.EnqueueContext(ctx, asynq.NewTask(taskStartProductionProjectsSweep, nil), opts...)
+	if err != nil && !errors.Is(err, asynq.ErrDuplicateTask) {
+		log.Printf("enqueue production playground start sweep: %v", err)
+	}
+}
+
 func (s *Server) startRecurringJobs(ctx context.Context) {
 	if s.jobs == nil {
 		return
@@ -280,6 +297,7 @@ func (s *Server) startRecurringJobs(ctx context.Context) {
 	s.enqueueProjectDeletionSweep(ctx, 0)
 	s.enqueueStopIdleProjectsSweep(ctx, 0)
 	s.enqueueProjectDomainVerifySweep(ctx, 0)
+	s.enqueueStartProductionProjectsSweep(ctx, 0)
 	go func() {
 		hourlyTicker := time.NewTicker(time.Hour)
 		deletionTicker := time.NewTicker(projectDeletionSweepInterval)
@@ -296,6 +314,7 @@ func (s *Server) startRecurringJobs(ctx context.Context) {
 				s.enqueueProjectDeletionSweep(context.Background(), 0)
 				s.enqueueStopIdleProjectsSweep(context.Background(), 0)
 				s.enqueueProjectDomainVerifySweep(context.Background(), 0)
+				s.enqueueStartProductionProjectsSweep(context.Background(), 0)
 			}
 		}
 	}()
@@ -649,6 +668,18 @@ func (s *Server) handleProjectDomainVerifySweepTask(ctx context.Context, _ *asyn
 		if err := s.store.UpdateProjectDomainStatus(ctx, projectDomain.UserID, projectDomain.ProjectID, status); err != nil && !errors.Is(err, sql.ErrNoRows) {
 			log.Printf("update custom domain DNS status project=%s domain=%s: %v", projectDomain.ProjectID, projectDomain.Domain, err)
 		}
+	}
+	return nil
+}
+
+func (s *Server) handleStartProductionProjectsSweepTask(ctx context.Context, _ *asynq.Task) error {
+	projects, err := s.store.StoppedProductionProjects(ctx, 100)
+	if err != nil {
+		return err
+	}
+	for i := range projects {
+		project := &projects[i]
+		s.startProductionProjectIfStopped(ctx, project.UserID, project.ID)
 	}
 	return nil
 }
