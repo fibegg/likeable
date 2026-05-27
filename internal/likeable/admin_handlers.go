@@ -175,9 +175,6 @@ func (s *Server) handleAdminBillingHealth(w http.ResponseWriter, r *http.Request
 		"productionProject": strings.TrimSpace(stripeCfg["production_project_price"]) != "",
 	}
 	issues := []string{}
-	if strings.TrimSpace(cfg["stripe_publishable_key"]) == "" {
-		issues = append(issues, "stripe_publishable_missing")
-	}
 	if strings.TrimSpace(stripeCfg["secret"]) == "" {
 		issues = append(issues, "stripe_secret_missing")
 	}

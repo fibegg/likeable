@@ -130,7 +130,6 @@ For a private smoke only, temporarily set `LIKEABLE_DEV_AUTH=1` and sign in with
 
 Set Fibe, Google OAuth, GitHub export, SMTP, signup mode, free minutes/window, project cap, paid project-slot duration, production-project duration, and Stripe:
 
-- `stripe_publishable_key`
 - `stripe_secret_key`
 - `stripe_webhook_secret`
 - `stripe_price_id_1_hour`, `stripe_price_id_10_hours`, `stripe_price_id_100_hours`
@@ -139,7 +138,7 @@ Set Fibe, Google OAuth, GitHub export, SMTP, signup mode, free minutes/window, p
 
 Stripe webhook URL: `${BASE_URL}/api/stripe/webhook`.
 
-Checkout uses Stripe dynamic payment methods by not sending `payment_method_types`. Enable Link in the Stripe Dashboard payment method settings; the app will not override that Dashboard configuration.
+Checkout uses backend-created Stripe Checkout Sessions and does not require `stripe_publishable_key`. It also uses Stripe dynamic payment methods by not sending `payment_method_types`. Enable Link in the Stripe Dashboard payment method settings; the app will not override that Dashboard configuration.
 
 5. Smoke the user flows.
 

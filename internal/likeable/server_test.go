@@ -6096,6 +6096,57 @@ func TestAdminBillingHealthReportsStripeConfigAndRecentPayments(t *testing.T) {
 	}
 }
 
+func TestAdminBillingHealthDoesNotRequirePublishableKey(t *testing.T) {
+	appStore, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer appStore.Close()
+	server := &Server{store: appStore, config: RuntimeConfig{BaseURL: "http://example.test", AdminEmail: "admin@example.com"}, http: http.DefaultClient}
+	admin, err := appStore.UpsertUser(t.Context(), "admin@example.com", "Admin", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := appStore.CreateSession(t.Context(), admin.ID, "admin-billing-no-pk-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if err := appStore.UpsertConfig(t.Context(), map[string]string{
+		"stripe_secret_key":                  "sk_test_health",
+		"stripe_webhook_secret":              "whsec_health",
+		"stripe_price_id_1_hour":             "price_hour_1",
+		"stripe_project_quota_price_id":      "price_project_quota",
+		"stripe_production_project_price_id": "price_production_project",
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/billing/health", nil)
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "admin-billing-no-pk-token"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("billing health returned %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Health struct {
+			Configured struct {
+				PublishableKey bool `json:"publishableKey"`
+			} `json:"configured"`
+			Issues []string `json:"issues"`
+		} `json:"health"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Health.Configured.PublishableKey {
+		t.Fatalf("publishableKey configured=%v, want false", resp.Health.Configured.PublishableKey)
+	}
+	if len(resp.Health.Issues) != 0 {
+		t.Fatalf("issues=%+v, want none without publishable key", resp.Health.Issues)
+	}
+}
+
 func TestAdminBillingHealthReturnsEmptyRecentPayments(t *testing.T) {
 	appStore, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {
