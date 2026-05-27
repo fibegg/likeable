@@ -4224,18 +4224,27 @@ func TestProjectCustomDomainVerifyActivatesFibeRouting(t *testing.T) {
 	}
 	defer store.Close()
 	var patches []map[string]any
+	var actions []string
 	fibeServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPatch || r.URL.Path != "/api/playgrounds/123" {
-			t.Fatalf("Fibe request=%s %s, want PATCH /api/playgrounds/123", r.Method, r.URL.Path)
+		switch {
+		case r.Method == http.MethodPatch && r.URL.Path == "/api/playgrounds/123":
+			if got := r.Header.Get("Authorization"); got != "Bearer test-key" {
+				t.Fatalf("Authorization=%q, want bearer token", got)
+			}
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			patches = append(patches, body)
+		case r.Method == http.MethodPost && r.URL.Path == "/api/playgrounds/123/operations":
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			actions = append(actions, fmt.Sprint(body["action_type"]))
+		default:
+			t.Fatalf("Fibe request=%s %s, want custom-host PATCH or rollout action", r.Method, r.URL.Path)
 		}
-		if got := r.Header.Get("Authorization"); got != "Bearer test-key" {
-			t.Fatalf("Authorization=%q, want bearer token", got)
-		}
-		var body map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			t.Fatal(err)
-		}
-		patches = append(patches, body)
 		writeJSONResponse(t, w, map[string]any{"id": 123, "status": "running"})
 	}))
 	defer fibeServer.Close()
@@ -4301,6 +4310,9 @@ func TestProjectCustomDomainVerifyActivatesFibeRouting(t *testing.T) {
 	if len(patches) != 1 {
 		t.Fatalf("patches=%d, want one Fibe routing patch", len(patches))
 	}
+	if len(actions) != 1 || actions[0] != "rollout" {
+		t.Fatalf("actions=%v, want rollout after routing patch", actions)
+	}
 	playground := patches[0]["playground"].(map[string]any)
 	services := playground["services"].(map[string]any)
 	app := services["app"].(map[string]any)
@@ -4320,12 +4332,21 @@ func TestProjectCustomDomainDeleteClearsFibeRouting(t *testing.T) {
 	}
 	defer store.Close()
 	var patch map[string]any
+	var actions []string
 	fibeServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPatch || r.URL.Path != "/api/playgrounds/123" {
-			t.Fatalf("Fibe request=%s %s, want PATCH /api/playgrounds/123", r.Method, r.URL.Path)
-		}
-		if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
-			t.Fatal(err)
+		switch {
+		case r.Method == http.MethodPatch && r.URL.Path == "/api/playgrounds/123":
+			if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
+				t.Fatal(err)
+			}
+		case r.Method == http.MethodPost && r.URL.Path == "/api/playgrounds/123/operations":
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			actions = append(actions, fmt.Sprint(body["action_type"]))
+		default:
+			t.Fatalf("Fibe request=%s %s, want custom-host PATCH or rollout action", r.Method, r.URL.Path)
 		}
 		writeJSONResponse(t, w, map[string]any{"id": 123, "status": "running"})
 	}))
@@ -4366,6 +4387,12 @@ func TestProjectCustomDomainDeleteClearsFibeRouting(t *testing.T) {
 	server.routes().ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("domain delete returned %d: %s", rec.Code, rec.Body.String())
+	}
+	if patch == nil {
+		t.Fatal("missing Fibe routing clear patch")
+	}
+	if len(actions) != 1 || actions[0] != "rollout" {
+		t.Fatalf("actions=%v, want rollout after routing clear", actions)
 	}
 	playground := patch["playground"].(map[string]any)
 	services := playground["services"].(map[string]any)

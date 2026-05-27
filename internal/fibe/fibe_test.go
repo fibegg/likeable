@@ -317,7 +317,10 @@ func TestControlPlaygroundLifecycleUsesSDKActions(t *testing.T) {
 	if err := client.RestartPlayground(t.Context(), "123"); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"start", "stop", "hard_restart"}
+	if err := client.RolloutPlayground(t.Context(), "123"); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"start", "stop", "hard_restart", "rollout"}
 	if strings.Join(actions, ",") != strings.Join(want, ",") {
 		t.Fatalf("actions=%v, want %v", actions, want)
 	}

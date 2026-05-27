@@ -130,6 +130,10 @@ func (c *Client) RestartPlayground(ctx context.Context, playgroundID string) err
 	return c.controlPlayground(ctx, "hard-restart", playgroundID)
 }
 
+func (c *Client) RolloutPlayground(ctx context.Context, playgroundID string) error {
+	return c.controlPlayground(ctx, "rollout", playgroundID)
+}
+
 func (c *Client) controlPlayground(ctx context.Context, action, playgroundID string) error {
 	playgroundID = strings.TrimSpace(playgroundID)
 	if playgroundID == "" {

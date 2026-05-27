@@ -75,7 +75,10 @@ func (s *Server) syncProjectCustomDomainRouting(ctx context.Context, project *Pr
 	if err != nil {
 		return err
 	}
-	return client.UpdatePlaygroundServiceCustomHosts(ctx, project.PlaygroundID, serviceHosts)
+	if err := client.UpdatePlaygroundServiceCustomHosts(ctx, project.PlaygroundID, serviceHosts); err != nil {
+		return err
+	}
+	return client.RolloutPlayground(ctx, project.PlaygroundID)
 }
 
 func projectCustomDomainServiceHosts(project *Project, domain string) map[string][]string {
