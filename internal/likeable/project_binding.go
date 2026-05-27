@@ -101,6 +101,9 @@ func (s *Server) projectBindingStatus(ctx context.Context, project *Project) (st
 }
 
 func developmentBlockedMessage(err error) string {
+	if errors.Is(err, errProductionProjectCannotStop) {
+		return errProductionProjectCannotStop.Error()
+	}
 	if errors.Is(err, errProjectRetiring) {
 		return errProjectRetiring.Error()
 	}

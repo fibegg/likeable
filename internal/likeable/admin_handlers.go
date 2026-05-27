@@ -151,6 +151,68 @@ func (s *Server) handleAdminRecovery(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) handleAdminBillingHealth(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	cfg, err := s.store.ConfigMap(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	stripeCfg := stripeConfigFromMap(cfg)
+	payments, err := s.store.RecentPayments(r.Context(), 10)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	priceStatus := map[string]bool{
+		"oneHour":           strings.TrimSpace(stripeCfg["price_1_hour"]) != "",
+		"tenHours":          strings.TrimSpace(stripeCfg["price_10_hours"]) != "",
+		"hundredHours":      strings.TrimSpace(stripeCfg["price_100_hours"]) != "",
+		"projectQuota":      strings.TrimSpace(stripeCfg["project_quota_price"]) != "",
+		"productionProject": strings.TrimSpace(stripeCfg["production_project_price"]) != "",
+	}
+	issues := []string{}
+	if strings.TrimSpace(cfg["stripe_publishable_key"]) == "" {
+		issues = append(issues, "stripe_publishable_missing")
+	}
+	if strings.TrimSpace(stripeCfg["secret"]) == "" {
+		issues = append(issues, "stripe_secret_missing")
+	}
+	if strings.TrimSpace(stripeCfg["webhook"]) == "" {
+		issues = append(issues, "stripe_webhook_missing")
+	}
+	if !priceStatus["oneHour"] && !priceStatus["tenHours"] && !priceStatus["hundredHours"] {
+		issues = append(issues, "stripe_hour_prices_missing")
+	}
+	if !priceStatus["projectQuota"] {
+		issues = append(issues, "stripe_project_quota_price_missing")
+	}
+	if !priceStatus["productionProject"] {
+		issues = append(issues, "stripe_production_project_price_missing")
+	}
+	products := billingProductsFromConfig(stripeCfg)
+	products["projectQuotaDays"] = s.projectQuotaDays(r.Context())
+	products["productionProjectDays"] = s.productionProjectDays(r.Context())
+	writeJSON(w, http.StatusOK, map[string]any{
+		"health": map[string]any{
+			"checkedAt": time.Now().UTC().Format(time.RFC3339Nano),
+			"configured": map[string]bool{
+				"publishableKey": strings.TrimSpace(cfg["stripe_publishable_key"]) != "",
+				"secretKey":      strings.TrimSpace(stripeCfg["secret"]) != "",
+				"webhookSecret":  strings.TrimSpace(stripeCfg["webhook"]) != "",
+			},
+			"products":       products,
+			"prices":         priceStatus,
+			"free":           map[string]any{"minutes": s.freeBuildLimitMinutes(r.Context()), "windowHours": s.freeHourWindowHours(r.Context())},
+			"issues":         issues,
+			"recentPayments": payments,
+		},
+	})
+}
+
 type adminRecoveryProject struct {
 	ID               string `json:"id"`
 	UserID           string `json:"userId"`
@@ -289,6 +351,8 @@ func (s *Server) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 		s.handleAdminUserGrantHours(w, r, userID)
 	case len(parts) == 3 && parts[1] == "projects" && r.Method == http.MethodDelete:
 		s.handleAdminUserProjectDelete(w, r, userID, parts[2])
+	case len(parts) == 4 && parts[1] == "projects" && parts[3] == "diagnostics" && r.Method == http.MethodGet:
+		s.handleAdminUserProjectDiagnostics(w, r, userID, parts[2])
 	case len(parts) == 4 && parts[1] == "projects" && parts[3] == "assignment" && r.Method == http.MethodPatch:
 		s.handleAdminUserProjectAssignment(w, r, userID, parts[2])
 	default:
@@ -498,6 +562,19 @@ func (s *Server) handleAdminUserProjectDelete(w http.ResponseWriter, r *http.Req
 	writeJSON(w, http.StatusAccepted, map[string]any{"project": project})
 }
 
+func (s *Server) handleAdminUserProjectDiagnostics(w http.ResponseWriter, r *http.Request, userID, projectID string) {
+	diagnostics, err := s.store.AdminProjectDiagnostics(r.Context(), userID, projectID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "project not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"diagnostics": diagnostics})
+}
+
 func (s *Server) handleAdminUserProjectAssignment(w http.ResponseWriter, r *http.Request, userID, projectID string) {
 	var body struct {
 		AgentID       string `json:"agent_id"`
@@ -691,9 +768,21 @@ func firstNonEmptyString(values ...string) string {
 
 func publicAdminConfig(cfg map[string]string) map[string]any {
 	out := map[string]any{}
-	for _, key := range []string{"fibe_base_url", "fibe_agent_server_pool", "fibe_template_version_id", "free_hours", "free_hour_window_hours", "prompt_improve_charge_minutes", "project_cap", "signup_mode", "signup_allowed_emails", "stripe_publishable_key", "stripe_price_id_1_hour", "stripe_price_id_10_hours", "stripe_price_id_100_hours", "stripe_project_quota_price_id", "github_client_id", "github_username", "google_client_id", "smtp_host", "smtp_port", "smtp_username", "smtp_from_email", "smtp_from_name", "smtp_tls_mode"} {
+	for _, key := range []string{"fibe_base_url", "fibe_agent_server_pool", "fibe_template_version_id", "free_minutes", "free_hour_window_hours", "prompt_improve_charge_minutes", "project_cap", "project_quota_days", "production_project_days", "signup_mode", "signup_allowed_emails", "stripe_publishable_key", "stripe_price_id_1_hour", "stripe_price_id_10_hours", "stripe_price_id_100_hours", "stripe_project_quota_price_id", "stripe_production_project_price_id", "github_client_id", "github_username", "google_client_id", "smtp_host", "smtp_port", "smtp_username", "smtp_from_email", "smtp_from_name", "smtp_tls_mode"} {
 		value := cfg[key]
 		set := strings.TrimSpace(cfg[key]) != ""
+		if key == "free_minutes" && strings.TrimSpace(value) == "" {
+			if legacyHours := strings.TrimSpace(cfg["free_hours"]); legacyHours != "" {
+				if n, err := strconv.Atoi(legacyHours); err == nil && n >= 0 {
+					minutes := n * 60
+					if minutes > maxFreeBuildMinutes {
+						minutes = maxFreeBuildMinutes
+					}
+					value = strconv.Itoa(minutes)
+					set = true
+				}
+			}
+		}
 		if key == "fibe_agent_server_pool" && strings.TrimSpace(value) == "" {
 			value = cfg["fibe_agent_marquee_pool"]
 			set = strings.TrimSpace(value) != ""
@@ -714,14 +803,18 @@ func publicAdminConfig(cfg map[string]string) map[string]any {
 
 func publicConfigDefault(key string) string {
 	switch key {
-	case "free_hours":
-		return "5"
+	case "free_minutes":
+		return strconv.Itoa(defaultFreeBuildMinutes)
 	case "free_hour_window_hours":
 		return strconv.Itoa(defaultFreeHourWindowHours)
 	case "prompt_improve_charge_minutes":
 		return "0"
 	case "project_cap":
 		return "3"
+	case "project_quota_days":
+		return strconv.Itoa(defaultProjectQuotaDays)
+	case "production_project_days":
+		return strconv.Itoa(defaultProductionProjectDays)
 	case "signup_mode":
 		return "forbidden"
 	case "fibe_agent_server_pool":
@@ -758,6 +851,17 @@ func normalizeAdminConfigValues(values map[string]string) (map[string]string, er
 			}
 		case "smtp_tls_mode":
 			out[key] = normalizeSMTPTLSMode(value)
+		case "free_minutes":
+			trimmed := strings.TrimSpace(value)
+			if trimmed == "" {
+				out[key] = ""
+				continue
+			}
+			n, err := strconv.Atoi(trimmed)
+			if err != nil || n < 0 || n > maxFreeBuildMinutes {
+				return nil, errors.New("free_minutes must be between 0 and 1440")
+			}
+			out[key] = strconv.Itoa(n)
 		case "free_hour_window_hours":
 			trimmed := strings.TrimSpace(value)
 			if trimmed == "" {
@@ -778,6 +882,28 @@ func normalizeAdminConfigValues(values map[string]string) (map[string]string, er
 			n, err := strconv.Atoi(trimmed)
 			if err != nil || n < 0 || n > maxPromptImproveChargeMin {
 				return nil, errors.New("prompt_improve_charge_minutes must be between 0 and 60")
+			}
+			out[key] = strconv.Itoa(n)
+		case "project_quota_days":
+			trimmed := strings.TrimSpace(value)
+			if trimmed == "" {
+				out[key] = ""
+				continue
+			}
+			n, err := strconv.Atoi(trimmed)
+			if err != nil || n <= 0 || n > maxProjectQuotaDays {
+				return nil, errors.New("project_quota_days must be between 1 and 365")
+			}
+			out[key] = strconv.Itoa(n)
+		case "production_project_days":
+			trimmed := strings.TrimSpace(value)
+			if trimmed == "" {
+				out[key] = ""
+				continue
+			}
+			n, err := strconv.Atoi(trimmed)
+			if err != nil || n <= 0 || n > maxProductionProjectDays {
+				return nil, errors.New("production_project_days must be between 1 and 365")
 			}
 			out[key] = strconv.Itoa(n)
 		default:

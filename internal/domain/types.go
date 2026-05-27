@@ -39,12 +39,20 @@ type Project struct {
 	CleanupLastError      string              `json:"-"`
 	PlaygroundLastUsedAt  string              `json:"playgroundLastUsedAt,omitempty"`
 	PlaygroundIdleStopAt  string              `json:"playgroundIdleStopAt,omitempty"`
+	ProductionExpiresAt   string              `json:"productionExpiresAt,omitempty"`
+	CustomDomain          string              `json:"customDomain,omitempty"`
+	CustomDomainStatus    string              `json:"customDomainStatus,omitempty"`
+	CustomDomainTarget    string              `json:"customDomainTarget,omitempty"`
+	CustomDomainUpdatedAt string              `json:"customDomainUpdatedAt,omitempty"`
 	CreatedAt             string              `json:"createdAt"`
 	UpdatedAt             string              `json:"updatedAt"`
 }
 
 func (p *Project) RefreshComputedFields() {
 	p.PlaygroundIdleStopAt = ""
+	if strings.TrimSpace(p.ProductionExpiresAt) != "" {
+		return
+	}
 	if p.Status != "ready" || strings.TrimSpace(p.PlaygroundLastUsedAt) == "" {
 		return
 	}
@@ -234,6 +242,49 @@ type AdminProjectSummary struct {
 	Project    Project                `json:"project"`
 	WorkMs     int64                  `json:"workMs"`
 	Assignment AgentAssignmentSummary `json:"assignment"`
+}
+
+type AdminBillingPayment struct {
+	ID                string `json:"id"`
+	UserID            string `json:"userId"`
+	UserEmail         string `json:"userEmail"`
+	ProviderPaymentID string `json:"providerPaymentId"`
+	AmountCents       int64  `json:"amountCents"`
+	Currency          string `json:"currency"`
+	Status            string `json:"status"`
+	CreatedAt         string `json:"createdAt"`
+}
+
+type AdminHourCreditLedgerEntry struct {
+	ID             string `json:"id"`
+	UserID         string `json:"userId"`
+	DeltaMs        int64  `json:"deltaMs"`
+	Reason         string `json:"reason"`
+	PaymentID      string `json:"paymentId,omitempty"`
+	WorkSessionKey string `json:"workSessionKey,omitempty"`
+	CreatedAt      string `json:"createdAt"`
+}
+
+type AdminProjectInternal struct {
+	UserID                string `json:"userId"`
+	ConversationID        string `json:"conversationId,omitempty"`
+	AgentID               string `json:"agentId,omitempty"`
+	ServerID              string `json:"serverId,omitempty"`
+	PlaygroundID          string `json:"playgroundId,omitempty"`
+	PlaygroundName        string `json:"playgroundName,omitempty"`
+	PlayspecID            string `json:"playspecId,omitempty"`
+	PropID                string `json:"propId,omitempty"`
+	RepoURL               string `json:"repoUrl,omitempty"`
+	ProvisioningLockUntil string `json:"provisioningLockUntil,omitempty"`
+	CleanupLastError      string `json:"cleanupLastError,omitempty"`
+}
+
+type AdminProjectDiagnostics struct {
+	Project      Project                      `json:"project"`
+	Internal     AdminProjectInternal         `json:"internal"`
+	WorkSessions []ProjectWorkSession         `json:"workSessions"`
+	HourLedger   []AdminHourCreditLedgerEntry `json:"hourLedger"`
+	Payments     []AdminBillingPayment        `json:"payments"`
 }
 
 type AdminUserDetail struct {

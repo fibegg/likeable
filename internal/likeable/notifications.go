@@ -156,6 +156,21 @@ func (s *Server) notifyProjectQuotaPurchased(ctx context.Context, userID string,
 	s.addSystemNoticeAndEmail(ctx, user, "info", body, "Likeable project quota added", body+"\n\nManage projects:\n"+s.profileURL())
 }
 
+func (s *Server) notifyProductionProjectPurchased(ctx context.Context, userID, projectID string, expiresAt time.Time) {
+	user, err := s.store.UserByID(ctx, userID)
+	if err != nil {
+		log.Printf("load user for production project purchase notice %s: %v", userID, err)
+		return
+	}
+	project, err := s.store.ProjectForUser(ctx, userID, projectID)
+	if err != nil {
+		log.Printf("load project for production project purchase notice %s/%s: %v", userID, projectID, err)
+		return
+	}
+	body := fmt.Sprintf("Production project enabled: %q will stay online until %s. Use the project menu for CNAME instructions.", project.Title, expiresAt.UTC().Format("2006-01-02 15:04 UTC"))
+	s.addSystemNoticeAndEmail(ctx, user, "info", body, "Likeable production project enabled", body+"\n\nOpen Likeable:\n"+s.config.BaseURL)
+}
+
 func (s *Server) notifyProjectExportReady(ctx context.Context, user *User, project *Project, repoURL string) {
 	if user == nil || project == nil || strings.TrimSpace(repoURL) == "" {
 		return

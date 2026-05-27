@@ -19,6 +19,7 @@ type AgentPoolOption = domain.AgentPoolOption
 type UserNotice = domain.UserNotice
 type AdminUserSummary = domain.AdminUserSummary
 type AdminProjectSummary = domain.AdminProjectSummary
+type AdminProjectDiagnostics = domain.AdminProjectDiagnostics
 type AdminUserDetail = domain.AdminUserDetail
 type AdminUserFilters = domain.AdminUserFilters
 

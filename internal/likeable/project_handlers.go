@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -16,8 +17,9 @@ import (
 )
 
 var (
-	errInvalidPlaygroundAction  = errors.New("invalid playground action")
-	errProjectPlaygroundMissing = errors.New("project has no playground")
+	errInvalidPlaygroundAction     = errors.New("invalid playground action")
+	errProjectPlaygroundMissing    = errors.New("project has no playground")
+	errProductionProjectCannotStop = errors.New("production project cannot be stopped")
 )
 
 func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
@@ -174,6 +176,8 @@ func (s *Server) handleProjectRoute(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not found")
 	case "playground":
 		s.handleProjectPlaygroundAction(w, r, user, project)
+	case "domain":
+		s.handleProjectDomain(w, r, user, project)
 	case "attachments":
 		if len(parts) != 3 {
 			writeError(w, http.StatusNotFound, "not found")
@@ -291,7 +295,7 @@ func (s *Server) handleProjectPlaygroundAction(w http.ResponseWriter, r *http.Re
 	}
 	updated, err := s.controlProjectPlayground(r.Context(), user, project, strings.ToLower(strings.TrimSpace(body.Action)))
 	if err != nil {
-		if errors.Is(err, errProjectExportOnly) || errors.Is(err, errProjectRetiring) {
+		if errors.Is(err, errProjectExportOnly) || errors.Is(err, errProjectRetiring) || errors.Is(err, errProductionProjectCannotStop) {
 			writeError(w, http.StatusConflict, developmentBlockedMessage(err))
 			return
 		}
@@ -320,6 +324,9 @@ func (s *Server) controlProjectPlayground(ctx context.Context, user *User, proje
 	}
 	if project.Status == "deleting" {
 		return nil, errInvalidPlaygroundAction
+	}
+	if action == "stop" && strings.TrimSpace(project.ProductionExpiresAt) != "" {
+		return nil, errProductionProjectCannotStop
 	}
 	playgroundID := strings.TrimSpace(project.PlaygroundID)
 	if playgroundID == "" {
@@ -363,6 +370,139 @@ func (s *Server) controlProjectPlayground(ctx context.Context, user *User, proje
 		return nil, err
 	}
 	return s.store.ProjectForUser(ctx, user.ID, project.ID)
+}
+
+func (s *Server) handleProjectDomain(w http.ResponseWriter, r *http.Request, user *User, project *Project) {
+	switch r.Method {
+	case http.MethodPut:
+		if strings.TrimSpace(project.ProductionExpiresAt) == "" {
+			writeError(w, http.StatusConflict, "production project is required before adding a custom domain")
+			return
+		}
+		var body struct {
+			Domain string `json:"domain"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid json")
+			return
+		}
+		domain, err := normalizeProjectCustomDomain(body.Domain)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		target := projectCustomDomainTarget(project)
+		if target == "" {
+			writeError(w, http.StatusConflict, "project CNAME target is not available")
+			return
+		}
+		if err := s.store.UpsertProjectDomain(r.Context(), user.ID, project.ID, domain, target); err != nil {
+			log.Printf("project domain upsert for project %s: %v", project.ID, err)
+			writeError(w, http.StatusConflict, "custom domain is already linked to another project")
+			return
+		}
+	case http.MethodDelete:
+		if err := s.store.DeleteProjectDomain(r.Context(), user.ID, project.ID); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	default:
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	updated, err := s.store.ProjectForUser(r.Context(), user.ID, project.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"project": updated})
+}
+
+func normalizeProjectCustomDomain(value string) (string, error) {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		return "", errors.New("custom domain is required")
+	}
+	if strings.Contains(value, "://") {
+		parsed, err := url.Parse(value)
+		if err != nil || parsed.Hostname() == "" {
+			return "", errors.New("custom domain must be a valid hostname")
+		}
+		if parsed.Path != "" && parsed.Path != "/" {
+			return "", errors.New("custom domain must not include a path")
+		}
+		value = parsed.Hostname()
+	}
+	value = strings.Trim(value, ".")
+	if strings.ContainsAny(value, "/:?#[]@") || strings.Contains(value, "*") {
+		return "", errors.New("custom domain must be a hostname without path, port, or wildcard")
+	}
+	if len(value) > 253 || !strings.Contains(value, ".") {
+		return "", errors.New("custom domain must be a fully qualified hostname")
+	}
+	labels := strings.Split(value, ".")
+	for _, label := range labels {
+		if label == "" || len(label) > 63 || strings.HasPrefix(label, "-") || strings.HasSuffix(label, "-") {
+			return "", errors.New("custom domain contains an invalid label")
+		}
+		for _, r := range label {
+			if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-' {
+				return "", errors.New("custom domain must use DNS-safe ASCII labels")
+			}
+		}
+	}
+	if allDigits(labels[len(labels)-1]) {
+		return "", errors.New("custom domain top-level label must not be numeric")
+	}
+	return value, nil
+}
+
+func allDigits(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, r := range value {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func projectCustomDomainTarget(project *Project) string {
+	if project == nil {
+		return ""
+	}
+	selected := strings.TrimSpace(project.SelectedService)
+	for _, service := range project.Services {
+		if selected != "" && service.Name != selected {
+			continue
+		}
+		if target := projectURLHost(service.URL); target != "" {
+			return target
+		}
+	}
+	if target := projectURLHost(project.PreviewURL); target != "" {
+		return target
+	}
+	for _, service := range project.Services {
+		if target := projectURLHost(service.URL); target != "" {
+			return target
+		}
+	}
+	return ""
+}
+
+func projectURLHost(rawURL string) string {
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" {
+		return ""
+	}
+	if parsed, err := url.Parse(rawURL); err == nil && parsed.Host != "" {
+		return parsed.Host
+	}
+	rawURL = strings.TrimPrefix(strings.TrimPrefix(rawURL, "https://"), "http://")
+	return strings.Split(rawURL, "/")[0]
 }
 
 func (s *Server) handleProjectFeed(w http.ResponseWriter, r *http.Request, user *User, project *Project) {

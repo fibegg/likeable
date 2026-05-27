@@ -531,6 +531,43 @@ func (s *Store) ActiveProjectQuota(ctx context.Context, userID string) (int, str
 	return slots, nextExpiresAt, nil
 }
 
+func (s *Store) GrantProjectProduction(ctx context.Context, userID, projectID, paymentID string, expiresAt time.Time) (bool, error) {
+	if strings.TrimSpace(userID) == "" || strings.TrimSpace(projectID) == "" {
+		return false, nil
+	}
+	paymentID = strings.TrimSpace(paymentID)
+	if paymentID == "" {
+		paymentID = uuid.NewString()
+	}
+	if expiresAt.IsZero() {
+		expiresAt = time.Now().UTC().Add(30 * 24 * time.Hour)
+	}
+	result, err := s.db.ExecContext(ctx, `
+		INSERT OR IGNORE INTO project_production_grants(id, user_id, project_id, payment_id, expires_at, created_at)
+		SELECT ?, ?, projects.id, ?, ?, ?
+		FROM projects
+		WHERE projects.id = ? AND projects.user_id = ? AND projects.status NOT IN ('archived', 'deleting')
+	`, uuid.NewString(), userID, paymentID, expiresAt.UTC().Format(time.RFC3339Nano), nowString(), projectID, userID)
+	if err != nil {
+		return false, err
+	}
+	rows, _ := result.RowsAffected()
+	return rows > 0, nil
+}
+
+func (s *Store) ActiveProjectProduction(ctx context.Context, userID, projectID string) (string, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT COALESCE(MAX(expires_at), '')
+		FROM project_production_grants
+		WHERE user_id = ? AND project_id = ? AND expires_at > ?
+	`, userID, projectID, nowString())
+	var expiresAt string
+	if err := row.Scan(&expiresAt); err != nil {
+		return "", err
+	}
+	return expiresAt, nil
+}
+
 func (s *Store) UpsertSocialConnection(ctx context.Context, conn SocialConnection) error {
 	if conn.ID == "" {
 		conn.ID = uuid.NewString()
@@ -619,4 +656,165 @@ func (s *Store) UpsertPayment(ctx context.Context, payment Payment) error {
 			status=excluded.status
 	`, payment.ID, payment.UserID, payment.ProviderPaymentID, payment.AmountCents, strings.ToLower(payment.Currency), payment.Status, payment.CreatedAt)
 	return err
+}
+
+func (s *Store) RecentPayments(ctx context.Context, limit int) ([]AdminBillingPayment, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT payments.id, payments.user_id, COALESCE(users.email, ''), payments.provider_payment_id,
+		       payments.amount_cents, payments.currency, payments.status, payments.created_at
+		FROM payments
+		LEFT JOIN users ON users.id = payments.user_id
+		ORDER BY payments.created_at DESC
+		LIMIT ?
+	`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []AdminBillingPayment
+	for rows.Next() {
+		var payment AdminBillingPayment
+		if err := rows.Scan(
+			&payment.ID,
+			&payment.UserID,
+			&payment.UserEmail,
+			&payment.ProviderPaymentID,
+			&payment.AmountCents,
+			&payment.Currency,
+			&payment.Status,
+			&payment.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, payment)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if out == nil {
+		out = []AdminBillingPayment{}
+	}
+	return out, nil
+}
+
+func (s *Store) UserPayments(ctx context.Context, userID string, limit int) ([]AdminBillingPayment, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT payments.id, payments.user_id, COALESCE(users.email, ''), payments.provider_payment_id,
+		       payments.amount_cents, payments.currency, payments.status, payments.created_at
+		FROM payments
+		LEFT JOIN users ON users.id = payments.user_id
+		WHERE payments.user_id = ?
+		ORDER BY payments.created_at DESC
+		LIMIT ?
+	`, userID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []AdminBillingPayment
+	for rows.Next() {
+		var payment AdminBillingPayment
+		if err := rows.Scan(
+			&payment.ID,
+			&payment.UserID,
+			&payment.UserEmail,
+			&payment.ProviderPaymentID,
+			&payment.AmountCents,
+			&payment.Currency,
+			&payment.Status,
+			&payment.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, payment)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if out == nil {
+		out = []AdminBillingPayment{}
+	}
+	return out, nil
+}
+
+func (s *Store) UserHourCreditLedger(ctx context.Context, userID string, limit int) ([]AdminHourCreditLedgerEntry, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, user_id, delta_ms, reason, payment_id, work_session_key, created_at
+		FROM hour_credit_ledger
+		WHERE user_id = ?
+		ORDER BY created_at DESC
+		LIMIT ?
+	`, userID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []AdminHourCreditLedgerEntry
+	for rows.Next() {
+		var entry AdminHourCreditLedgerEntry
+		if err := rows.Scan(&entry.ID, &entry.UserID, &entry.DeltaMs, &entry.Reason, &entry.PaymentID, &entry.WorkSessionKey, &entry.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, entry)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if out == nil {
+		out = []AdminHourCreditLedgerEntry{}
+	}
+	return out, nil
+}
+
+func (s *Store) ProjectWorkSessions(ctx context.Context, userID, projectID string, limit int) ([]ProjectWorkSession, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT project_id, user_id, session_key, started_at, completed_at, elapsed_ms, free_billed_ms, paid_billed_ms, billed_at, created_at, updated_at
+		FROM project_work_sessions
+		WHERE user_id = ? AND project_id = ?
+		ORDER BY started_at DESC
+		LIMIT ?
+	`, userID, projectID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ProjectWorkSession
+	for rows.Next() {
+		var session ProjectWorkSession
+		if err := rows.Scan(&session.ProjectID, &session.UserID, &session.SessionKey, &session.StartedAt, &session.CompletedAt, &session.ElapsedMs, &session.FreeBilledMs, &session.PaidBilledMs, &session.BilledAt, &session.CreatedAt, &session.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, session)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if out == nil {
+		out = []ProjectWorkSession{}
+	}
+	return out, nil
 }

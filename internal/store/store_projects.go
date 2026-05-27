@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"net/url"
 	"strings"
 	"time"
 
@@ -252,6 +253,33 @@ func (s *Store) UpdateProjectSelectedService(ctx context.Context, projectID, use
 	return nil
 }
 
+func (s *Store) UpsertProjectDomain(ctx context.Context, userID, projectID, domain, target string) error {
+	domain = strings.TrimSpace(strings.ToLower(domain))
+	target = strings.TrimSpace(target)
+	now := nowString()
+	result, err := s.db.ExecContext(ctx, `
+		INSERT INTO project_domains(project_id, user_id, domain, target, status, created_at, updated_at)
+		VALUES(?, ?, ?, ?, 'pending_dns', ?, ?)
+		ON CONFLICT(project_id) DO UPDATE SET domain = excluded.domain, target = excluded.target, status = 'pending_dns', updated_at = excluded.updated_at
+	`, projectID, userID, domain, target, now, now)
+	if err != nil {
+		return err
+	}
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (s *Store) DeleteProjectDomain(ctx context.Context, userID, projectID string) error {
+	_, err := s.db.ExecContext(ctx, `
+		DELETE FROM project_domains
+		WHERE project_id = ? AND user_id = ?
+	`, projectID, userID)
+	return err
+}
+
 func (s *Store) TouchProjectPlaygroundUsage(ctx context.Context, projectID, userID string) error {
 	now := nowString()
 	result, err := s.db.ExecContext(ctx, `
@@ -453,9 +481,15 @@ func (s *Store) IdleProjectsForPlaygroundStop(ctx context.Context, cutoff time.T
 			projects.selected_service_name, projects.status, projects.error_message, projects.provisioning_lock_until, projects.cleanup_last_error, projects.playground_last_used_at, projects.created_at, projects.updated_at
 		FROM projects
 		WHERE projects.status = 'ready' AND TRIM(projects.playground_id) != '' AND TRIM(projects.playground_last_used_at) != '' AND projects.playground_last_used_at < ?
+			AND NOT EXISTS (
+				SELECT 1
+				FROM project_production_grants
+				WHERE project_production_grants.project_id = projects.id
+					AND project_production_grants.expires_at > ?
+			)
 		ORDER BY projects.playground_last_used_at ASC
 		LIMIT ?
-	`, cutoffString, limit)
+	`, cutoffString, nowString(), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -487,16 +521,23 @@ func (s *Store) IdleProjectsForPlaygroundStop(ctx context.Context, cutoff time.T
 
 func (s *Store) ProjectIdleForPlaygroundStop(ctx context.Context, projectID string, cutoff time.Time) (bool, string, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT projects.status, projects.playground_id, projects.playground_last_used_at
+		SELECT projects.status, projects.playground_id, projects.playground_last_used_at,
+			COALESCE((SELECT MAX(project_production_grants.expires_at)
+				FROM project_production_grants
+				WHERE project_production_grants.project_id = projects.id
+					AND project_production_grants.expires_at > ?), '')
 		FROM projects
 		WHERE projects.id = ?
-	`, projectID)
-	var status, playgroundID, lastUsedAt string
-	if err := row.Scan(&status, &playgroundID, &lastUsedAt); err != nil {
+	`, nowString(), projectID)
+	var status, playgroundID, lastUsedAt, productionExpiresAt string
+	if err := row.Scan(&status, &playgroundID, &lastUsedAt, &productionExpiresAt); err != nil {
 		return false, "", err
 	}
 	if status != "ready" || strings.TrimSpace(playgroundID) == "" {
 		return false, "", nil
+	}
+	if strings.TrimSpace(productionExpiresAt) != "" {
+		return false, "production project active until " + productionExpiresAt, nil
 	}
 	lastUsedAt = strings.TrimSpace(lastUsedAt)
 	if lastUsedAt == "" {
@@ -597,6 +638,38 @@ func (s *Store) attachProjectResources(ctx context.Context, project *Project) er
 	if project.PreviewURL == "" && len(services) > 0 {
 		project.PreviewURL = services[0].URL
 	}
+	expiresAt, err := s.ActiveProjectProduction(ctx, project.UserID, project.ID)
+	if err != nil {
+		return err
+	}
+	project.ProductionExpiresAt = expiresAt
+	if err := s.attachProjectDomain(ctx, project); err != nil {
+		return err
+	}
+	project.RefreshComputedFields()
+	return nil
+}
+
+func (s *Store) attachProjectDomain(ctx context.Context, project *Project) error {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT domain, target, status, updated_at
+		FROM project_domains
+		WHERE project_id = ? AND user_id = ?
+	`, project.ID, project.UserID)
+	var domain, target, status, updatedAt string
+	if err := row.Scan(&domain, &target, &status, &updatedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+	project.CustomDomain = domain
+	project.CustomDomainStatus = status
+	project.CustomDomainTarget = projectDomainTarget(project)
+	if project.CustomDomainTarget == "" {
+		project.CustomDomainTarget = target
+	}
+	project.CustomDomainUpdatedAt = updatedAt
 	return nil
 }
 
@@ -607,6 +680,43 @@ func (s *Store) attachProjectResourcesForProjects(ctx context.Context, projects 
 		}
 	}
 	return nil
+}
+
+func projectDomainTarget(project *Project) string {
+	if project == nil {
+		return ""
+	}
+	selected := strings.TrimSpace(project.SelectedService)
+	for _, service := range project.Services {
+		if selected != "" && service.Name != selected {
+			continue
+		}
+		if target := urlHost(service.URL); target != "" {
+			return target
+		}
+	}
+	if target := urlHost(project.PreviewURL); target != "" {
+		return target
+	}
+	for _, service := range project.Services {
+		if target := urlHost(service.URL); target != "" {
+			return target
+		}
+	}
+	return ""
+}
+
+func urlHost(rawURL string) string {
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" {
+		return ""
+	}
+	parsed, err := url.Parse(rawURL)
+	if err == nil && parsed.Host != "" {
+		return parsed.Host
+	}
+	rawURL = strings.TrimPrefix(strings.TrimPrefix(rawURL, "https://"), "http://")
+	return strings.Split(rawURL, "/")[0]
 }
 
 func (s *Store) ProjectRepositories(ctx context.Context, projectID string) ([]ProjectRepository, error) {
