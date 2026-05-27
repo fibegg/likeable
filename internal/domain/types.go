@@ -8,8 +8,9 @@ import (
 const PlaygroundIdleStopAfter = 8 * time.Hour
 
 const (
-	ProjectDomainStatusPendingDNS = "pending_dns"
-	ProjectDomainStatusActive     = "active"
+	ProjectDomainStatusPendingDNS  = "pending_dns"
+	ProjectDomainStatusDNSVerified = "dns_verified"
+	ProjectDomainStatusActive      = "active"
 )
 
 type User struct {

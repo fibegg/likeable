@@ -29,6 +29,7 @@ type AdminUserDetail = domain.AdminUserDetail
 type AdminUserFilters = domain.AdminUserFilters
 
 const (
-	ProjectDomainStatusPendingDNS = domain.ProjectDomainStatusPendingDNS
-	ProjectDomainStatusActive     = domain.ProjectDomainStatusActive
+	ProjectDomainStatusPendingDNS  = domain.ProjectDomainStatusPendingDNS
+	ProjectDomainStatusDNSVerified = domain.ProjectDomainStatusDNSVerified
+	ProjectDomainStatusActive      = domain.ProjectDomainStatusActive
 )

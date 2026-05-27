@@ -117,6 +117,7 @@ export function ProjectList({ projects, activeID, projectCap, busy, exportingID,
       return url.replace(/^https?:\/\//, '').split('/')[0] ?? '';
     }
   };
+  const isDomainDNSVerified = (project: Project) => project.customDomainStatus === 'dns_verified' || project.customDomainStatus === 'active';
   return (
     <div className="projectList">
       <div className="inlinePanelHeader projectPanelHeader">
@@ -170,7 +171,7 @@ export function ProjectList({ projects, activeID, projectCap, busy, exportingID,
                   </span>
                   <small className="projectSelectMeta">{projectRowMeta(project)}</small>
                   {detail && <small className={`projectSelectDetail ${project.status}`}>{detail}</small>}
-                  {project.customDomain && <small className="projectSelectDetail production">{t('projects.production.domain', { domain: project.customDomain })} · {project.customDomainStatus === 'active' ? t('projects.production.domainActive') : t('projects.production.domainPending')}</small>}
+                  {project.customDomain && <small className="projectSelectDetail production">{t('projects.production.domain', { domain: project.customDomain })} · {isDomainDNSVerified(project) ? t('projects.production.domainActive') : t('projects.production.domainPending')}</small>}
                   {project.productionExpiresAt && cnameTarget && <small className="projectSelectDetail production">{t('projects.production.cname', { host: cnameTarget })}</small>}
                 </button>
                 <em className={`projectStatusChip ${project.status}`}>{statusLabel(project.status, t)}</em>

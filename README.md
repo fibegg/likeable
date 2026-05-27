@@ -147,10 +147,10 @@ Checkout uses backend-created Stripe Checkout Sessions and does not require `str
 - Sending a message to a stopped project wakes the playground and then sends the prompt.
 - Hour-pack checkout grants build minutes.
 - Project-slot checkout increases the project cap for the configured number of days.
-- Production-project checkout pins that project as always-on until expiry, blocks manual stop, lets the user save a custom domain request, and shows the CNAME target in the project menu.
+- Production-project checkout pins that project as always-on until expiry, blocks manual stop, lets the user save a custom domain request, shows the CNAME target, and verifies customer DNS.
 - Admin diagnostics for a user project shows conversation, agent, playground, server, repositories, payments, hour ledger, and work sessions.
 
-Domain DNS is currently manual: after a production-project purchase, the user can save the intended custom domain and the app shows the target host to use as the customer CNAME. Admin diagnostics include the saved domain, status, and target. DNS ownership verification and automatic domain provisioning are separate follow-up work.
+Domain routing is currently manual: after a production-project purchase, the user can save the intended custom domain, point a CNAME at the project target, and run DNS verification from the project menu. Admin diagnostics include the saved domain, DNS status, and target. Automatic Traefik routing and certificate provisioning for arbitrary customer domains are separate follow-up work.
 
 ## Development With Live Reload
 

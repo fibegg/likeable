@@ -4025,7 +4025,7 @@ func TestProjectCustomDomainRejectsDomainAlreadyLinked(t *testing.T) {
 	}
 }
 
-func TestProjectCustomDomainVerifyMarksActiveCNAME(t *testing.T) {
+func TestProjectCustomDomainVerifyMarksDNSVerifiedCNAME(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -4075,12 +4075,12 @@ func TestProjectCustomDomainVerifyMarksActiveCNAME(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 		t.Fatal(err)
 	}
-	if body.Project.CustomDomain != "app.customer.example" || body.Project.CustomDomainStatus != "active" {
-		t.Fatalf("project domain=%+v, want active custom domain", body.Project)
+	if body.Project.CustomDomain != "app.customer.example" || body.Project.CustomDomainStatus != "dns_verified" {
+		t.Fatalf("project domain=%+v, want DNS verified custom domain", body.Project)
 	}
 }
 
-func TestProjectDomainVerifySweepMarksActiveCNAME(t *testing.T) {
+func TestProjectDomainVerifySweepMarksDNSVerifiedCNAME(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -4113,8 +4113,8 @@ func TestProjectDomainVerifySweepMarksActiveCNAME(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stored.CustomDomainStatus != "active" {
-		t.Fatalf("custom domain status=%q, want active", stored.CustomDomainStatus)
+	if stored.CustomDomainStatus != "dns_verified" {
+		t.Fatalf("custom domain status=%q, want DNS verified", stored.CustomDomainStatus)
 	}
 }
 

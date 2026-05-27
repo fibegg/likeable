@@ -35,7 +35,7 @@ func (s *Server) projectCustomDomainDNSStatus(ctx context.Context, domain, targe
 		return "", err
 	}
 	if normalizeDNSHost(cname) == target {
-		return store.ProjectDomainStatusActive, nil
+		return store.ProjectDomainStatusDNSVerified, nil
 	}
 	return store.ProjectDomainStatusPendingDNS, nil
 }
