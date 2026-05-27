@@ -6265,6 +6265,116 @@ func TestAdminProjectDiagnosticsExposeSupportContext(t *testing.T) {
 	}
 }
 
+func TestAdminCanGrantProjectProduction(t *testing.T) {
+	appStore, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer appStore.Close()
+	server := &Server{store: appStore, config: RuntimeConfig{BaseURL: "http://example.test", AdminEmail: "admin@example.com"}, http: http.DefaultClient}
+	admin, err := appStore.UpsertUser(t.Context(), "admin@example.com", "Admin", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	user, err := appStore.UpsertUser(t.Context(), "manual-production@example.com", "Manual Production", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := appStore.CreateSession(t.Context(), admin.ID, "admin-production-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if err := appStore.UpsertConfig(t.Context(), map[string]string{"production_project_days": "14"}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{
+		ID:                   "project-admin-production",
+		UserID:               user.ID,
+		Title:                "Admin Production",
+		ConversationID:       "conv-admin-production",
+		PlaygroundID:         "playground-admin-production",
+		Status:               "ready",
+		PlaygroundLastUsedAt: time.Now().UTC().Add(-9 * time.Hour).Format(time.RFC3339Nano),
+	}
+	if err := appStore.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/users/"+user.ID+"/projects/"+project.ID+"/production", strings.NewReader(`{}`))
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "admin-production-token"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("production grant returned %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Detail  AdminUserDetail `json:"detail"`
+		Project Project         `json:"project"`
+		Granted bool            `json:"granted"`
+		Days    int             `json:"days"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if !resp.Granted || resp.Days != 14 || resp.Project.ProductionExpiresAt == "" || resp.Project.PlaygroundIdleStopAt != "" {
+		t.Fatalf("response=%+v, want 14 day production grant without idle stop deadline", resp)
+	}
+	stored, err := appStore.ProjectForUser(t.Context(), user.ID, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.ProductionExpiresAt == "" || stored.PlaygroundIdleStopAt != "" {
+		t.Fatalf("stored project=%+v, want production grant reflected", stored)
+	}
+	notices, err := appStore.NoticesForUser(t.Context(), user.ID, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(notices) == 0 || !strings.Contains(notices[0].Body, "Production project enabled") {
+		t.Fatalf("notices=%+v, want production notice", notices)
+	}
+}
+
+func TestAdminProductionGrantRejectsInactiveProject(t *testing.T) {
+	appStore, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer appStore.Close()
+	server := &Server{store: appStore, config: RuntimeConfig{BaseURL: "http://example.test", AdminEmail: "admin@example.com"}, http: http.DefaultClient}
+	admin, err := appStore.UpsertUser(t.Context(), "admin@example.com", "Admin", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	user, err := appStore.UpsertUser(t.Context(), "manual-inactive@example.com", "Manual Inactive", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := appStore.CreateSession(t.Context(), admin.ID, "admin-production-inactive-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{ID: "project-admin-production-archived", UserID: user.ID, Title: "Archived", ConversationID: "conv-admin-production-archived", Status: "archived"}
+	if err := appStore.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/users/"+user.ID+"/projects/"+project.ID+"/production", strings.NewReader(`{"days":7}`))
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "admin-production-inactive-token"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("production grant returned %d, want 409; body=%s", rec.Code, rec.Body.String())
+	}
+	stored, err := appStore.ProjectForUser(t.Context(), user.ID, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.ProductionExpiresAt != "" {
+		t.Fatalf("stored project=%+v, want no production grant", stored)
+	}
+}
+
 func TestFixedUTCHourWindowAnchorsToMidnight(t *testing.T) {
 	tests := []struct {
 		name     string

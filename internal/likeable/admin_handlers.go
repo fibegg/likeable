@@ -15,6 +15,7 @@ import (
 )
 
 const adminMaxHourGrant = 100
+const adminMaxProductionGrantDays = maxProductionProjectDays
 
 var secretConfigKeys = map[string]bool{
 	"fibe_api_key":          true,
@@ -350,6 +351,8 @@ func (s *Server) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 		s.handleAdminUserProjectDelete(w, r, userID, parts[2])
 	case len(parts) == 4 && parts[1] == "projects" && parts[3] == "diagnostics" && r.Method == http.MethodGet:
 		s.handleAdminUserProjectDiagnostics(w, r, userID, parts[2])
+	case len(parts) == 4 && parts[1] == "projects" && parts[3] == "production" && r.Method == http.MethodPost:
+		s.handleAdminUserProjectProductionGrant(w, r, userID, parts[2])
 	case len(parts) == 4 && parts[1] == "projects" && parts[3] == "assignment" && r.Method == http.MethodPatch:
 		s.handleAdminUserProjectAssignment(w, r, userID, parts[2])
 	default:
@@ -570,6 +573,66 @@ func (s *Server) handleAdminUserProjectDiagnostics(w http.ResponseWriter, r *htt
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"diagnostics": diagnostics})
+}
+
+func (s *Server) handleAdminUserProjectProductionGrant(w http.ResponseWriter, r *http.Request, userID, projectID string) {
+	var body struct {
+		Days int `json:"days"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	days := body.Days
+	if days == 0 {
+		days = s.productionProjectDays(r.Context())
+	}
+	if days <= 0 || days > adminMaxProductionGrantDays {
+		writeError(w, http.StatusBadRequest, "days must be between 1 and "+strconv.Itoa(adminMaxProductionGrantDays))
+		return
+	}
+	if _, err := s.store.UserByID(r.Context(), userID); err != nil {
+		writeError(w, http.StatusNotFound, "user not found")
+		return
+	}
+	project, err := s.store.ProjectForUser(r.Context(), userID, projectID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "project not found")
+		return
+	}
+	if project.Status == "archived" || project.Status == "deleting" {
+		writeError(w, http.StatusConflict, "production grant requires an active project")
+		return
+	}
+	expiresAt := time.Now().UTC().Add(time.Duration(days) * 24 * time.Hour)
+	granted, err := s.store.GrantProjectProduction(r.Context(), userID, projectID, "admin_production_"+uuid.NewString(), expiresAt)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if granted {
+		s.notifyProductionProjectPurchased(r.Context(), userID, projectID, expiresAt)
+	}
+	updated, err := s.store.ProjectForUser(r.Context(), userID, projectID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	windowStart, windowEnd := s.freeHourWindow(time.Now(), r.Context())
+	detail, err := s.store.AdminUserDetail(r.Context(), userID, s.freeHourLimitMs(r.Context()), windowStart, windowEnd)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	detail.Summary.ProjectLimit = s.baseProjectCap(r.Context()) + detail.Summary.PaidProjectSlots
+	pool, err := s.adminAgentPoolOptions(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	decorateAdminDetailAssignmentStatuses(detail, pool)
+	detail.AgentPool = pool
+	writeJSON(w, http.StatusOK, map[string]any{"detail": detail, "project": updated, "granted": granted, "days": days})
 }
 
 func (s *Server) handleAdminUserProjectAssignment(w http.ResponseWriter, r *http.Request, userID, projectID string) {

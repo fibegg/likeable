@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Loader2, Plus, RefreshCw, Send, Trash2 } from 'lucide-react';
+import { Loader2, Plus, RefreshCw, Send, ShieldCheck, Trash2 } from 'lucide-react';
 import { cleanPoolRows, makePoolRow, parsePoolRows } from './admin_pool';
 import { api } from './api';
 import { AppDialog, Metric } from './builder_components';
@@ -20,6 +20,7 @@ function AdminCustomersPanel() {
   const [loading, setLoading] = useState(false);
   const [actionError, setActionError] = useState('');
   const [reassigningProjectID, setReassigningProjectID] = useState('');
+  const [productionGrantingProjectID, setProductionGrantingProjectID] = useState('');
   const [diagnosticsProjectID, setDiagnosticsProjectID] = useState('');
   const [diagnostics, setDiagnostics] = useState<AdminProjectDiagnostics | null>(null);
   const [diagnosticsLoadingID, setDiagnosticsLoadingID] = useState('');
@@ -225,6 +226,38 @@ function AdminCustomersPanel() {
     } finally {
       setReassigningProjectID('');
     }
+  };
+  const applyProductionGrant = async (projectID: string) => {
+    if (!selectedUserID) return;
+    setActionError('');
+    setProductionGrantingProjectID(projectID);
+    try {
+      const response = await api<{ detail: AdminUserDetail }>(`/api/admin/users/${selectedUserID}/projects/${projectID}/production`, {
+        method: 'POST',
+        body: JSON.stringify({})
+      });
+      setDetail(response.detail);
+      setAgentPool((current) => response.detail.agentPool ?? current);
+      await loadUsers();
+      if (diagnosticsProjectID === projectID) {
+        setDiagnosticsProjectID('');
+        setDiagnostics(null);
+      }
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : t('admin.productionGrant.failed'));
+    } finally {
+      setProductionGrantingProjectID('');
+    }
+  };
+  const grantProduction = async (project: AdminProjectSummary['project']) => {
+    if (!selectedUserID) return;
+    setDialog({
+      title: t('admin.productionGrantDialog.title'),
+      body: t('admin.productionGrantDialog.body', { title: project.title }),
+      tone: 'warning',
+      confirmLabel: t(project.productionExpiresAt ? 'admin.productionGrant.extend' : 'admin.productionGrant.enable'),
+      onConfirm: () => applyProductionGrant(project.id)
+    });
   };
   const loadProjectDiagnostics = async (projectID: string) => {
     if (!selectedUserID) return;
@@ -479,6 +512,10 @@ function AdminCustomersPanel() {
                           <button className="ghostButton" disabled={diagnosticsLoadingID === item.project.id} onClick={() => void loadProjectDiagnostics(item.project.id)}>
                             {diagnosticsLoadingID === item.project.id ? <Loader2 className="spinIcon" size={15} /> : null}
                             {projectDiagnostics ? t('admin.diagnostics.hide') : t('admin.diagnostics.show')}
+                          </button>
+                          <button className="ghostButton" disabled={productionGrantingProjectID === item.project.id || item.project.status === 'archived' || item.project.status === 'deleting'} onClick={() => void grantProduction(item.project)}>
+                            {productionGrantingProjectID === item.project.id ? <Loader2 className="spinIcon" size={15} /> : <ShieldCheck size={15} />}
+                            {item.project.productionExpiresAt ? t('admin.productionGrant.extend') : t('admin.productionGrant.enable')}
                           </button>
                           <button className="projectDelete" onClick={() => void deleteProject(item.project.id)} aria-label={t('admin.deleteProject.aria', { title: item.project.title })}><Trash2 size={15} /></button>
                         </div>
