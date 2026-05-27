@@ -290,6 +290,80 @@ func TestIdleProjectsForPlaygroundStopUsesDedicatedUsageTimestamp(t *testing.T) 
 	}
 }
 
+func TestIdleProjectsForPlaygroundStopSkipsOnlyActiveProductionProjects(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	user, err := store.UpsertUser(t.Context(), "idle-production@example.com", "Idle Production", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().UTC().Add(-9 * time.Hour).Format(time.RFC3339Nano)
+	activeProject := &Project{ID: "active-production-idle", UserID: user.ID, Title: "Active", ConversationID: "conv-active", PlaygroundID: "pg-active", Status: "ready", PlaygroundLastUsedAt: old}
+	expiredProject := &Project{ID: "expired-production-idle", UserID: user.ID, Title: "Expired", ConversationID: "conv-expired", PlaygroundID: "pg-expired", Status: "ready", PlaygroundLastUsedAt: old}
+	for _, project := range []*Project{activeProject, expiredProject} {
+		if err := store.CreateProject(t.Context(), project); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if granted, err := store.GrantProjectProduction(t.Context(), user.ID, activeProject.ID, "cs_active_production_idle", time.Now().UTC().Add(30*24*time.Hour)); err != nil || !granted {
+		t.Fatalf("active production grant=%v err=%v, want granted", granted, err)
+	}
+	if granted, err := store.GrantProjectProduction(t.Context(), user.ID, expiredProject.ID, "cs_expired_production_idle", time.Now().UTC().Add(-time.Hour)); err != nil || !granted {
+		t.Fatalf("expired production grant=%v err=%v, want granted", granted, err)
+	}
+
+	projects, err := store.IdleProjectsForPlaygroundStop(t.Context(), time.Now().UTC().Add(-8*time.Hour), 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 1 || projects[0].ID != expiredProject.ID {
+		t.Fatalf("idle projects=%+v, want only expired production project", projects)
+	}
+	idle, reason, err := store.ProjectIdleForPlaygroundStop(t.Context(), activeProject.ID, time.Now().UTC().Add(-8*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if idle || reason == "" {
+		t.Fatalf("active production idle=%v reason=%q, want skipped with reason", idle, reason)
+	}
+	idle, reason, err = store.ProjectIdleForPlaygroundStop(t.Context(), expiredProject.ID, time.Now().UTC().Add(-8*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !idle || reason != "" {
+		t.Fatalf("expired production idle=%v reason=%q, want eligible idle project", idle, reason)
+	}
+}
+
+func TestGrantProjectProductionIgnoresInactiveProjects(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	user, err := store.UpsertUser(t.Context(), "production-inactive@example.com", "Inactive", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	archived := &Project{ID: "archived-production-grant", UserID: user.ID, Title: "Archived", ConversationID: "conv-archived", Status: "archived"}
+	deleting := &Project{ID: "deleting-production-grant", UserID: user.ID, Title: "Deleting", ConversationID: "conv-deleting", Status: "deleting"}
+	for _, project := range []*Project{archived, deleting} {
+		if err := store.CreateProject(t.Context(), project); err != nil {
+			t.Fatal(err)
+		}
+		granted, err := store.GrantProjectProduction(t.Context(), user.ID, project.ID, "cs_"+project.ID, time.Now().UTC().Add(30*24*time.Hour))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if granted {
+			t.Fatalf("production grant for %s was applied, want ignored for status %s", project.ID, project.Status)
+		}
+	}
+}
+
 func TestBackfillProjectPlaygroundUsageProtectsReadyProjectsOnStartup(t *testing.T) {
 	store, err := Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {

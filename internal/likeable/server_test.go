@@ -3878,7 +3878,7 @@ func TestProjectCustomDomainCanBeSavedAndDeleted(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := store.ReplaceProjectResources(t.Context(), project.ID, nil, []ProjectService{
-		{ProjectID: project.ID, Name: "app", URL: "https://app-target.example.test", Type: "dynamic", Visibility: "external"},
+		{ProjectID: project.ID, Name: "app", URL: "https://app-target.example.test:8443/live", Type: "dynamic", Visibility: "external"},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -3933,6 +3933,79 @@ func TestProjectCustomDomainCanBeSavedAndDeleted(t *testing.T) {
 	}
 	if body.Project.CustomDomain != "" || body.Project.CustomDomainTarget != "" {
 		t.Fatalf("project domain=%+v, want cleared domain", body.Project)
+	}
+}
+
+func TestProjectCustomDomainRejectsInvalidHostnames(t *testing.T) {
+	for _, raw := range []string{
+		"",
+		"https://app.example.com/path",
+		"https://app.example.com:8443/",
+		"https://app.example.com/?preview=true",
+		"https://user@app.example.com/",
+		"*.example.com",
+		"localhost",
+		"app.example.123",
+		"арр.example.com",
+		"-app.example.com",
+		"app-.example.com",
+		"app.example.com:8443",
+		"app..example.com",
+	} {
+		t.Run(raw, func(t *testing.T) {
+			if domain, err := normalizeProjectCustomDomain(raw); err == nil {
+				t.Fatalf("domain=%q, want validation error for %q", domain, raw)
+			}
+		})
+	}
+}
+
+func TestProjectCustomDomainRejectsDomainAlreadyLinked(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	user, err := store.UpsertUser(t.Context(), "domain-duplicate@example.com", "Domain Duplicate", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateSession(t.Context(), user.ID, "domain-duplicate-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	first := &Project{ID: "project-domain-first", UserID: user.ID, Title: "First", ConversationID: "conv-domain-first", Status: "ready", PreviewURL: "https://first-target.example.test"}
+	second := &Project{ID: "project-domain-second", UserID: user.ID, Title: "Second", ConversationID: "conv-domain-second", Status: "ready", PreviewURL: "https://second-target.example.test"}
+	for _, project := range []*Project{first, second} {
+		if err := store.CreateProject(t.Context(), project); err != nil {
+			t.Fatal(err)
+		}
+		if granted, err := store.GrantProjectProduction(t.Context(), user.ID, project.ID, "cs_"+project.ID, time.Now().UTC().Add(30*24*time.Hour)); err != nil || !granted {
+			t.Fatalf("production grant for %s=%v err=%v, want granted", project.ID, granted, err)
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodPut, "/api/projects/project-domain-first/domain", strings.NewReader(`{"domain":"app.customer.example"}`))
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "domain-duplicate-token"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("first domain save returned %d: %s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPut, "/api/projects/project-domain-second/domain", strings.NewReader(`{"domain":"app.customer.example"}`))
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "domain-duplicate-token"})
+	rec = httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("duplicate domain save returned %d, want 409; body=%s", rec.Code, rec.Body.String())
+	}
+	stored, err := store.ProjectForUser(t.Context(), user.ID, second.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.CustomDomain != "" {
+		t.Fatalf("second project domain=%q, want unchanged after duplicate rejection", stored.CustomDomain)
 	}
 }
 
@@ -6381,6 +6454,74 @@ func TestProductionProjectCheckoutBuildsStripeMetadata(t *testing.T) {
 		t.Fatalf("stripe form=%v, want production project metadata", form)
 	}
 	assertStripeCheckoutUsesDynamicPaymentMethods(t, form)
+}
+
+func TestProductionProjectCheckoutRejectsInvalidProjectStateBeforeStripe(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"stripe_secret_key":                  "sk_test",
+		"stripe_production_project_price_id": "price_production_project",
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	user, err := store.UpsertUser(t.Context(), "production-guard@example.com", "Buyer", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := store.UpsertUser(t.Context(), "production-other@example.com", "Other", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateSession(t.Context(), user.ID, "production-guard-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	otherProject := &Project{ID: "project-production-other", UserID: other.ID, Title: "Other", ConversationID: "conv-production-other", Status: "ready"}
+	archivedProject := &Project{ID: "project-production-archived", UserID: user.ID, Title: "Archived", ConversationID: "conv-production-archived", Status: "archived"}
+	activeProject := &Project{ID: "project-production-active", UserID: user.ID, Title: "Active", ConversationID: "conv-production-active", Status: "ready"}
+	for _, project := range []*Project{otherProject, archivedProject, activeProject} {
+		if err := store.CreateProject(t.Context(), project); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if granted, err := store.GrantProjectProduction(t.Context(), user.ID, activeProject.ID, "cs_active_project", time.Now().UTC().Add(30*24*time.Hour)); err != nil || !granted {
+		t.Fatalf("active production grant=%v err=%v, want granted", granted, err)
+	}
+	stripeCalled := false
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		stripeCalled = true
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"url":"https://checkout.stripe.test/session"}`))}, nil
+	})}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: client}
+	for _, tc := range []struct {
+		name string
+		body string
+		code int
+	}{
+		{name: "missing project id", body: `{"product":"production_project"}`, code: http.StatusBadRequest},
+		{name: "project owned by another user", body: `{"product":"production_project","projectId":"project-production-other"}`, code: http.StatusNotFound},
+		{name: "archived project", body: `{"product":"production_project","projectId":"project-production-archived"}`, code: http.StatusConflict},
+		{name: "already active production", body: `{"product":"production_project","projectId":"project-production-active"}`, code: http.StatusConflict},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stripeCalled = false
+			req := httptest.NewRequest(http.MethodPost, "/api/billing/checkout", strings.NewReader(tc.body))
+			req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "production-guard-token"})
+			rec := httptest.NewRecorder()
+
+			server.routes().ServeHTTP(rec, req)
+
+			if rec.Code != tc.code {
+				t.Fatalf("checkout returned %d, want %d; body=%s", rec.Code, tc.code, rec.Body.String())
+			}
+			if stripeCalled {
+				t.Fatalf("Stripe was called for rejected checkout body=%s", tc.body)
+			}
+		})
+	}
 }
 
 func TestHourPackCheckoutBuildsStripeMetadata(t *testing.T) {

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -428,6 +429,9 @@ func normalizeProjectCustomDomain(value string) (string, error) {
 		if err != nil || parsed.Hostname() == "" {
 			return "", errors.New("custom domain must be a valid hostname")
 		}
+		if parsed.User != nil || parsed.Port() != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+			return "", errors.New("custom domain must be a hostname without user info, path, port, query, or fragment")
+		}
 		if parsed.Path != "" && parsed.Path != "/" {
 			return "", errors.New("custom domain must not include a path")
 		}
@@ -499,10 +503,14 @@ func projectURLHost(rawURL string) string {
 		return ""
 	}
 	if parsed, err := url.Parse(rawURL); err == nil && parsed.Host != "" {
-		return parsed.Host
+		return parsed.Hostname()
 	}
 	rawURL = strings.TrimPrefix(strings.TrimPrefix(rawURL, "https://"), "http://")
-	return strings.Split(rawURL, "/")[0]
+	host := strings.Split(rawURL, "/")[0]
+	if withoutPort, _, err := net.SplitHostPort(host); err == nil && withoutPort != "" {
+		return strings.Trim(withoutPort, "[]")
+	}
+	return host
 }
 
 func (s *Server) handleProjectFeed(w http.ResponseWriter, r *http.Request, user *User, project *Project) {

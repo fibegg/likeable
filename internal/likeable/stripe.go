@@ -134,8 +134,17 @@ func (s *Server) handleBillingCheckout(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "project_id is required")
 			return
 		}
-		if _, err := s.store.ProjectForUser(r.Context(), user.ID, projectID); err != nil {
+		project, err := s.store.ProjectForUser(r.Context(), user.ID, projectID)
+		if err != nil {
 			writeError(w, http.StatusNotFound, "project not found")
+			return
+		}
+		if project.Status == "archived" || project.Status == "deleting" {
+			writeError(w, http.StatusConflict, "production project requires an active project")
+			return
+		}
+		if strings.TrimSpace(project.ProductionExpiresAt) != "" {
+			writeError(w, http.StatusConflict, "production project is already active")
 			return
 		}
 		form.Set("metadata[project_id]", projectID)

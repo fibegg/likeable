@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/url"
 	"strings"
 	"time"
@@ -713,10 +714,14 @@ func urlHost(rawURL string) string {
 	}
 	parsed, err := url.Parse(rawURL)
 	if err == nil && parsed.Host != "" {
-		return parsed.Host
+		return parsed.Hostname()
 	}
 	rawURL = strings.TrimPrefix(strings.TrimPrefix(rawURL, "https://"), "http://")
-	return strings.Split(rawURL, "/")[0]
+	host := strings.Split(rawURL, "/")[0]
+	if withoutPort, _, err := net.SplitHostPort(host); err == nil && withoutPort != "" {
+		return strings.Trim(withoutPort, "[]")
+	}
+	return host
 }
 
 func (s *Store) ProjectRepositories(ctx context.Context, projectID string) ([]ProjectRepository, error) {
