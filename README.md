@@ -150,6 +150,20 @@ Checkout uses backend-created Stripe Checkout Sessions and does not require `str
 - Production-project checkout pins that project as always-on until expiry, blocks manual stop, lets the user save a custom domain request, shows the CNAME target, and verifies customer DNS.
 - Admin diagnostics for a user project shows conversation, agent, playground, server, repositories, payments, hour ledger, and work sessions.
 
+### Production Runtime Billing Operations
+
+A production-project purchase grants the Likeable project permission to stay online, but the linked Fibe runtime must also be funded. If Fibe rejects a production start with runtime billing/payment status, Likeable keeps the project stopped, creates a warning notice for the user, and reports `runtime_billing_required`.
+
+Support flow:
+
+1. Open Admin, select the user, and inspect the production project.
+2. Open project diagnostics and check `production_runtime_status`, `production_runtime_message`, `server_id`, and `playground_id`.
+3. If the status is `runtime_billing_required`, fund the linked Fibe runtime/marquee outside Likeable.
+4. Click `Retry start` in Admin, or ask the user to click `Start playground`.
+5. Confirm the project moves to `launching` or `ready`, and `/healthz` remains healthy.
+
+The hourly production sweep also retries stopped production projects, so `Retry start` is mainly for immediate support verification after funding.
+
 Domain routing is currently manual: after a production-project purchase, the user can save the intended custom domain, point a CNAME at the project target, and run DNS verification from the project menu. Admin diagnostics include the saved domain, DNS status, and target. Automatic Traefik routing and certificate provisioning for arbitrary customer domains are separate follow-up work.
 
 ## Development With Live Reload
