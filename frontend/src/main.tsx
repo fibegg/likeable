@@ -303,6 +303,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const [prompt, setPrompt] = useState('');
   const [busy, setBusy] = useState(false);
   const [messageSubmitting, setMessageSubmitting] = useState(false);
+  const [wakeSendProjectID, setWakeSendProjectID] = useState('');
   const [promptImproving, setPromptImproving] = useState(false);
   const [projectsLoaded, setProjectsLoaded] = useState(false);
   const [projectsLoadedUserID, setProjectsLoadedUserID] = useState('');
@@ -321,6 +322,8 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const [exportingID, setExportingID] = useState('');
   const [exportingMode, setExportingMode] = useState<'github' | 'zip' | ''>('');
   const [controllingProjectID, setControllingProjectID] = useState('');
+  const [productionCheckoutProjectID, setProductionCheckoutProjectID] = useState('');
+  const [domainUpdatingProjectID, setDomainUpdatingProjectID] = useState('');
   const [dialog, setDialog] = useState<AppDialogConfig | null>(null);
   const [iframeLoaded, setIframeLoaded] = useState(false);
   const [previewStatus, setPreviewStatus] = useState<PreviewStatus | null>(null);
@@ -412,9 +415,10 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const idleStopTooltip = idleStopCountdown ? t('builder.idleStop.tooltip', { time: idleStopCountdown }) : '';
   const promptHasText = Boolean(prompt.trim());
   const hasDraft = promptHasText || attachments.length > 0;
+  const wakeSendActive = Boolean(wakeSendProjectID && activeProject?.id === wakeSendProjectID);
   const composerDisabled = !signedIn || projectsLoading || noActiveProject || projectArchived;
   const composerInputDisabled = composerDisabled || promptImproving;
-  const canSend = signedIn && !composerDisabled && hasDraft && !busy && !messageSubmitting && !promptImproving && Boolean(activePreviewURL) && (activeProject?.status === 'ready' || previewReady);
+  const canSend = signedIn && !composerDisabled && hasDraft && !busy && !messageSubmitting && !promptImproving && (activeProject?.status === 'stopped' || (Boolean(activePreviewURL) && (activeProject?.status === 'ready' || previewReady)));
   const hasActiveNotification = rows.some((row) => row.kind === 'notification' && row.active);
   const canvasLoading = projectsLoading || isProjectStarting || Boolean(activePreviewURL && previewRuntimeActive && !previewMaintenance && (!previewReady || !iframeLoaded));
   const brandWorking = agentWorking || hasActiveNotification || canvasLoading;
@@ -473,6 +477,8 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const StudioNextIcon = agentActivityActive ? CircleStop : projectArchived || noActiveProject ? FolderOpen : Sparkles;
   const composerHintTone = promptImproving
     ? 'pending'
+    : wakeSendActive
+    ? 'pending'
     : !signedIn || projectsLoading || noActiveProject
     ? 'blocked'
     : isProjectStarting
@@ -484,6 +490,8 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
           : '';
   const composerModeHint = promptImproving
     ? t('builder.composerHint.improvingPrompt')
+    : wakeSendActive
+    ? t('builder.composerHint.wakingToSend')
     : agentActivityActive
     ? busyPolicy === 'queue'
       ? t('builder.composerHint.agentQueue')
@@ -743,6 +751,28 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
     const text = prompt.trim();
     const files = attachments;
     if (!text && files.length === 0) return;
+    if (activeProject.status === 'stopped') {
+      setBusy(true);
+      setMessageSubmitting(true);
+      setWakeSendProjectID(activeProject.id);
+      try {
+        const res = await api<{ project: Project }>(`/api/projects/${activeProject.id}/playground`, {
+          method: 'POST',
+          body: JSON.stringify({ action: 'start' })
+        });
+        setPreviewStatus(null);
+        setIframeLoaded(false);
+        setProjects((current) => current.map((project) => project.id === activeProject.id ? res.project : project));
+        setFeed((current) => current?.project.id === activeProject.id ? { ...current, project: res.project } : current);
+      } catch (err) {
+        setWakeSendProjectID('');
+        setDialog({ title: t('dialog.playgroundActionFailed.title'), body: err instanceof Error ? err.message : t('dialog.requestFailed.title'), tone: 'warning', confirmLabel: t('common.close') });
+      } finally {
+        setMessageSubmitting(false);
+        setBusy(false);
+      }
+      return;
+    }
     const optimisticID = `optimistic-${crypto.randomUUID()}`;
     const optimisticMessage: Message = {
       id: optimisticID,
@@ -776,6 +806,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       if (acceptedMessage) {
         setPendingMessagesByProject((current) => replacePendingMessage(current, activeProject.id, optimisticID, acceptedMessage));
       }
+      setWakeSendProjectID((current) => current === activeProject.id ? '' : current);
       rememberPendingAgentRun(activeProject.id);
       try {
         setFeed(await api<Feed>(`/api/projects/${activeProject.id}/feed`));
@@ -786,6 +817,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       void refreshQuota();
     } catch (err) {
       setPendingMessagesByProject((current) => removePendingMessage(current, activeProject.id, optimisticID));
+      setWakeSendProjectID((current) => current === activeProject.id ? '' : current);
       setPrompt(text);
       setAttachments(files);
       setDialog({ title: t('dialog.requestFailed.title'), body: messageSendErrorBody(err, t), confirmLabel: t('common.close') });
@@ -794,6 +826,24 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       setBusy(false);
     }
   };
+  useEffect(() => {
+    if (!wakeSendProjectID) return;
+    if (!activeProject || activeProject.id !== wakeSendProjectID) {
+      setWakeSendProjectID('');
+      return;
+    }
+    if (activeProject.status === 'error' || activeProject.status === 'archived' || projectArchived) {
+      setWakeSendProjectID('');
+      return;
+    }
+    if (activeProject.status !== 'ready' || !activePreviewURL || busy || messageSubmitting || promptImproving) return;
+    if (!prompt.trim() && attachments.length === 0) {
+      setWakeSendProjectID('');
+      return;
+    }
+    setWakeSendProjectID('');
+    void createOrSend();
+  }, [wakeSendProjectID, activeProject?.id, activeProject?.status, activePreviewURL, busy, messageSubmitting, promptImproving, prompt, attachments.length, projectArchived]);
   const interruptAgent = async () => {
     if (!signedIn || !activeProject) return;
     setBusy(true);
@@ -900,6 +950,39 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       setDialog({ title: t('dialog.playgroundActionFailed.title'), body: err instanceof Error ? err.message : t('dialog.requestFailed.title'), tone: 'warning', confirmLabel: t('common.close') });
     } finally {
       setControllingProjectID('');
+      setBusy(false);
+    }
+  };
+  const checkoutProductionProject = async (project: Project) => {
+    if (!signedIn) return;
+    setBusy(true);
+    setProductionCheckoutProjectID(project.id);
+    try {
+      const res = await api<{ url: string }>('/api/billing/checkout', {
+        method: 'POST',
+        body: JSON.stringify({ product: 'production_project', projectId: project.id })
+      });
+      location.href = res.url;
+    } catch (err) {
+      setDialog({ title: t('profile.checkoutFailed'), body: err instanceof Error ? err.message : t('dialog.requestFailed.title'), tone: 'warning', confirmLabel: t('common.close') });
+      setProductionCheckoutProjectID('');
+      setBusy(false);
+    }
+  };
+  const updateProjectDomain = async (project: Project, domain: string) => {
+    if (!signedIn) return;
+    setBusy(true);
+    setDomainUpdatingProjectID(project.id);
+    try {
+      const res = await api<{ project: Project }>(`/api/projects/${project.id}/domain`, domain
+        ? { method: 'PUT', body: JSON.stringify({ domain }) }
+        : { method: 'DELETE' });
+      setProjects((current) => current.map((item) => item.id === project.id ? res.project : item));
+      setFeed((current) => current?.project.id === project.id ? { ...current, project: res.project } : current);
+    } catch (err) {
+      setDialog({ title: t('dialog.requestFailed.title'), body: err instanceof Error ? err.message : t('dialog.requestFailed.title'), tone: 'warning', confirmLabel: t('common.close') });
+    } finally {
+      setDomainUpdatingProjectID('');
       setBusy(false);
     }
   };
@@ -1355,7 +1438,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       </a>
       {projectTitleButton('chatProjectTitle', true, true)}
       {builderChrome}
-      {showProjects && <ProjectList projects={currentProjects} activeID={activeID} projectCap={projectCap} busy={busy} exportingID={exportingID} controllingID={controllingProjectID} onSelect={(id) => { setActiveID(id); setShowProjects(false); }} onNew={() => setConfirmNewProject(true)} onRename={renameProject} onDelete={setDeleteTarget} onExport={requestProjectExport} onControlPlayground={controlProjectPlayground} onClose={() => setShowProjects(false)} />}
+      {showProjects && <ProjectList projects={currentProjects} activeID={activeID} projectCap={projectCap} busy={busy} exportingID={exportingID} controllingID={controllingProjectID} productionCheckoutID={productionCheckoutProjectID} productionPurchasable={Boolean(accountMe.billingProducts?.productionProject)} domainUpdatingID={domainUpdatingProjectID} onSelect={(id) => { setActiveID(id); setShowProjects(false); }} onNew={() => setConfirmNewProject(true)} onRename={renameProject} onDelete={setDeleteTarget} onExport={requestProjectExport} onControlPlayground={controlProjectPlayground} onCheckoutProductionProject={checkoutProductionProject} onUpdateProjectDomain={updateProjectDomain} onClose={() => setShowProjects(false)} />}
       {showProfile && <ProfilePanel me={accountMe} onClose={closeProfilePanel} onOpenTutorial={openOnboardingTutorial} onRefreshAccount={refreshBuilder} />}
       {showHelp && <HelpPanel markdown={t('help.markdown')} onClose={() => setShowHelp(false)} />}
       {showServices && activeProject?.services && <ServicePanel services={activeProject.services} selectedName={selectedService?.name} busy={busy} onSelect={(service) => void selectService(service)} onClose={() => setShowServices(false)} />}

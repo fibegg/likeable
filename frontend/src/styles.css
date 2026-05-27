@@ -3891,6 +3891,57 @@ html.draggingCollapsedChat * {
   border-radius: 8px;
   padding: 8px;
 }
+.adminProjectBlock {
+  display: grid;
+  gap: 8px;
+}
+.adminProjectDiagnostics {
+  display: grid;
+  gap: 10px;
+  border: 1px solid rgba(132, 147, 154, .18);
+  border-radius: 8px;
+  background: rgba(7, 14, 17, .44);
+  padding: 10px;
+}
+.diagnosticsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+}
+.diagnosticsGrid span,
+.diagnosticsLists > div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+.diagnosticsGrid em,
+.diagnosticsLists em {
+  color: var(--muted);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+.diagnosticsGrid code,
+.diagnosticsLists code {
+  overflow: hidden;
+  border: 1px solid rgba(132, 147, 154, .16);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 11px;
+  padding: 5px 6px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.diagnosticsLists {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+.diagnosticsLists strong {
+  color: var(--text);
+  font-size: 12px;
+}
 .adminProjectAssignment {
   min-width: 0;
   display: grid;
@@ -5969,6 +6020,10 @@ body {
   transition: border-color .16s ease, background .16s ease, box-shadow .16s ease;
 }
 
+.projectRow.domainEditing {
+  flex-wrap: wrap;
+}
+
 .projectRow:hover,
 .projectRow:focus-within,
 .serviceOption:hover,
@@ -6047,6 +6102,12 @@ body {
   text-transform: uppercase;
 }
 
+.projectCurrentBadge.production {
+  border-color: rgba(80, 202, 154, .22);
+  background: rgba(80, 202, 154, .1);
+  color: #7ee0b9;
+}
+
 .projectSelectMeta {
   width: 100%;
   min-width: 0;
@@ -6106,6 +6167,64 @@ body {
 
 .projectSelectDetail.error {
   color: var(--danger);
+}
+
+.projectSelectDetail.production {
+  color: #7ee0b9;
+}
+
+.projectDomainForm {
+  flex: 1 0 calc(100% - 42px);
+  margin-left: 38px;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid rgba(80, 202, 154, .2);
+  border-radius: 10px;
+  background: rgba(80, 202, 154, .06);
+}
+
+.projectDomainForm > svg {
+  flex: 0 0 auto;
+  color: #7ee0b9;
+}
+
+.projectDomainForm input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.projectDomainForm button {
+  min-height: 28px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: rgba(4, 12, 16, .55);
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 9px;
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.projectDomainForm button:hover {
+  border-color: rgba(80, 202, 154, .3);
+  color: #7ee0b9;
+}
+
+.projectDomainForm button:disabled {
+  opacity: .48;
+  cursor: not-allowed;
 }
 
 .projectSelectDetail.archived,

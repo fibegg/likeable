@@ -4,7 +4,7 @@ import { cleanPoolRows, makePoolRow, parsePoolRows } from './admin_pool';
 import { api } from './api';
 import { AppDialog, Metric } from './builder_components';
 import { ADMIN_CONFIG_SECTIONS } from './config';
-import type { AdminConfigEntry, AdminConfigResponse, AdminProjectSummary, AdminRecoveryResponse, AdminUserDetail, AdminUserSummary, AdminUsersResponse, AgentAssignmentSummary, AgentPoolOption, AgentPoolStat, AppDialogConfig, PoolRow } from './domain';
+import type { AdminBillingHealth, AdminBillingHealthResponse, AdminConfigEntry, AdminConfigResponse, AdminProjectDiagnostics, AdminProjectDiagnosticsResponse, AdminProjectSummary, AdminRecoveryResponse, AdminUserDetail, AdminUserSummary, AdminUsersResponse, AgentAssignmentSummary, AgentPoolOption, AgentPoolStat, AppDialogConfig, PoolRow } from './domain';
 import { formatBillingDuration, formatMessageTime, formatShortDate, userInitials } from './format';
 import { resetCountdownLabels, statusLabel, TranslationKey, useDocumentTitle, useI18n } from './i18n';
 
@@ -20,6 +20,9 @@ function AdminCustomersPanel() {
   const [loading, setLoading] = useState(false);
   const [actionError, setActionError] = useState('');
   const [reassigningProjectID, setReassigningProjectID] = useState('');
+  const [diagnosticsProjectID, setDiagnosticsProjectID] = useState('');
+  const [diagnostics, setDiagnostics] = useState<AdminProjectDiagnostics | null>(null);
+  const [diagnosticsLoadingID, setDiagnosticsLoadingID] = useState('');
   const [accessNote, setAccessNote] = useState('');
   const [noticeBody, setNoticeBody] = useState('');
   const [noticeSeverity, setNoticeSeverity] = useState('warning');
@@ -221,6 +224,25 @@ function AdminCustomersPanel() {
       setActionError(err instanceof Error ? err.message : t('admin.assignment.failed'));
     } finally {
       setReassigningProjectID('');
+    }
+  };
+  const loadProjectDiagnostics = async (projectID: string) => {
+    if (!selectedUserID) return;
+    if (diagnosticsProjectID === projectID) {
+      setDiagnosticsProjectID('');
+      setDiagnostics(null);
+      return;
+    }
+    setActionError('');
+    setDiagnosticsLoadingID(projectID);
+    try {
+      const response = await api<AdminProjectDiagnosticsResponse>(`/api/admin/users/${selectedUserID}/projects/${projectID}/diagnostics`);
+      setDiagnosticsProjectID(projectID);
+      setDiagnostics(response.diagnostics);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : t('admin.diagnostics.failed'));
+    } finally {
+      setDiagnosticsLoadingID('');
     }
   };
 
@@ -428,32 +450,74 @@ function AdminCustomersPanel() {
                   const assignmentValue = pairValue(assignment?.agentId ?? '', assignment?.serverId ?? '');
                   const canReassign = options.some((option) => option.status === 'active') && item.project.status !== 'archived' && item.project.status !== 'deleting';
                   const previewUrl = item.project.previewUrl;
+                  const projectDiagnostics = diagnosticsProjectID === item.project.id ? diagnostics : null;
                   return (
-                    <div className="adminProjectRow" key={item.project.id}>
-                      <span>
-                        <strong>{item.project.title}</strong>
-                        <em>{statusLabel(item.project.status, t)} · {workDuration(item.workMs)}</em>
-                      </span>
-                      <label className="adminProjectAssignment">
-                        <span>{t('admin.assignment')}</span>
-                        <select
-                          className="adminSelect"
-                          value={assignmentValue}
-                          disabled={!canReassign || reassigningProjectID === item.project.id}
-                          onChange={(event) => void reassignProject(item.project.id, event.target.value)}
-                        >
-                          {assignmentValue === pairValue('', '') && <option value={assignmentValue}>{t('admin.assignment.none')}</option>}
-                          {options.map((option) => (
-                            <option key={pairValue(option.agentId, option.serverId)} value={pairValue(option.agentId, option.serverId)} disabled={option.status !== 'active'}>
-                              {formatPoolOption(option, t)}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <div className="adminProjectActions">
-                        {previewUrl && <a className="ghostButton" href={previewUrl} target="_blank" rel="noopener noreferrer">{t('common.open')}</a>}
-                        <button className="projectDelete" onClick={() => void deleteProject(item.project.id)} aria-label={t('admin.deleteProject.aria', { title: item.project.title })}><Trash2 size={15} /></button>
+                    <div className="adminProjectBlock" key={item.project.id}>
+                      <div className="adminProjectRow">
+                        <span>
+                          <strong>{item.project.title}</strong>
+                          <em>{statusLabel(item.project.status, t)} · {workDuration(item.workMs)}</em>
+                        </span>
+                        <label className="adminProjectAssignment">
+                          <span>{t('admin.assignment')}</span>
+                          <select
+                            className="adminSelect"
+                            value={assignmentValue}
+                            disabled={!canReassign || reassigningProjectID === item.project.id}
+                            onChange={(event) => void reassignProject(item.project.id, event.target.value)}
+                          >
+                            {assignmentValue === pairValue('', '') && <option value={assignmentValue}>{t('admin.assignment.none')}</option>}
+                            {options.map((option) => (
+                              <option key={pairValue(option.agentId, option.serverId)} value={pairValue(option.agentId, option.serverId)} disabled={option.status !== 'active'}>
+                                {formatPoolOption(option, t)}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <div className="adminProjectActions">
+                          {previewUrl && <a className="ghostButton" href={previewUrl} target="_blank" rel="noopener noreferrer">{t('common.open')}</a>}
+                          <button className="ghostButton" disabled={diagnosticsLoadingID === item.project.id} onClick={() => void loadProjectDiagnostics(item.project.id)}>
+                            {diagnosticsLoadingID === item.project.id ? <Loader2 className="spinIcon" size={15} /> : null}
+                            {projectDiagnostics ? t('admin.diagnostics.hide') : t('admin.diagnostics.show')}
+                          </button>
+                          <button className="projectDelete" onClick={() => void deleteProject(item.project.id)} aria-label={t('admin.deleteProject.aria', { title: item.project.title })}><Trash2 size={15} /></button>
+                        </div>
                       </div>
+                      {projectDiagnostics && (
+                        <div className="adminProjectDiagnostics">
+                          <div className="diagnosticsGrid">
+                            {diagnosticEntries(projectDiagnostics).map(([label, value]) => (
+                              <span key={label}>
+                                <em>{label}</em>
+                                <code>{value || '—'}</code>
+                              </span>
+                            ))}
+                          </div>
+                          <div className="diagnosticsLists">
+                            <div>
+                              <strong>{t('admin.diagnostics.workSessions')}</strong>
+                              {projectDiagnostics.workSessions.slice(0, 4).map((session) => (
+                                <code key={session.sessionKey}>{session.sessionKey} · {workDuration(session.freeBilledMs)}/{workDuration(session.paidBilledMs)} · {formatMessageTime(session.startedAt, locale)}</code>
+                              ))}
+                              {projectDiagnostics.workSessions.length === 0 && <em>{t('admin.diagnostics.empty')}</em>}
+                            </div>
+                            <div>
+                              <strong>{t('admin.diagnostics.hourLedger')}</strong>
+                              {projectDiagnostics.hourLedger.slice(0, 4).map((entry) => (
+                                <code key={entry.id}>{entry.reason} · {workDuration(entry.deltaMs)} · {entry.paymentId || entry.workSessionKey || '—'}</code>
+                              ))}
+                              {projectDiagnostics.hourLedger.length === 0 && <em>{t('admin.diagnostics.empty')}</em>}
+                            </div>
+                            <div>
+                              <strong>{t('admin.billingHealth.recentPayments')}</strong>
+                              {projectDiagnostics.payments.slice(0, 4).map((payment) => (
+                                <code key={payment.id}>{formatMoney(payment.amountCents, payment.currency)} · {payment.status} · {payment.providerPaymentId}</code>
+                              ))}
+                              {projectDiagnostics.payments.length === 0 && <em>{t('admin.diagnostics.empty')}</em>}
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -471,6 +535,32 @@ function formatMoney(cents: number, currency: string): string {
   if (!cents) return '0';
   const normalized = (currency || 'usd').toUpperCase();
   return `${normalized} ${(cents / 100).toFixed(2)}`;
+}
+
+function diagnosticEntries(diagnostics: AdminProjectDiagnostics): [string, string][] {
+  const internal = diagnostics.internal;
+  const services = diagnostics.project.services ?? [];
+  const repositories = diagnostics.project.repositories ?? [];
+  return [
+    ['project_id', diagnostics.project.id],
+    ['conversation_id', internal.conversationId ?? ''],
+    ['agent_id', internal.agentId ?? ''],
+    ['server_id', internal.serverId ?? ''],
+    ['playground_id', internal.playgroundId ?? ''],
+    ['playground_name', internal.playgroundName ?? ''],
+    ['playspec_id', internal.playspecId ?? ''],
+    ['prop_id', internal.propId ?? ''],
+    ['repo_url', internal.repoUrl ?? ''],
+    ['selected_service', diagnostics.project.selectedServiceName ?? ''],
+    ['production_expires_at', diagnostics.project.productionExpiresAt ?? ''],
+    ['custom_domain', diagnostics.project.customDomain ?? ''],
+    ['custom_domain_status', diagnostics.project.customDomainStatus ?? ''],
+    ['custom_domain_target', diagnostics.project.customDomainTarget ?? ''],
+    ['services', services.map((service) => `${service.name}:${service.url}`).join(' | ')],
+    ['repositories', repositories.map((repository) => `${repository.role}:${repository.sourceRepoUrl || repository.id}`).join(' | ')],
+    ['cleanup_error', internal.cleanupLastError ?? ''],
+    ['provisioning_lock_until', internal.provisioningLockUntil ?? '']
+  ];
 }
 
 function pairValue(agentId: string, serverId: string): string {
@@ -534,6 +624,116 @@ function poolStatusLabel(status: string | undefined, t: (key: TranslationKey) =>
   }
 }
 
+function formatAdminMoney(cents: number, currency: string, locale: string): string {
+  const code = (currency || 'usd').toUpperCase();
+  try {
+    return new Intl.NumberFormat(locale, { style: 'currency', currency: code }).format((cents || 0) / 100);
+  } catch {
+    return `${((cents || 0) / 100).toFixed(2)} ${code}`;
+  }
+}
+
+function billingIssueLabel(issue: string, t: (key: TranslationKey, params?: Record<string, string | number>) => string): string {
+  const keys: Record<string, TranslationKey> = {
+    stripe_publishable_missing: 'admin.billingHealth.issue.publishable',
+    stripe_secret_missing: 'admin.billingHealth.issue.secret',
+    stripe_webhook_missing: 'admin.billingHealth.issue.webhook',
+    stripe_hour_prices_missing: 'admin.billingHealth.issue.hourPrices',
+    stripe_project_quota_price_missing: 'admin.billingHealth.issue.projectQuota',
+    stripe_production_project_price_missing: 'admin.billingHealth.issue.productionProject'
+  };
+  const key = keys[issue];
+  return key ? t(key) : t('admin.billingHealth.issue.unknown', { issue });
+}
+
+function AdminBillingHealthPanel() {
+  const { locale, t } = useI18n();
+  const [health, setHealth] = useState<AdminBillingHealth | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const load = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const response = await api<AdminBillingHealthResponse>('/api/admin/billing/health');
+      setHealth(response.health);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('admin.billingHealth.loadFailed'));
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => {
+    void load();
+  }, []);
+  const configuredCount = health ? Object.values(health.configured).filter(Boolean).length : 0;
+  const hourPacks = health?.products.hourPacks ?? [];
+  const productsLabel = [
+    hourPacks.length > 0 ? t('admin.billingHealth.hourPacks', { packs: hourPacks.map((pack) => `${pack}h`).join(', ') }) : t('admin.billingHealth.noHourPacks'),
+    health?.products.projectQuota ? t('admin.billingHealth.projectQuotaOn') : t('admin.billingHealth.projectQuotaOff'),
+    health?.products.productionProject ? t('admin.billingHealth.productionProjectOn') : t('admin.billingHealth.productionProjectOff')
+  ].join(' · ');
+  return (
+    <section className="adminCard">
+      <div className="adminCardHeader withAction">
+        <div>
+          <h3>{t('admin.billingHealth.title')}</h3>
+          <p>{t('admin.billingHealth.body')}</p>
+        </div>
+        <button className="ghostButton" type="button" disabled={loading} onClick={() => void load()}>
+          {loading ? <Loader2 className="spinIcon" size={15} /> : <RefreshCw size={15} />}
+          {t('admin.billingHealth.refresh')}
+        </button>
+      </div>
+      {error && <div className="adminError inlineAdminError">{error}</div>}
+      <div className="customerMetricGrid">
+        <Metric label={t('admin.billingHealth.stripe')} value={health ? `${configuredCount}/3` : '—'} />
+        <Metric label={t('admin.billingHealth.products')} value={health ? productsLabel : '—'} />
+        <Metric label={t('admin.billingHealth.freeWindow')} value={health ? `${health.free.minutes}m / ${health.free.windowHours}h` : '—'} />
+        <Metric label={t('admin.billingHealth.payments')} value={String(health?.recentPayments.length ?? 0)} />
+      </div>
+      {health && (
+        <>
+          {health.issues.length === 0 ? (
+            <div className="emptyPool">{t('admin.billingHealth.noIssues')}</div>
+          ) : (
+            <div className="recoveryList">
+              {health.issues.map((issue) => (
+                <div className="recoveryRow failed" key={issue}>
+                  <span>
+                    <strong>{t('admin.billingHealth.issue')}</strong>
+                    <em>{billingIssueLabel(issue, t)}</em>
+                  </span>
+                  <code>{issue}</code>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="adminCardHeader compactHeader">
+            <h4>{t('admin.billingHealth.recentPayments')}</h4>
+            <p>{health.checkedAt ? t('admin.billingHealth.checkedAt', { time: formatMessageTime(health.checkedAt, locale) }) : ''}</p>
+          </div>
+          {health.recentPayments.length === 0 ? (
+            <div className="emptyPool">{t('admin.billingHealth.noPayments')}</div>
+          ) : (
+            <div className="recoveryList">
+              {health.recentPayments.map((payment) => (
+                <div className="recoveryRow" key={payment.id}>
+                  <span>
+                    <strong>{formatAdminMoney(payment.amountCents, payment.currency, locale)} · {payment.status}</strong>
+                    <em>{payment.userEmail || payment.userId} · {formatMessageTime(payment.createdAt, locale)}</em>
+                  </span>
+                  <code>{payment.providerPaymentId}</code>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
 function adminConfigLabel(key: string, t: (key: TranslationKey) => string): string {
   const labelKeys: Record<string, TranslationKey> = {
     github_client_id: 'admin.config.github_client_id',
@@ -548,11 +748,14 @@ function adminConfigLabel(key: string, t: (key: TranslationKey) => string): stri
     stripe_price_id_10_hours: 'admin.config.stripe_price_id_10_hours',
     stripe_price_id_100_hours: 'admin.config.stripe_price_id_100_hours',
     stripe_project_quota_price_id: 'admin.config.stripe_project_quota_price_id',
+    stripe_production_project_price_id: 'admin.config.stripe_production_project_price_id',
     stripe_webhook_secret: 'admin.config.stripe_webhook_secret',
-    free_hours: 'admin.config.free_hours',
+    free_minutes: 'admin.config.free_minutes',
     free_hour_window_hours: 'admin.config.free_hour_window_hours',
     prompt_improve_charge_minutes: 'admin.config.prompt_improve_charge_minutes',
     project_cap: 'admin.config.project_cap',
+    project_quota_days: 'admin.config.project_quota_days',
+    production_project_days: 'admin.config.production_project_days',
     agent_artefacts: 'admin.config.agent_artefacts'
   };
   const labelKey = labelKeys[key];
@@ -686,6 +889,7 @@ export function Admin() {
 
       <div className="adminStack">
         <AdminCustomersPanel />
+        <AdminBillingHealthPanel />
 
         <section className="adminCard recoveryCard">
           <div className="adminCardHeader withAction">

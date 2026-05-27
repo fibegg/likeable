@@ -109,8 +109,8 @@ const en = {
   'builder.stopAgent': 'Stop agent',
   'builder.busy.queue': 'Queue new messages',
   'builder.busy.steer': 'Steer this run',
-  'builder.hours.left': 'Build hours left',
-  'builder.hourQuota.tooltip': '{paid} paid hours · resets in {reset}',
+  'builder.hours.left': 'Build time left',
+  'builder.hourQuota.tooltip': '{paid} paid time · resets in {reset}',
   'builder.profile.tooltip': 'Profile',
   'builder.admin.tooltip': 'Admin',
   'builder.chat.collapse': 'Collapse chat',
@@ -139,7 +139,7 @@ Describe the app you want in the composer. Fibe builds the first playground in a
 
 ## Limits and lifecycle
 
-- Free build hours reset on a window. Paid hours roll over and are used after free time.
+- Free build time resets on a window. Paid time rolls over and is used after free time.
 - Playgrounds auto-pause when inactive. Start them again from the menu.
 - Archived playgrounds stay downloadable for a while after archiving.
 - Delete a playground or the whole account from Profile — everything goes with it.
@@ -159,7 +159,7 @@ Likeable lets you build and run application playgrounds from prompts. By signing
 
 **Playgrounds and secrets.** Playgrounds may run generated code, install dependencies, call external services, and store files needed for the app. Do not include secrets, credentials, regulated data, or private third-party data unless you intend that data to be processed in the playground and by the build agent.
 
-**Billing.** Free and paid build hours, project slots, and reset windows are shown in the app. Payments are processed by Stripe. Paid features are delivered according to the limits shown at purchase; future prices and limits may change prospectively.
+**Billing.** Free and paid build time, project slots, and reset windows are shown in the app. Payments are processed by Stripe. Paid features are delivered according to the limits shown at purchase; future prices and limits may change prospectively.
 
 **Service availability.** Likeable is provided on a best-effort basis. Playgrounds may be queued, paused, restarted, archived, deleted, or temporarily unavailable for maintenance, security, capacity, or abuse-prevention reasons. Uninterrupted service is not guaranteed.
 
@@ -183,7 +183,7 @@ Last updated: May 25, 2026
 - Account info from Google when you sign in (name, email, profile picture).
 - Prompts, chat messages, attached files, generated source code, playground state, preview URLs, export history, and support messages.
 - OAuth connection metadata for services you connect, such as GitHub export. Access tokens are stored only as needed to provide the connected feature.
-- Billing events when you buy build hours or slots. Stripe handles payment details; Likeable does not store full card numbers.
+- Billing events when you buy build time or slots. Stripe handles payment details; Likeable does not store full card numbers.
 - Usage, device, and security data such as IP address, browser, timestamps, request logs, quota usage, errors, and abuse-prevention signals.
 
 **How we use it**
@@ -264,12 +264,13 @@ Likeable uses reasonable technical and organizational safeguards for account, pr
   'builder.composerHint.agentQueue': 'Agent running · message will queue',
   'builder.composerHint.agentSteer': 'Agent running · message will steer',
   'builder.composerHint.improvingPrompt': 'Improving prompt...',
+  'builder.composerHint.wakingToSend': 'Starting playground · message will send',
   'builder.composerHint.signIn': 'Sign in to send prompts',
   'builder.composerHint.loadingProjects': 'Loading playgrounds',
   'builder.composerHint.noProject': 'Create a playground first',
   'builder.composerHint.starting': 'Workspace is provisioning',
   'builder.composerHint.error': 'Resolve workspace error first',
-  'builder.composerHint.stopped': 'Start playground to send',
+  'builder.composerHint.stopped': 'Send to start playground',
   'builder.composerHint.archived': 'Archived playground',
   'builder.preview.startingTitle': 'Starting playground',
   'builder.preview.preparingTitle': 'Preparing playground',
@@ -309,8 +310,8 @@ Likeable uses reasonable technical and organizational safeguards for account, pr
   'onboarding.slide.modesBody': 'Use the mode button for split or basic view. Collapse chat when you only need the canvas.',
   'onboarding.slide.modesBulletOne': 'Basic overlays chat on the playground and can shrink to a small bubble.',
   'onboarding.slide.modesBulletTwo': 'Split keeps chat and preview side by side on wide screens.',
-  'onboarding.slide.messagesTitle': 'Free build hours',
-  'onboarding.slide.messagesBody': 'Free build hours reset on a window. Paid hours are used after free time.',
+  'onboarding.slide.messagesTitle': 'Free build time',
+  'onboarding.slide.messagesBody': 'Free build time resets on a window. Paid time is used after free time.',
   'onboarding.slide.messagesBulletOne': 'The composer badge shows remaining free build time.',
   'onboarding.slide.messagesBulletTwo': 'Profile shows resets, lifetime use, and hour packs.',
   'onboarding.slide.messagesBulletThree': 'Improve Prompt runs a separate improvement pass, so it can take a moment and may use build minutes when charging is enabled.',
@@ -357,6 +358,17 @@ Likeable uses reasonable technical and organizational safeguards for account, pr
   'projects.rowDetail.error': 'Workspace needs attention before it can run.',
   'projects.rowDetail.stopped': 'Preview is paused; start it from actions.',
   'projects.rowDetail.archived': 'Archived project. Export or create a new playground.',
+  'projects.production.badge': 'Production',
+  'projects.production.until': 'Always-on until {date}',
+  'projects.production.cname': 'Point CNAME to {host}',
+  'projects.production.domain': 'Custom domain: {domain}',
+  'projects.production.domainPending': 'DNS pending',
+  'projects.production.domainAction': 'Custom domain',
+  'projects.production.domainRemove': 'Remove custom domain',
+  'projects.production.domainPlaceholder': 'app.example.com',
+  'projects.production.domainSave': 'Save domain',
+  'projects.production.buy': 'Make production',
+  'projects.production.unavailable': 'Production package unavailable',
   'projects.rename.aria': 'Rename {title}',
   'projects.delete.aria': 'Delete {title}',
   'projects.export.aria': 'Export {title}',
@@ -443,18 +455,18 @@ Likeable uses reasonable technical and organizational safeguards for account, pr
   'profile.tutorialTitle': 'Open onboarding',
   'profile.tutorialBody': 'Revisit the compact guide for prompts, build minutes, exports, and lifecycle.',
   'profile.tutorialOpen': 'Open',
-  'profile.hours': 'Build hours',
-  'profile.freeQuota': 'Free build-hour quota',
-  'profile.freeInWindow': '{remaining}/{limit} free in {hours}h',
+  'profile.hours': 'Build time',
+  'profile.freeQuota': 'Free build-time quota',
+  'profile.freeInWindow': '{remaining}/{limit} free per {hours}h window',
   'profile.quotaReadout.limit': 'of {limit}',
-  'profile.quotaDetail': '{paid} paid hours · resets in {reset} · {lifetime} lifetime',
+  'profile.quotaDetail': '{paid} paid time · resets in {reset} · {lifetime} lifetime',
   'profile.paidPacksUnavailable': 'Paid packs off',
   'profile.projects': 'Playgrounds',
   'profile.projectQuota': 'Playground quota',
   'profile.projectSlots': '{used}/{limit} playground slots',
   'profile.projectSlotsAvailable': '{remaining} slots available',
   'profile.projectSlotsFull': 'Project limit reached',
-  'profile.projectSlotDetail': '{paid} paid monthly slots{reset}',
+  'profile.projectSlotDetail': '{paid} paid slots · new slots last {days}d{reset}',
   'profile.projectSlotFullDetail': 'Delete or export an older playground before creating another.',
   'profile.addSlot': '+1 slot',
   'profile.projectSlotsUnavailable': 'Slot packs off',
@@ -478,6 +490,32 @@ Likeable uses reasonable technical and organizational safeguards for account, pr
   'admin.search.placeholder': 'email, name, or user id',
   'admin.access': 'Access',
   'admin.billing': 'Billing',
+  'admin.billingHealth.title': 'Billing health',
+  'admin.billingHealth.body': 'Stripe configuration, available products, free allowance, and recent payment ledger entries.',
+  'admin.billingHealth.refresh': 'Refresh',
+  'admin.billingHealth.loadFailed': 'Could not load billing health',
+  'admin.billingHealth.stripe': 'Stripe keys',
+  'admin.billingHealth.products': 'Products',
+  'admin.billingHealth.freeWindow': 'Free window',
+  'admin.billingHealth.payments': 'Payments',
+  'admin.billingHealth.hourPacks': 'hour packs: {packs}',
+  'admin.billingHealth.noHourPacks': 'no hour packs',
+  'admin.billingHealth.projectQuotaOn': 'project slots on',
+  'admin.billingHealth.projectQuotaOff': 'project slots off',
+  'admin.billingHealth.productionProjectOn': 'production projects on',
+  'admin.billingHealth.productionProjectOff': 'production projects off',
+  'admin.billingHealth.noIssues': 'Billing configuration has no obvious launch blockers.',
+  'admin.billingHealth.issue': 'Issue',
+  'admin.billingHealth.issue.publishable': 'Stripe publishable key is missing.',
+  'admin.billingHealth.issue.secret': 'Stripe secret key is missing; checkout products stay disabled.',
+  'admin.billingHealth.issue.webhook': 'Stripe webhook secret is missing; async payment delivery cannot be verified.',
+  'admin.billingHealth.issue.hourPrices': 'No hour-pack Stripe price IDs are configured.',
+  'admin.billingHealth.issue.projectQuota': 'Project-slot Stripe price ID is missing.',
+  'admin.billingHealth.issue.productionProject': 'Production-project Stripe price ID is missing.',
+  'admin.billingHealth.issue.unknown': 'Unknown billing issue: {issue}',
+  'admin.billingHealth.recentPayments': 'Recent payments',
+  'admin.billingHealth.checkedAt': 'Checked at {time}',
+  'admin.billingHealth.noPayments': 'No payment records yet.',
   'admin.sort': 'Sort',
   'admin.sort.newest': 'newest',
   'admin.sort.hours': 'hours',
@@ -530,6 +568,12 @@ Likeable uses reasonable technical and organizational safeguards for account, pr
   'admin.assignment': 'Agent pair',
   'admin.assignment.none': 'No pair set',
   'admin.assignment.failed': 'Could not update pair',
+  'admin.diagnostics.show': 'Diagnostics',
+  'admin.diagnostics.hide': 'Hide diagnostics',
+  'admin.diagnostics.failed': 'Could not load project diagnostics',
+  'admin.diagnostics.workSessions': 'Work sessions',
+  'admin.diagnostics.hourLedger': 'Hour ledger',
+  'admin.diagnostics.empty': 'No records.',
   'admin.noActiveProjects': 'No active playgrounds.',
   'admin.deleteProject.aria': 'Delete {title}',
   'admin.loadUsersFailed': 'Could not load users',
@@ -614,11 +658,14 @@ Likeable uses reasonable technical and organizational safeguards for account, pr
   'admin.config.stripe_price_id_10_hours': '10 hours price ID',
   'admin.config.stripe_price_id_100_hours': '100 hours price ID',
   'admin.config.stripe_project_quota_price_id': 'Playground quota price ID',
+  'admin.config.stripe_production_project_price_id': 'Production project price ID',
   'admin.config.stripe_webhook_secret': 'Webhook secret',
-  'admin.config.free_hours': 'Free hours per window',
-  'admin.config.free_hour_window_hours': 'Free-hour window hours',
+  'admin.config.free_minutes': 'Free minutes per window',
+  'admin.config.free_hour_window_hours': 'Free window hours',
   'admin.config.prompt_improve_charge_minutes': 'Improve prompt charge minutes',
   'admin.config.project_cap': 'Base playground cap',
+  'admin.config.project_quota_days': 'Paid playground slot days',
+  'admin.config.production_project_days': 'Production project days',
   'admin.config.agent_artefacts': 'Agent artefacts JSON'
 } as const;
 
@@ -733,8 +780,8 @@ const uk: Record<keyof typeof en, string> = {
   'builder.stopAgent': 'Зупинити агента',
   'builder.busy.queue': 'Додати в чергу',
   'builder.busy.steer': 'Скоригувати запуск',
-  'builder.hours.left': 'Доступні години збірки',
-  'builder.hourQuota.tooltip': '{paid} платних годин · оновлення через {reset}',
+  'builder.hours.left': 'Доступний час збірки',
+  'builder.hourQuota.tooltip': '{paid} платного часу · оновлення через {reset}',
   'builder.profile.tooltip': 'Профіль',
   'builder.admin.tooltip': 'Адмін',
   'builder.chat.collapse': 'Згорнути чат',
@@ -763,7 +810,7 @@ const uk: Record<keyof typeof en, string> = {
 
 ## Ліміти та життєвий цикл
 
-- Безплатні години збірки оновлюються кожне вікно. Платні години переходять на наступний період і використовуються після безплатного часу.
+- Безплатний час збірки оновлюється кожне вікно. Платний час переходить на наступний період і використовується після безплатного часу.
 - Майданчики автоматично призупиняються в стані спокою. Запустити знову — з меню.
 - Архівовані майданчики можна завантажити обмежений час після архівування.
 - Видалення майданчика чи всього акаунта — у Профілі. Усе зникає разом.
@@ -783,7 +830,7 @@ Likeable дає змогу створювати й запускати майда
 
 **Майданчики та секрети.** Майданчики можуть запускати згенерований код, встановлювати залежності, звертатися до зовнішніх сервісів і зберігати файли, потрібні застосунку. Не додавайте секрети, облікові дані, регульовані дані або приватні дані третіх осіб, якщо ви не хочете, щоб ці дані оброблялися в майданчику та агентом збірки.
 
-**Білінг.** Безплатні й платні години збірки, слоти проєктів і вікна оновлення показані в застосунку. Платежі обробляє Stripe. Платні функції надаються в межах, показаних під час купівлі; майбутні ціни й ліміти можуть змінюватися для наступних покупок.
+**Білінг.** Безплатний і платний час збірки, слоти проєктів і вікна оновлення показані в застосунку. Платежі обробляє Stripe. Платні функції надаються в межах, показаних під час купівлі; майбутні ціни й ліміти можуть змінюватися для наступних покупок.
 
 **Доступність сервісу.** Likeable надається за принципом найкращих зусиль. Майданчики можуть ставати в чергу, призупинятися, перезапускатися, архівуватися, видалятися або бути тимчасово недоступні через обслуговування, безпеку, навантаження чи запобігання зловживанням. Безперервна робота не гарантується.
 
@@ -888,12 +935,13 @@ Likeable застосовує розумні технічні та органі�
   'builder.composerHint.agentQueue': 'Агент працює · повідомлення стане в чергу',
   'builder.composerHint.agentSteer': 'Агент працює · повідомлення скерує хід',
   'builder.composerHint.improvingPrompt': 'Покращення запиту...',
+  'builder.composerHint.wakingToSend': 'Запуск майданчика · повідомлення буде надіслано',
   'builder.composerHint.signIn': 'Увійдіть, щоб надсилати запити',
   'builder.composerHint.loadingProjects': 'Завантаження майданчиків',
   'builder.composerHint.noProject': 'Спочатку створіть майданчик',
   'builder.composerHint.starting': 'Provisioning робочого простору',
   'builder.composerHint.error': 'Спочатку усуньте помилку workspace',
-  'builder.composerHint.stopped': 'Запустіть майданчик, щоб надсилати',
+  'builder.composerHint.stopped': 'Надішліть, щоб запустити майданчик',
   'builder.composerHint.archived': 'Майданчик архівовано',
   'builder.preview.startingTitle': 'Запуск майданчика',
   'builder.preview.preparingTitle': 'Підготовка майданчика',
@@ -933,8 +981,8 @@ Likeable застосовує розумні технічні та органі�
   'onboarding.slide.modesBody': 'Кнопка режиму перемикає split або basic. Згортайте чат, коли потрібне лише полотно.',
   'onboarding.slide.modesBulletOne': 'Basic накладає чат на майданчик і може згортатися в маленьку кнопку.',
   'onboarding.slide.modesBulletTwo': 'Split тримає чат і превʼю поруч на широких екранах.',
-  'onboarding.slide.messagesTitle': 'Безплатні години збірки',
-  'onboarding.slide.messagesBody': 'Безплатні години збірки оновлюються за вікном. Платні години йдуть після безплатного часу.',
+  'onboarding.slide.messagesTitle': 'Безплатний час збірки',
+  'onboarding.slide.messagesBody': 'Безплатний час збірки оновлюється за вікном. Платний час іде після безплатного часу.',
   'onboarding.slide.messagesBulletOne': 'Бейдж у полі вводу показує залишок безплатного часу.',
   'onboarding.slide.messagesBulletTwo': 'Профіль показує оновлення, загальне використання й пакети годин.',
   'onboarding.slide.messagesBulletThree': 'Improve Prompt запускає окреме покращення, тому може зайняти трохи часу й використовувати хвилини збірки, якщо списання увімкнене.',
@@ -981,6 +1029,17 @@ Likeable застосовує розумні технічні та органі�
   'projects.rowDetail.error': 'Робочий простір потребує уваги перед запуском.',
   'projects.rowDetail.stopped': 'Превʼю призупинено; запустіть його з дій.',
   'projects.rowDetail.archived': 'Архівний проєкт. Експортуйте або створіть новий майданчик.',
+  'projects.production.badge': 'Production',
+  'projects.production.until': 'Always-on до {date}',
+  'projects.production.cname': 'Спрямуйте CNAME на {host}',
+  'projects.production.domain': 'Кастомний домен: {domain}',
+  'projects.production.domainPending': 'DNS очікує',
+  'projects.production.domainAction': 'Кастомний домен',
+  'projects.production.domainRemove': 'Прибрати кастомний домен',
+  'projects.production.domainPlaceholder': 'app.example.com',
+  'projects.production.domainSave': 'Зберегти домен',
+  'projects.production.buy': 'Зробити production',
+  'projects.production.unavailable': 'Production пакет вимкнено',
   'projects.rename.aria': 'Перейменувати {title}',
   'projects.delete.aria': 'Видалити {title}',
   'projects.export.aria': 'Експортувати {title}',
@@ -1067,18 +1126,18 @@ Likeable застосовує розумні технічні та органі�
   'profile.tutorialTitle': 'Відкрити онбординг',
   'profile.tutorialBody': 'Короткий гайд щодо запитів, хвилин збірки, експорту й життєвого циклу.',
   'profile.tutorialOpen': 'Відкрити',
-  'profile.hours': 'Години збірки',
-  'profile.freeQuota': 'Безплатний ліміт годин збірки',
-  'profile.freeInWindow': '{remaining}/{limit} безплатно за {hours} год',
+  'profile.hours': 'Час збірки',
+  'profile.freeQuota': 'Безплатний ліміт часу збірки',
+  'profile.freeInWindow': '{remaining}/{limit} безплатно за вікно {hours} год',
   'profile.quotaReadout.limit': 'з {limit}',
-  'profile.quotaDetail': '{paid} платних годин · оновлення через {reset} · {lifetime} за весь час',
+  'profile.quotaDetail': '{paid} платного часу · оновлення через {reset} · {lifetime} за весь час',
   'profile.paidPacksUnavailable': 'Платні пакети вимкнено',
   'profile.projects': 'Майданчики',
   'profile.projectQuota': 'Ліміт майданчиків',
   'profile.projectSlots': '{used}/{limit} місць для майданчиків',
   'profile.projectSlotsAvailable': 'Доступно місць: {remaining}',
   'profile.projectSlotsFull': 'Ліміт проєктів досягнуто',
-  'profile.projectSlotDetail': '{paid} платних місячних місць{reset}',
+  'profile.projectSlotDetail': '{paid} платних місць · нові місця діють {days} дн{reset}',
   'profile.projectSlotFullDetail': 'Видаліть або експортуйте старіший майданчик, перш ніж створювати новий.',
   'profile.addSlot': '+1 місце',
   'profile.projectSlotsUnavailable': 'Пакети місць вимкнено',
@@ -1102,6 +1161,32 @@ Likeable застосовує розумні технічні та органі�
   'admin.search.placeholder': 'email, імʼя або id користувача',
   'admin.access': 'Доступ',
   'admin.billing': 'Оплата',
+  'admin.billingHealth.title': 'Стан білінгу',
+  'admin.billingHealth.body': 'Конфігурація Stripe, доступні продукти, безплатний ліміт і останні записи payment ledger.',
+  'admin.billingHealth.refresh': 'Оновити',
+  'admin.billingHealth.loadFailed': 'Не вдалося завантажити стан білінгу',
+  'admin.billingHealth.stripe': 'Ключі Stripe',
+  'admin.billingHealth.products': 'Продукти',
+  'admin.billingHealth.freeWindow': 'Безплатне вікно',
+  'admin.billingHealth.payments': 'Платежі',
+  'admin.billingHealth.hourPacks': 'пакети годин: {packs}',
+  'admin.billingHealth.noHourPacks': 'немає пакетів годин',
+  'admin.billingHealth.projectQuotaOn': 'місця проєктів увімкнено',
+  'admin.billingHealth.projectQuotaOff': 'місця проєктів вимкнено',
+  'admin.billingHealth.productionProjectOn': 'production проєкти увімкнено',
+  'admin.billingHealth.productionProjectOff': 'production проєкти вимкнено',
+  'admin.billingHealth.noIssues': 'У конфігурації білінгу немає очевидних блокерів запуску.',
+  'admin.billingHealth.issue': 'Проблема',
+  'admin.billingHealth.issue.publishable': 'Немає Stripe publishable key.',
+  'admin.billingHealth.issue.secret': 'Немає Stripe secret key; checkout продукти вимкнені.',
+  'admin.billingHealth.issue.webhook': 'Немає Stripe webhook secret; async доставку платежів не можна перевірити.',
+  'admin.billingHealth.issue.hourPrices': 'Не налаштовано Stripe price ID для пакетів годин.',
+  'admin.billingHealth.issue.projectQuota': 'Немає Stripe price ID для місць проєктів.',
+  'admin.billingHealth.issue.productionProject': 'Немає Stripe price ID для production проєктів.',
+  'admin.billingHealth.issue.unknown': 'Невідома проблема білінгу: {issue}',
+  'admin.billingHealth.recentPayments': 'Останні платежі',
+  'admin.billingHealth.checkedAt': 'Перевірено о {time}',
+  'admin.billingHealth.noPayments': 'Записів платежів ще немає.',
   'admin.sort': 'Сортування',
   'admin.sort.newest': 'новіші',
   'admin.sort.hours': 'години',
@@ -1154,6 +1239,12 @@ Likeable застосовує розумні технічні та органі�
   'admin.assignment': 'Пара агента',
   'admin.assignment.none': 'Пара не задана',
   'admin.assignment.failed': 'Не вдалося оновити пару',
+  'admin.diagnostics.show': 'Діагностика',
+  'admin.diagnostics.hide': 'Сховати діагностику',
+  'admin.diagnostics.failed': 'Не вдалося завантажити діагностику проєкту',
+  'admin.diagnostics.workSessions': 'Work sessions',
+  'admin.diagnostics.hourLedger': 'Hour ledger',
+  'admin.diagnostics.empty': 'Записів немає.',
   'admin.noActiveProjects': 'Активних майданчиків немає.',
   'admin.deleteProject.aria': 'Видалити {title}',
   'admin.loadUsersFailed': 'Не вдалося завантажити користувачів',
@@ -1238,11 +1329,14 @@ Likeable застосовує розумні технічні та органі�
   'admin.config.stripe_price_id_10_hours': 'Price ID для 10 годин',
   'admin.config.stripe_price_id_100_hours': 'Price ID для 100 годин',
   'admin.config.stripe_project_quota_price_id': 'Price ID ліміту майданчиків',
+  'admin.config.stripe_production_project_price_id': 'Price ID production проєкту',
   'admin.config.stripe_webhook_secret': 'Webhook secret',
-  'admin.config.free_hours': 'Безплатних годин за вікно',
-  'admin.config.free_hour_window_hours': 'Години вікна безплатних годин',
+  'admin.config.free_minutes': 'Безплатних хвилин за вікно',
+  'admin.config.free_hour_window_hours': 'Години безплатного вікна',
   'admin.config.prompt_improve_charge_minutes': 'Хвилин списання за Improve Prompt',
   'admin.config.project_cap': 'Базовий ліміт майданчиків',
+  'admin.config.project_quota_days': 'Днів платного місця майданчика',
+  'admin.config.production_project_days': 'Днів production проєкту',
   'admin.config.agent_artefacts': 'JSON артефактів агента'
 };
 

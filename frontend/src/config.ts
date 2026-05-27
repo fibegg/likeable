@@ -25,11 +25,11 @@ export const ADMIN_CONFIG_SECTIONS = [
   {
     titleKey: 'admin.config.stripe.title',
     bodyKey: 'admin.config.stripe.body',
-    keys: ['stripe_publishable_key', 'stripe_secret_key', 'stripe_price_id_1_hour', 'stripe_price_id_10_hours', 'stripe_price_id_100_hours', 'stripe_project_quota_price_id', 'stripe_webhook_secret']
+    keys: ['stripe_publishable_key', 'stripe_secret_key', 'stripe_price_id_1_hour', 'stripe_price_id_10_hours', 'stripe_price_id_100_hours', 'stripe_project_quota_price_id', 'stripe_production_project_price_id', 'stripe_webhook_secret']
   },
   {
     titleKey: 'admin.config.application.title',
     bodyKey: 'admin.config.application.body',
-    keys: ['fibe_template_version_id', 'free_hours', 'free_hour_window_hours', 'prompt_improve_charge_minutes', 'project_cap', 'agent_artefacts', 'smtp_host', 'smtp_port', 'smtp_username', 'smtp_password', 'smtp_from_email', 'smtp_from_name', 'smtp_tls_mode']
+    keys: ['fibe_template_version_id', 'free_minutes', 'free_hour_window_hours', 'prompt_improve_charge_minutes', 'project_cap', 'project_quota_days', 'production_project_days', 'agent_artefacts', 'smtp_host', 'smtp_port', 'smtp_username', 'smtp_password', 'smtp_from_email', 'smtp_from_name', 'smtp_tls_mode']
   }
 ];
