@@ -119,6 +119,11 @@ func TestIsRetryableProvisioningError(t *testing.T) {
 			want: false,
 		},
 		{
+			name: "runtime billing required",
+			err:  &PlatformError{Code: "INTERNAL_ERROR", Status: 402, Message: "unexpected status 402"},
+			want: false,
+		},
+		{
 			name: "plain error",
 			err:  errors.New("greenfield failed"),
 			want: false,
@@ -147,6 +152,13 @@ func TestPlatformErrorPublicProjectErrorKindDoesNotClassifyMirrorLagAsConfigurat
 	err := &PlatformError{Code: "REMOTE_REQUEST_FAILED", Status: 422, Message: "fibe: SYSTEM_TEMPLATE_MIRROR_UNAVAILABLE (503): System template source mirror is not available for https://github.com/fibegg/app"}
 	if got := err.PublicProjectErrorKind(); got != "" {
 		t.Fatalf("PublicProjectErrorKind(%v)=%q, want empty", err, got)
+	}
+}
+
+func TestPlatformErrorPublicProjectErrorKindClassifiesRuntimeBilling(t *testing.T) {
+	err := &PlatformError{Code: "INTERNAL_ERROR", Status: 402, Message: "unexpected status 402"}
+	if got := err.PublicProjectErrorKind(); got != "runtime_billing" {
+		t.Fatalf("PublicProjectErrorKind(%v)=%q, want runtime_billing", err, got)
 	}
 }
 
@@ -206,6 +218,24 @@ func TestIsPlaygroundMissingError(t *testing.T) {
 	}
 	if IsPlaygroundMissingError(errors.New("playground not found")) {
 		t.Fatal("plain errors must not look like platform playground misses")
+	}
+}
+
+func TestIsRuntimeBillingRequiredError(t *testing.T) {
+	for _, err := range []error{
+		&PlatformError{Code: "INTERNAL_ERROR", Status: 402, Message: "unexpected status 402"},
+		&PlatformError{Code: "MARQUEE_NOT_FUNDED", Status: 422, Message: "This Marquee is not funded. Fund it to continue."},
+		errors.New("fibe: INTERNAL_ERROR (402): unexpected status 402"),
+	} {
+		if !IsRuntimeBillingRequiredError(err) {
+			t.Fatalf("IsRuntimeBillingRequiredError(%v)=false, want true", err)
+		}
+	}
+	if IsRuntimeBillingRequiredError(&PlatformError{Code: "INTERNAL_ERROR", Status: 422, Message: "unexpected status 422"}) {
+		t.Fatal("generic internal 422 must not look like runtime billing")
+	}
+	if IsRuntimeBillingRequiredError(errors.New("payment settings page is unavailable")) {
+		t.Fatal("generic payment text must not look like runtime billing")
 	}
 }
 

@@ -171,6 +171,22 @@ func (s *Server) notifyProductionProjectPurchased(ctx context.Context, userID, p
 	s.addSystemNoticeAndEmail(ctx, user, "info", body, "Likeable production project enabled", body+"\n\nOpen Likeable:\n"+s.config.BaseURL)
 }
 
+func (s *Server) notifyProductionProjectStartBlocked(ctx context.Context, user *User, project *Project) {
+	if user == nil || project == nil {
+		return
+	}
+	prefix := fmt.Sprintf("Production runtime paused: %q", project.Title)
+	exists, err := s.store.NoticeExistsSince(ctx, user.ID, "system", prefix, time.Now().UTC().Add(-24*time.Hour))
+	if err == nil && exists {
+		return
+	}
+	if err != nil {
+		log.Printf("production runtime notice dedupe for %s project=%s: %v", user.Email, project.ID, err)
+	}
+	body := prefix + " has an active production grant, but the linked Fibe runtime is not funded yet. Support must fund the runtime, then Likeable will retry starting it automatically."
+	s.addSystemNoticeAndEmail(ctx, user, "warning", body, "Likeable production runtime paused", body+"\n\nOpen Likeable:\n"+s.config.BaseURL)
+}
+
 func (s *Server) notifyProjectExportReady(ctx context.Context, user *User, project *Project, repoURL string) {
 	if user == nil || project == nil || strings.TrimSpace(repoURL) == "" {
 		return

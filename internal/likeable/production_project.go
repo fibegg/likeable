@@ -5,6 +5,8 @@ import (
 	"log"
 	"strings"
 	"time"
+
+	fibegateway "github.com/fibegg/likeable/internal/fibe"
 )
 
 func (s *Server) startProductionProjectIfStopped(ctx context.Context, userID, projectID string) {
@@ -34,6 +36,11 @@ func (s *Server) startProductionProjectIfStopped(ctx context.Context, userID, pr
 	defer cancel()
 	if err := fibeClient.StartPlayground(actionCtx, playgroundID); err != nil {
 		s.observePlatformError(err)
+		if fibegateway.IsRuntimeBillingRequiredError(err) {
+			log.Printf("start production project blocked by Fibe runtime billing project=%s playground=%s: %v", project.ID, playgroundID, err)
+			s.notifyProductionProjectStartBlocked(ctx, user, project)
+			return
+		}
 		log.Printf("start production project playground project=%s playground=%s: %v", project.ID, playgroundID, err)
 		return
 	}

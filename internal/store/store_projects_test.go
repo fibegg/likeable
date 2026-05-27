@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/fibegg/likeable/internal/fibe"
 )
 
 func TestTryAcquireProjectProvisioningLeasesProject(t *testing.T) {
@@ -439,6 +441,14 @@ func TestProjectIdleForPlaygroundStopSkipsMissingOrInvalidUsageTimestamp(t *test
 func TestPublicProjectErrorMessageExplainsLinkedFibePlaygroundError(t *testing.T) {
 	got := publicProjectErrorMessage("The linked Fibe playground is in an error state.")
 	want := "The linked Fibe playground is in an error state. Check it in Fibe, then restart the project playground from the project menu."
+	if got != want {
+		t.Fatalf("message=%q, want %q", got, want)
+	}
+}
+
+func TestPublicProjectErrorMessageExplainsRuntimeBilling(t *testing.T) {
+	got := publicProjectErrorMessageFromError(&fibe.PlatformError{Code: "INTERNAL_ERROR", Status: 402, Message: "unexpected status 402"})
+	want := "The workspace runtime is not funded. Ask an admin to fund the linked Fibe workspace, then retry starting the project."
 	if got != want {
 		t.Fatalf("message=%q, want %q", got, want)
 	}

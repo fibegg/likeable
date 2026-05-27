@@ -45,6 +45,8 @@ func (e *PlatformError) PublicProjectErrorKind() string {
 	switch {
 	case e.Status == 401 || e.Status == 403:
 		return "configuration"
+	case IsRuntimeBillingRequiredError(e):
+		return "runtime_billing"
 	case isProvisioningConfigurationPlatformError(e, message):
 		return "configuration"
 	default:
@@ -62,6 +64,9 @@ func IsRetryableProvisioningError(err error) bool {
 
 	var platform *PlatformError
 	if !errors.As(err, &platform) {
+		return false
+	}
+	if IsRuntimeBillingRequiredError(platform) {
 		return false
 	}
 	code := strings.ToUpper(strings.TrimSpace(platform.Code))
@@ -177,6 +182,41 @@ func IsPlaygroundMissingError(err error) bool {
 		return !strings.Contains(message, "conversation") || strings.Contains(message, "playground")
 	}
 	return strings.Contains(message, "playground") && containsAny(message, "not found", "missing")
+}
+
+func IsRuntimeBillingRequiredError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var platform *PlatformError
+	if errors.As(err, &platform) {
+		code := strings.ToUpper(strings.TrimSpace(platform.Code))
+		message := strings.ToLower(strings.TrimSpace(platform.Message + "\n" + platform.Stderr))
+		if platform.Status == 402 {
+			return true
+		}
+		if code == "MARQUEE_NOT_FUNDED" || code == "PAYMENT_REQUIRED" || code == "RUNTIME_ENTITLEMENT_REQUIRED" {
+			return true
+		}
+		if containsAny(message,
+			"unexpected status 402",
+			"marquee_not_funded",
+			"not funded",
+			"payment required",
+			"runtime entitlement",
+			"billing_runtime_active",
+		) {
+			return true
+		}
+	}
+	message := strings.ToLower(strings.TrimSpace(err.Error()))
+	return containsAny(message,
+		"unexpected status 402",
+		"marquee_not_funded",
+		"not funded",
+		"payment required",
+		"runtime entitlement",
+	)
 }
 
 func containsAny(value string, needles ...string) bool {

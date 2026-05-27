@@ -152,6 +152,8 @@ func publicProjectErrorMessageFromError(err error) string {
 		switch classified.PublicProjectErrorKind() {
 		case "configuration":
 			return "Workspace settings are incomplete. Ask an admin to review the configuration, then create a new project."
+		case "runtime_billing":
+			return "The workspace runtime is not funded. Ask an admin to fund the linked Fibe workspace, then retry starting the project."
 		case "timeout":
 			return "The canvas took too long to start. Try creating a new project."
 		}

@@ -6511,6 +6511,67 @@ func TestAdminCanGrantProjectProduction(t *testing.T) {
 	}
 }
 
+func TestProductionProjectStartBlockedByRuntimeBillingNotifiesUser(t *testing.T) {
+	appStore, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer appStore.Close()
+	if err := appStore.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url": "server.test:3000",
+		"fibe_api_key":  "test-key",
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	user, err := appStore.UpsertUser(t.Context(), "runtime-billing@example.com", "Runtime Billing", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{
+		ID:             "project-runtime-billing",
+		UserID:         user.ID,
+		Title:          "Runtime billing",
+		ConversationID: "conv-runtime-billing",
+		AgentID:        "agent-1",
+		MarqueeID:      "server-1",
+		PlaygroundID:   "playground-runtime-billing",
+		Status:         "stopped",
+	}
+	if err := appStore.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+	if granted, err := appStore.GrantProjectProduction(t.Context(), user.ID, project.ID, "cs_runtime_billing", time.Now().UTC().Add(7*24*time.Hour)); err != nil || !granted {
+		t.Fatalf("production grant=%v err=%v, want granted", granted, err)
+	}
+	logPath := filepath.Join(t.TempDir(), "fibe.log")
+	server := &Server{
+		store:  appStore,
+		config: RuntimeConfig{BaseURL: "http://example.test"},
+		http:   fakeFibeHTTPClient(http.DefaultClient, fakeFibeTransportConfig{Mode: "runtime-billing-required", LogPath: logPath}),
+	}
+
+	server.startProductionProjectIfStopped(t.Context(), user.ID, project.ID)
+	server.startProductionProjectIfStopped(t.Context(), user.ID, project.ID)
+
+	stored, err := appStore.ProjectForUser(t.Context(), user.ID, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != "stopped" {
+		t.Fatalf("status=%q, want stopped after blocked start", stored.Status)
+	}
+	notices, err := appStore.NoticesForUser(t.Context(), user.ID, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(notices) != 1 || notices[0].Severity != "warning" || !strings.Contains(notices[0].Body, "Production runtime paused") || !strings.Contains(notices[0].Body, "not funded") {
+		t.Fatalf("notices=%+v, want one runtime billing warning", notices)
+	}
+	if log := readFile(t, logPath); strings.Count(log, "playgrounds start playground-runtime-billing") != 2 {
+		t.Fatalf("log=%s, want two start attempts", log)
+	}
+}
+
 func TestAdminProductionGrantRejectsInactiveProject(t *testing.T) {
 	appStore, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {
