@@ -16,6 +16,7 @@ type ProjectQuotaGrant = domain.ProjectQuotaGrant
 type ProjectArchive = domain.ProjectArchive
 type AgentAssignmentSummary = domain.AgentAssignmentSummary
 type AgentPoolOption = domain.AgentPoolOption
+type AgentPoolHealth = domain.AgentPoolHealth
 type UserNotice = domain.UserNotice
 type AdminUserSummary = domain.AdminUserSummary
 type AdminProjectSummary = domain.AdminProjectSummary

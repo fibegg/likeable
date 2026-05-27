@@ -293,6 +293,44 @@ func TestStartAgentChatUsesConfiguredMarquee(t *testing.T) {
 	}
 }
 
+func TestAssignmentHealthChecksAgentAndMarquee(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method + " " + r.URL.Path {
+		case http.MethodGet + " /api/agents/agent-1":
+			writeJSONResponse(t, w, map[string]any{"id": 1, "status": "authenticated", "authenticated": true})
+		case http.MethodGet + " /api/marquees/32":
+			writeJSONResponse(t, w, map[string]any{"id": 32, "status": "active", "billing_runtime_active": true, "chat_launchable": true})
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	health := newTestClient(t, server, "agent-1", "32").AssignmentHealth(t.Context())
+	if !health.OK || !health.AgentAuthenticated || health.AgentStatus != "authenticated" || health.MarqueeStatus != "active" || !health.MarqueeBillingRuntimeActive || !health.MarqueeChatLaunchable {
+		t.Fatalf("health=%+v, want healthy assignment", health)
+	}
+}
+
+func TestAssignmentHealthReportsUnfundedMarquee(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method + " " + r.URL.Path {
+		case http.MethodGet + " /api/agents/agent-1":
+			writeJSONResponse(t, w, map[string]any{"id": 1, "status": "authenticated", "authenticated": true})
+		case http.MethodGet + " /api/marquees/30":
+			writeJSONResponse(t, w, map[string]any{"id": 30, "status": "active", "billing_runtime_active": false, "chat_launchable": false})
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	health := newTestClient(t, server, "agent-1", "30").AssignmentHealth(t.Context())
+	if health.OK || !containsString(health.Problems, "server runtime is not funded") || !containsString(health.Problems, "server chat runtime is not launchable") {
+		t.Fatalf("health=%+v, want unfunded runtime problems", health)
+	}
+}
+
 func TestControlPlaygroundLifecycleUsesSDKActions(t *testing.T) {
 	var actions []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

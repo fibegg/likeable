@@ -221,6 +221,20 @@ type AgentPoolOption struct {
 	Capacity int    `json:"capacity,omitempty"`
 }
 
+type AgentPoolHealth struct {
+	Label                      string   `json:"label,omitempty"`
+	AgentID                    string   `json:"agentId"`
+	ServerID                   string   `json:"serverId"`
+	Status                     string   `json:"status"`
+	AgentStatus                string   `json:"agentStatus,omitempty"`
+	AgentAuthenticated         bool     `json:"agentAuthenticated"`
+	ServerStatus               string   `json:"serverStatus,omitempty"`
+	ServerBillingRuntimeActive bool     `json:"serverBillingRuntimeActive"`
+	ServerChatLaunchable       bool     `json:"serverChatLaunchable"`
+	OK                         bool     `json:"ok"`
+	Problems                   []string `json:"problems,omitempty"`
+}
+
 type UserNotice struct {
 	ID          string `json:"id"`
 	UserID      string `json:"userId,omitempty"`

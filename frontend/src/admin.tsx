@@ -4,7 +4,7 @@ import { cleanPoolRows, makePoolRow, parsePoolRows } from './admin_pool';
 import { api } from './api';
 import { AppDialog, Metric } from './builder_components';
 import { ADMIN_CONFIG_SECTIONS } from './config';
-import type { AdminBillingHealth, AdminBillingHealthResponse, AdminConfigEntry, AdminConfigResponse, AdminProjectDiagnostics, AdminProjectDiagnosticsResponse, AdminProjectSummary, AdminRecoveryResponse, AdminUserDetail, AdminUserSummary, AdminUsersResponse, AgentAssignmentSummary, AgentPoolOption, AgentPoolStat, AppDialogConfig, PoolRow } from './domain';
+import type { AdminBillingHealth, AdminBillingHealthResponse, AdminConfigEntry, AdminConfigResponse, AdminProjectDiagnostics, AdminProjectDiagnosticsResponse, AdminProjectSummary, AdminRecoveryResponse, AdminUserDetail, AdminUserSummary, AdminUsersResponse, AgentAssignmentSummary, AgentPoolHealth, AgentPoolOption, AgentPoolStat, AppDialogConfig, PoolRow } from './domain';
 import { formatBillingDuration, formatMessageTime, formatShortDate, userInitials } from './format';
 import { resetCountdownLabels, statusLabel, TranslationKey, useDocumentTitle, useI18n } from './i18n';
 
@@ -703,6 +703,13 @@ function poolStatusLabel(status: string | undefined, t: (key: TranslationKey) =>
   }
 }
 
+function poolHealthLabel(health: AgentPoolHealth | undefined, t: (key: TranslationKey, params?: Record<string, string | number>) => string): string {
+  if (!health) return t('admin.pool.health.unknown');
+  if (health.ok) return t('admin.pool.health.ok');
+  const problem = health.problems?.find(Boolean);
+  return problem ? t('admin.pool.health.problem', { problem }) : t('admin.pool.health.warning');
+}
+
 function formatAdminMoney(cents: number, currency: string, locale: string): string {
   const code = (currency || 'usd').toUpperCase();
   try {
@@ -850,6 +857,7 @@ export function Admin() {
   const [allowedEmails, setAllowedEmails] = useState('');
   const [poolRows, setPoolRows] = useState<PoolRow[]>([]);
   const [poolStats, setPoolStats] = useState<AgentPoolStat[]>([]);
+  const [poolHealth, setPoolHealth] = useState<AgentPoolHealth[]>([]);
   const [retiringPoolRowID, setRetiringPoolRowID] = useState('');
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState('');
@@ -866,6 +874,7 @@ export function Admin() {
     setAllowedEmails(response.config.signup_allowed_emails?.value ?? '');
     setPoolRows(parsePoolRows(response.config.fibe_agent_server_pool?.value ?? '[]'));
     setPoolStats(response.agentPoolStats ?? []);
+    setPoolHealth(response.agentPoolHealth ?? []);
   };
 
   const loadRecovery = async () => {
@@ -889,6 +898,7 @@ export function Admin() {
     setPoolRows((rows) => rows.map((row) => row.id === id ? { ...row, ...patch } : row));
   };
   const statForPoolRow = (row: PoolRow) => poolStats.find((stat) => stat.agentId === row.agentId.trim() && stat.serverId === row.serverId.trim());
+  const healthForPoolRow = (row: PoolRow) => poolHealth.find((health) => health.agentId === row.agentId.trim() && health.serverId === row.serverId.trim());
   const retirePoolRow = async (row: PoolRow) => {
     setRetiringPoolRowID(row.id);
     setStatus('');
@@ -1088,9 +1098,17 @@ export function Admin() {
                 <div className="poolStatLine">
                   {(() => {
                     const stat = statForPoolRow(row);
-                    return stat
+                    const health = healthForPoolRow(row);
+                    const stats = stat
                       ? t('admin.pool.stats', { projects: stat.projectCount, active: stat.activeProjectCount ?? Math.max(0, stat.projectCount - stat.archivedCount), archived: stat.archivedCount, archives: stat.readyArchiveCount })
                       : t('admin.pool.stats.empty');
+                    const healthLabel = poolHealthLabel(health, t);
+                    return (
+                      <>
+                        <span>{stats}</span>
+                        <span className={health?.ok ? 'poolHealth ok' : 'poolHealth warning'}>{healthLabel}</span>
+                      </>
+                    );
                   })()}
                 </div>
                 <button className="ghostButton poolRetireButton" type="button" disabled={saving || retiringPoolRowID === row.id || !row.agentId.trim() || !row.serverId.trim() || row.status === 'retired'} onClick={() => void retirePoolRow(row)}>

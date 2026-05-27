@@ -5648,6 +5648,60 @@ func TestNormalizeAdminConfigRejectsInvalidPoolStatus(t *testing.T) {
 	}
 }
 
+func TestAdminConfigIncludesAgentPoolHealth(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	fibeServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method + " " + r.URL.Path {
+		case http.MethodGet + " /api/agents/agent-1":
+			writeJSONResponse(t, w, map[string]any{"id": 1, "status": "authenticated", "authenticated": true})
+		case http.MethodGet + " /api/marquees/server-1":
+			writeJSONResponse(t, w, map[string]any{"id": 1, "status": "active", "billing_runtime_active": false, "chat_launchable": false})
+		default:
+			t.Fatalf("unexpected Fibe request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer fibeServer.Close()
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test", AdminEmail: "admin@example.com"}, http: fibeServer.Client()}
+	admin, err := store.UpsertUser(t.Context(), "admin@example.com", "Admin", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateSession(t.Context(), admin.ID, "admin-config-health-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url":          fibeServer.URL,
+		"fibe_api_key":           "test-key",
+		"fibe_agent_server_pool": `[{"label":"Main","agent_id":"agent-1","server_id":"server-1","status":"active"}]`,
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/config", nil)
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "admin-config-health-token"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("admin config returned %d: %s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		AgentPoolHealth []AgentPoolHealth `json:"agentPoolHealth"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.AgentPoolHealth) != 1 || body.AgentPoolHealth[0].OK || body.AgentPoolHealth[0].AgentID != "agent-1" || body.AgentPoolHealth[0].ServerID != "server-1" {
+		t.Fatalf("agentPoolHealth=%+v, want one unhealthy configured pair", body.AgentPoolHealth)
+	}
+	if !stringSliceContains(body.AgentPoolHealth[0].Problems, "server runtime is not funded") {
+		t.Fatalf("problems=%+v, want runtime funding problem", body.AgentPoolHealth[0].Problems)
+	}
+}
+
 func TestAdminRetireAgentPoolArchivesProjectsAndMarksPairRetired(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {

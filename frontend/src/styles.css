@@ -4162,11 +4162,18 @@ html.draggingCollapsedChat * {
   color: rgba(216, 228, 231, .5);
   font-size: 11px;
   line-height: 1.25;
+  display: grid;
+  gap: 2px;
+  align-self: center;
+}
+.poolStatLine > span {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  align-self: center;
 }
+.poolHealth.ok { color: rgba(94, 212, 168, .76); }
+.poolHealth.warning { color: rgba(255, 196, 106, .82); }
 .poolRetireButton {
   min-height: 38px;
   white-space: nowrap;

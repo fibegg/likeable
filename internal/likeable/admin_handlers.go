@@ -46,7 +46,7 @@ func (s *Server) handleAdminConfig(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"config": publicAdminConfig(cfg), "adminEmail": s.config.AdminEmail, "agentPoolStats": stats, "agentPool": pool})
+		writeJSON(w, http.StatusOK, map[string]any{"config": publicAdminConfig(cfg), "adminEmail": s.config.AdminEmail, "agentPoolStats": stats, "agentPool": pool, "agentPoolHealth": s.adminAgentPoolHealth(r.Context(), cfg, pool)})
 	case http.MethodPut:
 		var body map[string]string
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -856,6 +856,42 @@ func adminAgentPoolOptionsFromConfig(cfg map[string]string) ([]AgentPoolOption, 
 		})
 	}
 	return options, nil
+}
+
+func (s *Server) adminAgentPoolHealth(ctx context.Context, cfg map[string]string, pool []AgentPoolOption) []AgentPoolHealth {
+	if len(pool) == 0 {
+		return []AgentPoolHealth{}
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	out := make([]AgentPoolHealth, 0, len(pool))
+	for _, option := range pool {
+		health := AgentPoolHealth{
+			Label:    strings.TrimSpace(option.Label),
+			AgentID:  strings.TrimSpace(option.AgentID),
+			ServerID: strings.TrimSpace(option.ServerID),
+			Status:   fibe.AssignmentStatus(fibe.Assignment{Status: option.Status}),
+		}
+		client, err := s.fibeClientFromConfig(cfg, fibe.Assignment{AgentID: health.AgentID, MarqueeID: health.ServerID})
+		if err != nil {
+			health.Problems = []string{err.Error()}
+			out = append(out, health)
+			continue
+		}
+		checked := client.AssignmentHealth(ctx)
+		health.AgentStatus = checked.AgentStatus
+		health.AgentAuthenticated = checked.AgentAuthenticated
+		health.ServerStatus = checked.MarqueeStatus
+		health.ServerBillingRuntimeActive = checked.MarqueeBillingRuntimeActive
+		health.ServerChatLaunchable = checked.MarqueeChatLaunchable
+		health.Problems = checked.Problems
+		health.OK = checked.OK
+		out = append(out, health)
+		if ctx.Err() != nil {
+			break
+		}
+	}
+	return out
 }
 
 func decorateAdminDetailAssignmentStatuses(detail *AdminUserDetail, pool []AgentPoolOption) {
