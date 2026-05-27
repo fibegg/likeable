@@ -3896,8 +3896,16 @@ func TestProductionProjectPlaygroundStartRuntimeBillingReturnsConflict(t *testin
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("start returned %d, want 409; body=%s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "production runtime is not funded yet") {
-		t.Fatalf("body=%s, want runtime billing message", rec.Body.String())
+	var errorBody struct {
+		Error   string `json:"error"`
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&errorBody); err != nil {
+		t.Fatal(err)
+	}
+	if errorBody.Code != "runtime_billing_required" || errorBody.Message != errorBody.Error || !strings.Contains(errorBody.Error, "production runtime is not funded yet") {
+		t.Fatalf("errorBody=%+v, want coded runtime billing message", errorBody)
 	}
 	stored, err := store.ProjectForUser(t.Context(), user.ID, project.ID)
 	if err != nil {

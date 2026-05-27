@@ -23,6 +23,8 @@ var (
 	errProductionProjectCannotStop = errors.New("production project cannot be stopped")
 )
 
+const productionRuntimeBillingRequiredMessage = "production runtime is not funded yet; support has been notified and Likeable will retry starting it automatically"
+
 func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 	user := userFromContext(r.Context())
 	switch r.Method {
@@ -316,7 +318,7 @@ func (s *Server) handleProjectPlaygroundAction(w http.ResponseWriter, r *http.Re
 		if action == "start" && strings.TrimSpace(project.ProductionExpiresAt) != "" && fibegateway.IsRuntimeBillingRequiredError(err) {
 			log.Printf("project playground start blocked by Fibe runtime billing project=%s playground=%s: %v", project.ID, strings.TrimSpace(project.PlaygroundID), err)
 			s.notifyProductionProjectStartBlocked(r.Context(), user, project)
-			writeError(w, http.StatusConflict, "production runtime is not funded yet; support has been notified and Likeable will retry starting it automatically")
+			writeErrorCode(w, http.StatusConflict, "runtime_billing_required", productionRuntimeBillingRequiredMessage)
 			return
 		}
 		log.Printf("project playground action %s for project %s: %v", body.Action, project.ID, err)
