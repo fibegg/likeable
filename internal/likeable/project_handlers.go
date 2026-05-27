@@ -178,7 +178,15 @@ func (s *Server) handleProjectRoute(w http.ResponseWriter, r *http.Request) {
 	case "playground":
 		s.handleProjectPlaygroundAction(w, r, user, project)
 	case "domain":
-		s.handleProjectDomain(w, r, user, project)
+		if len(parts) == 2 {
+			s.handleProjectDomain(w, r, user, project)
+			return
+		}
+		if len(parts) == 3 && parts[2] == "verify" {
+			s.handleProjectDomainVerify(w, r, user, project)
+			return
+		}
+		writeError(w, http.StatusNotFound, "not found")
 	case "attachments":
 		if len(parts) != 3 {
 			writeError(w, http.StatusNotFound, "not found")
@@ -414,6 +422,23 @@ func (s *Server) handleProjectDomain(w http.ResponseWriter, r *http.Request, use
 	updated, err := s.store.ProjectForUser(r.Context(), user.ID, project.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"project": updated})
+}
+
+func (s *Server) handleProjectDomainVerify(w http.ResponseWriter, r *http.Request, user *User, project *Project) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if strings.TrimSpace(project.CustomDomain) == "" {
+		writeError(w, http.StatusConflict, "custom domain is not configured")
+		return
+	}
+	updated, err := s.verifyProjectCustomDomain(r.Context(), project)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "could not verify custom domain DNS")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"project": updated})

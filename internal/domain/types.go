@@ -7,6 +7,11 @@ import (
 
 const PlaygroundIdleStopAfter = 8 * time.Hour
 
+const (
+	ProjectDomainStatusPendingDNS = "pending_dns"
+	ProjectDomainStatusActive     = "active"
+)
+
 type User struct {
 	ID           string `json:"id"`
 	Email        string `json:"email"`
@@ -46,6 +51,15 @@ type Project struct {
 	CustomDomainUpdatedAt string              `json:"customDomainUpdatedAt,omitempty"`
 	CreatedAt             string              `json:"createdAt"`
 	UpdatedAt             string              `json:"updatedAt"`
+}
+
+type ProjectDomain struct {
+	ProjectID string
+	UserID    string
+	Domain    string
+	Target    string
+	Status    string
+	UpdatedAt string
 }
 
 func (p *Project) RefreshComputedFields() {

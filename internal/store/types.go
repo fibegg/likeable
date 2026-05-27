@@ -4,6 +4,7 @@ import "github.com/fibegg/likeable/internal/domain"
 
 type User = domain.User
 type Project = domain.Project
+type ProjectDomain = domain.ProjectDomain
 type ProjectRepository = domain.ProjectRepository
 type ProjectService = domain.ProjectService
 type Message = domain.Message
@@ -26,3 +27,8 @@ type AdminProjectInternal = domain.AdminProjectInternal
 type AdminProjectDiagnostics = domain.AdminProjectDiagnostics
 type AdminUserDetail = domain.AdminUserDetail
 type AdminUserFilters = domain.AdminUserFilters
+
+const (
+	ProjectDomainStatusPendingDNS = domain.ProjectDomainStatusPendingDNS
+	ProjectDomainStatusActive     = domain.ProjectDomainStatusActive
+)

@@ -27,6 +27,7 @@ const projectCleanupLeaseTTL = projectCleanupTaskTimeout + 30*time.Second
 const projectCleanupSweepTimeout = 30 * time.Second
 const projectDeletionSweepInterval = 5 * time.Minute
 const projectDeletionSweepUniqueTTL = 4 * time.Minute
+const projectDomainVerificationSweepUniqueTTL = 50 * time.Minute
 const maxConcurrentProjectCleanup = 1
 const defaultJobWorkerConcurrency = 32
 const idleProjectStopAfter = domain.PlaygroundIdleStopAfter
@@ -43,6 +44,7 @@ const (
 	taskMonitorProjectNotifications = "likeable:project:monitor_notifications"
 	taskSendEmail                   = "likeable:email:send"
 	taskProjectQuotaSweep           = "likeable:project_quota:sweep"
+	taskProjectDomainVerifySweep    = "likeable:project_domain:verify_sweep"
 )
 
 var errProjectCleanupConcurrencyLimit = errors.New("project cleanup concurrency limit reached")
@@ -85,6 +87,7 @@ func newJobSystem(redisOpt asynq.RedisClientOpt, s *Server) *JobSystem {
 	mux.HandleFunc(taskMonitorProjectNotifications, s.handleMonitorProjectNotificationsTask)
 	mux.HandleFunc(taskSendEmail, s.handleSendEmailTask)
 	mux.HandleFunc(taskProjectQuotaSweep, s.handleProjectQuotaSweepTask)
+	mux.HandleFunc(taskProjectDomainVerifySweep, s.handleProjectDomainVerifySweepTask)
 	server := asynq.NewServer(redisOpt, asynq.Config{
 		Concurrency:     jobWorkerConcurrency(),
 		ShutdownTimeout: 20 * time.Second,
@@ -255,6 +258,20 @@ func (s *Server) enqueueStopIdleProjectsSweep(ctx context.Context, delay time.Du
 	}
 }
 
+func (s *Server) enqueueProjectDomainVerifySweep(ctx context.Context, delay time.Duration) {
+	if s.jobs == nil {
+		return
+	}
+	opts := []asynq.Option{asynq.Queue("low"), asynq.MaxRetry(2), asynq.Timeout(2 * time.Minute), asynq.Unique(projectDomainVerificationSweepUniqueTTL)}
+	if delay > 0 {
+		opts = append(opts, asynq.ProcessIn(delay))
+	}
+	_, err := s.jobs.client.EnqueueContext(ctx, asynq.NewTask(taskProjectDomainVerifySweep, nil), opts...)
+	if err != nil && !errors.Is(err, asynq.ErrDuplicateTask) {
+		log.Printf("enqueue custom domain DNS verification sweep: %v", err)
+	}
+}
+
 func (s *Server) startRecurringJobs(ctx context.Context) {
 	if s.jobs == nil {
 		return
@@ -262,6 +279,7 @@ func (s *Server) startRecurringJobs(ctx context.Context) {
 	s.enqueueProjectQuotaSweep(ctx, 0)
 	s.enqueueProjectDeletionSweep(ctx, 0)
 	s.enqueueStopIdleProjectsSweep(ctx, 0)
+	s.enqueueProjectDomainVerifySweep(ctx, 0)
 	go func() {
 		hourlyTicker := time.NewTicker(time.Hour)
 		deletionTicker := time.NewTicker(projectDeletionSweepInterval)
@@ -277,6 +295,7 @@ func (s *Server) startRecurringJobs(ctx context.Context) {
 				s.enqueueProjectQuotaSweep(context.Background(), 0)
 				s.enqueueProjectDeletionSweep(context.Background(), 0)
 				s.enqueueStopIdleProjectsSweep(context.Background(), 0)
+				s.enqueueProjectDomainVerifySweep(context.Background(), 0)
 			}
 		}
 	}()
@@ -611,6 +630,27 @@ func (s *Server) handleProjectQuotaSweepTask(ctx context.Context, _ *asynq.Task)
 		}
 	}
 	return s.cleanupExpiredArchives(ctx)
+}
+
+func (s *Server) handleProjectDomainVerifySweepTask(ctx context.Context, _ *asynq.Task) error {
+	projectDomains, err := s.store.PendingProjectDomains(ctx, 100)
+	if err != nil {
+		return err
+	}
+	for _, projectDomain := range projectDomains {
+		status, err := s.projectCustomDomainDNSStatus(ctx, projectDomain.Domain, projectDomain.Target)
+		if err != nil {
+			log.Printf("verify custom domain DNS project=%s domain=%s: %v", projectDomain.ProjectID, projectDomain.Domain, err)
+			continue
+		}
+		if status == projectDomain.Status {
+			continue
+		}
+		if err := s.store.UpdateProjectDomainStatus(ctx, projectDomain.UserID, projectDomain.ProjectID, status); err != nil && !errors.Is(err, sql.ErrNoRows) {
+			log.Printf("update custom domain DNS status project=%s domain=%s: %v", projectDomain.ProjectID, projectDomain.Domain, err)
+		}
+	}
+	return nil
 }
 
 func (s *Server) handleStopIdleProjectsSweepTask(ctx context.Context, _ *asynq.Task) error {

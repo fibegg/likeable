@@ -5,7 +5,7 @@ import type { AppDialogConfig, MessageAttachment, Project, ProjectService, UserF
 import { formatElapsedDuration, formatMessageTime, formatShortDate } from './format';
 import { elapsedDurationLabels, statusLabel, useI18n } from './i18n';
 
-export function ProjectList({ projects, activeID, projectCap, busy, exportingID, controllingID, productionCheckoutID, productionPurchasable, domainUpdatingID, onSelect, onNew, onRename, onDelete, onExport, onControlPlayground, onCheckoutProductionProject, onUpdateProjectDomain, onClose }: { projects: Project[]; activeID: string; projectCap: number | null; busy: boolean; exportingID: string; controllingID: string; productionCheckoutID: string; productionPurchasable: boolean; domainUpdatingID: string; onSelect: (id: string) => void; onNew: () => void; onRename: (project: Project, title: string) => Promise<void>; onDelete: (project: Project) => void; onExport: (project: Project) => void; onControlPlayground: (project: Project, action: 'start' | 'stop' | 'restart') => Promise<void>; onCheckoutProductionProject: (project: Project) => Promise<void>; onUpdateProjectDomain: (project: Project, domain: string) => Promise<void>; onClose: () => void }) {
+export function ProjectList({ projects, activeID, projectCap, busy, exportingID, controllingID, productionCheckoutID, productionPurchasable, domainUpdatingID, domainVerifyingID, onSelect, onNew, onRename, onDelete, onExport, onControlPlayground, onCheckoutProductionProject, onUpdateProjectDomain, onVerifyProjectDomain, onClose }: { projects: Project[]; activeID: string; projectCap: number | null; busy: boolean; exportingID: string; controllingID: string; productionCheckoutID: string; productionPurchasable: boolean; domainUpdatingID: string; domainVerifyingID: string; onSelect: (id: string) => void; onNew: () => void; onRename: (project: Project, title: string) => Promise<void>; onDelete: (project: Project) => void; onExport: (project: Project) => void; onControlPlayground: (project: Project, action: 'start' | 'stop' | 'restart') => Promise<void>; onCheckoutProductionProject: (project: Project) => Promise<void>; onUpdateProjectDomain: (project: Project, domain: string) => Promise<void>; onVerifyProjectDomain: (project: Project) => Promise<void>; onClose: () => void }) {
   const { locale, t } = useI18n();
   const [editingID, setEditingID] = useState('');
   const [draftTitle, setDraftTitle] = useState('');
@@ -54,6 +54,9 @@ export function ProjectList({ projects, activeID, projectCap, busy, exportingID,
   const saveDomain = async (project: Project) => {
     await onUpdateProjectDomain(project, domainDraft.trim());
     cancelDomainEdit();
+  };
+  const verifyDomain = async (project: Project) => {
+    await onVerifyProjectDomain(project);
   };
   const removeDomain = async (project: Project) => {
     setMenuID('');
@@ -130,6 +133,8 @@ export function ProjectList({ projects, activeID, projectCap, busy, exportingID,
           const cnameTarget = project.customDomainTarget || projectDomainTarget(project);
           const domainEditing = domainEditingID === project.id;
           const domainSaving = domainUpdatingID === project.id;
+          const domainVerifying = domainVerifyingID === project.id;
+          const domainBusy = domainSaving || domainVerifying;
           const menuOpensUp = index > 0;
           return (
           <div key={project.id} className={`projectRow ${project.id === activeID ? 'selected' : ''} ${menuID === project.id ? 'menuActive' : ''} ${domainEditing ? 'domainEditing' : ''}`}>
@@ -165,7 +170,7 @@ export function ProjectList({ projects, activeID, projectCap, busy, exportingID,
                   </span>
                   <small className="projectSelectMeta">{projectRowMeta(project)}</small>
                   {detail && <small className={`projectSelectDetail ${project.status}`}>{detail}</small>}
-                  {project.customDomain && <small className="projectSelectDetail production">{t('projects.production.domain', { domain: project.customDomain })} · {t('projects.production.domainPending')}</small>}
+                  {project.customDomain && <small className="projectSelectDetail production">{t('projects.production.domain', { domain: project.customDomain })} · {project.customDomainStatus === 'active' ? t('projects.production.domainActive') : t('projects.production.domainPending')}</small>}
                   {project.productionExpiresAt && cnameTarget && <small className="projectSelectDetail production">{t('projects.production.cname', { host: cnameTarget })}</small>}
                 </button>
                 <em className={`projectStatusChip ${project.status}`}>{statusLabel(project.status, t)}</em>
@@ -211,7 +216,13 @@ export function ProjectList({ projects, activeID, projectCap, busy, exportingID,
                           <span>{t('projects.production.domainAction')}</span>
                         </button>
                         {project.customDomain && (
-                          <button role="menuitem" disabled={busy || domainSaving} onClick={() => void removeDomain(project)}>
+                          <button role="menuitem" disabled={busy || domainBusy} onClick={() => void verifyDomain(project)}>
+                            {domainVerifying ? <Loader2 className="spinIcon" size={14} /> : <RotateCcw size={14} />}
+                            <span>{domainVerifying ? t('projects.production.domainChecking') : t('projects.production.domainCheck')}</span>
+                          </button>
+                        )}
+                        {project.customDomain && (
+                          <button role="menuitem" disabled={busy || domainBusy} onClick={() => void removeDomain(project)}>
                             {domainSaving ? <Loader2 className="spinIcon" size={14} /> : <X size={14} />}
                             <span>{t('projects.production.domainRemove')}</span>
                           </button>

@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -43,6 +44,21 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return f(req)
+}
+
+type fakeCNAMEResolver map[string]fakeCNAMEResponse
+
+type fakeCNAMEResponse struct {
+	cname string
+	err   error
+}
+
+func (f fakeCNAMEResolver) LookupCNAME(_ context.Context, host string) (string, error) {
+	response, ok := f[host]
+	if !ok {
+		return "", &net.DNSError{Err: "no such host", Name: host, IsNotFound: true}
+	}
+	return response.cname, response.err
 }
 
 func testStripeSignature(secret string, body []byte) string {
@@ -4006,6 +4022,99 @@ func TestProjectCustomDomainRejectsDomainAlreadyLinked(t *testing.T) {
 	}
 	if stored.CustomDomain != "" {
 		t.Fatalf("second project domain=%q, want unchanged after duplicate rejection", stored.CustomDomain)
+	}
+}
+
+func TestProjectCustomDomainVerifyMarksActiveCNAME(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	server := &Server{
+		store:  store,
+		config: RuntimeConfig{BaseURL: "http://example.test"},
+		http:   http.DefaultClient,
+		domainDNS: fakeCNAMEResolver{
+			"app.customer.example": {cname: "app-target.example.test."},
+		},
+	}
+	user, err := store.UpsertUser(t.Context(), "domain-verify@example.com", "Domain Verify", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateSession(t.Context(), user.ID, "domain-verify-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{ID: "project-domain-verify", UserID: user.ID, Title: "Domain Verify", ConversationID: "conv-domain-verify", Status: "ready", PreviewURL: "https://app-target.example.test"}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+	if granted, err := store.GrantProjectProduction(t.Context(), user.ID, project.ID, "cs_domain_verify_project", time.Now().UTC().Add(30*24*time.Hour)); err != nil || !granted {
+		t.Fatalf("production grant=%v err=%v, want granted", granted, err)
+	}
+
+	req := httptest.NewRequest(http.MethodPut, "/api/projects/project-domain-verify/domain", strings.NewReader(`{"domain":"app.customer.example"}`))
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "domain-verify-token"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("domain save returned %d: %s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/projects/project-domain-verify/domain/verify", nil)
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "domain-verify-token"})
+	rec = httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("domain verify returned %d: %s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Project Project `json:"project"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Project.CustomDomain != "app.customer.example" || body.Project.CustomDomainStatus != "active" {
+		t.Fatalf("project domain=%+v, want active custom domain", body.Project)
+	}
+}
+
+func TestProjectDomainVerifySweepMarksActiveCNAME(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	server := &Server{
+		store:  store,
+		config: RuntimeConfig{BaseURL: "http://example.test"},
+		http:   http.DefaultClient,
+		domainDNS: fakeCNAMEResolver{
+			"app.customer.example": {cname: "app-target.example.test"},
+		},
+	}
+	user, err := store.UpsertUser(t.Context(), "domain-sweep@example.com", "Domain Sweep", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{ID: "project-domain-sweep", UserID: user.ID, Title: "Domain Sweep", ConversationID: "conv-domain-sweep", Status: "ready", PreviewURL: "https://app-target.example.test"}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertProjectDomain(t.Context(), user.ID, project.ID, "app.customer.example", "app-target.example.test"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := server.handleProjectDomainVerifySweepTask(t.Context(), asynq.NewTask(taskProjectDomainVerifySweep, nil)); err != nil {
+		t.Fatalf("verify sweep returned error: %v", err)
+	}
+	stored, err := store.ProjectForUser(t.Context(), user.ID, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.CustomDomainStatus != "active" {
+		t.Fatalf("custom domain status=%q, want active", stored.CustomDomainStatus)
 	}
 }
 

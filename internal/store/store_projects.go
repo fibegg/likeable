@@ -260,9 +260,9 @@ func (s *Store) UpsertProjectDomain(ctx context.Context, userID, projectID, doma
 	now := nowString()
 	result, err := s.db.ExecContext(ctx, `
 		INSERT INTO project_domains(project_id, user_id, domain, target, status, created_at, updated_at)
-		VALUES(?, ?, ?, ?, 'pending_dns', ?, ?)
-		ON CONFLICT(project_id) DO UPDATE SET domain = excluded.domain, target = excluded.target, status = 'pending_dns', updated_at = excluded.updated_at
-	`, projectID, userID, domain, target, now, now)
+		VALUES(?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(project_id) DO UPDATE SET domain = excluded.domain, target = excluded.target, status = excluded.status, updated_at = excluded.updated_at
+	`, projectID, userID, domain, target, ProjectDomainStatusPendingDNS, now, now)
 	if err != nil {
 		return err
 	}
@@ -271,6 +271,53 @@ func (s *Store) UpsertProjectDomain(ctx context.Context, userID, projectID, doma
 		return sql.ErrNoRows
 	}
 	return nil
+}
+
+func (s *Store) UpdateProjectDomainStatus(ctx context.Context, userID, projectID, status string) error {
+	status = strings.TrimSpace(status)
+	if status == "" {
+		return errors.New("project domain status is required")
+	}
+	now := nowString()
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE project_domains
+		SET status = ?, updated_at = ?
+		WHERE project_id = ? AND user_id = ?
+	`, status, now, projectID, userID)
+	if err != nil {
+		return err
+	}
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (s *Store) PendingProjectDomains(ctx context.Context, limit int) ([]ProjectDomain, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT project_id, user_id, domain, target, status, updated_at
+		FROM project_domains
+		WHERE status = ?
+		ORDER BY updated_at ASC
+		LIMIT ?
+	`, ProjectDomainStatusPendingDNS, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []ProjectDomain{}
+	for rows.Next() {
+		var projectDomain ProjectDomain
+		if err := rows.Scan(&projectDomain.ProjectID, &projectDomain.UserID, &projectDomain.Domain, &projectDomain.Target, &projectDomain.Status, &projectDomain.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, projectDomain)
+	}
+	return out, rows.Err()
 }
 
 func (s *Store) DeleteProjectDomain(ctx context.Context, userID, projectID string) error {
