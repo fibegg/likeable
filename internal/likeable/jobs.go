@@ -657,16 +657,15 @@ func (s *Server) handleProjectDomainVerifySweepTask(ctx context.Context, _ *asyn
 		return err
 	}
 	for _, projectDomain := range projectDomains {
-		status, err := s.projectCustomDomainDNSStatus(ctx, projectDomain.Domain, projectDomain.Target)
+		project, err := s.store.ProjectForUser(ctx, projectDomain.UserID, projectDomain.ProjectID)
 		if err != nil {
-			log.Printf("verify custom domain DNS project=%s domain=%s: %v", projectDomain.ProjectID, projectDomain.Domain, err)
+			if !errors.Is(err, sql.ErrNoRows) {
+				log.Printf("load custom domain project=%s domain=%s: %v", projectDomain.ProjectID, projectDomain.Domain, err)
+			}
 			continue
 		}
-		if status == projectDomain.Status {
-			continue
-		}
-		if err := s.store.UpdateProjectDomainStatus(ctx, projectDomain.UserID, projectDomain.ProjectID, status); err != nil && !errors.Is(err, sql.ErrNoRows) {
-			log.Printf("update custom domain DNS status project=%s domain=%s: %v", projectDomain.ProjectID, projectDomain.Domain, err)
+		if _, err := s.verifyProjectCustomDomain(ctx, project); err != nil {
+			log.Printf("verify custom domain project=%s domain=%s: %v", projectDomain.ProjectID, projectDomain.Domain, err)
 		}
 	}
 	return nil

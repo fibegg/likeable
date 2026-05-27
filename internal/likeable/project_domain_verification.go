@@ -48,6 +48,12 @@ func (s *Server) verifyProjectCustomDomain(ctx context.Context, project *Project
 	if err != nil {
 		return nil, err
 	}
+	if status == store.ProjectDomainStatusDNSVerified && strings.TrimSpace(project.PlaygroundID) != "" {
+		if err := s.syncProjectCustomDomainRouting(ctx, project, project.CustomDomain); err != nil {
+			return nil, err
+		}
+		status = store.ProjectDomainStatusActive
+	}
 	if status != project.CustomDomainStatus {
 		if err := s.store.UpdateProjectDomainStatus(ctx, project.UserID, project.ID, status); err != nil {
 			return nil, err
@@ -55,6 +61,49 @@ func (s *Server) verifyProjectCustomDomain(ctx context.Context, project *Project
 		return s.store.ProjectForUser(ctx, project.UserID, project.ID)
 	}
 	return project, nil
+}
+
+func (s *Server) syncProjectCustomDomainRouting(ctx context.Context, project *Project, domain string) error {
+	if project == nil || strings.TrimSpace(project.PlaygroundID) == "" {
+		return nil
+	}
+	serviceHosts := projectCustomDomainServiceHosts(project, domain)
+	if len(serviceHosts) == 0 {
+		return nil
+	}
+	client, err := s.fibeClientForProject(ctx, project, "")
+	if err != nil {
+		return err
+	}
+	return client.UpdatePlaygroundServiceCustomHosts(ctx, project.PlaygroundID, serviceHosts)
+}
+
+func projectCustomDomainServiceHosts(project *Project, domain string) map[string][]string {
+	if project == nil {
+		return nil
+	}
+	domain = strings.Trim(strings.ToLower(strings.TrimSpace(domain)), ".")
+	selected := projectCustomDomainServiceName(project)
+	out := map[string][]string{}
+	for _, service := range project.Services {
+		name := strings.TrimSpace(service.Name)
+		if name == "" {
+			continue
+		}
+		if name == selected && domain != "" {
+			out[name] = []string{domain}
+		} else {
+			out[name] = []string{}
+		}
+	}
+	if len(out) == 0 && selected != "" {
+		if domain != "" {
+			out[selected] = []string{domain}
+		} else {
+			out[selected] = []string{}
+		}
+	}
+	return out
 }
 
 func normalizeDNSHost(value string) string {

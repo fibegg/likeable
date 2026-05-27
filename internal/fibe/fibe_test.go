@@ -323,6 +323,44 @@ func TestControlPlaygroundLifecycleUsesSDKActions(t *testing.T) {
 	}
 }
 
+func TestUpdatePlaygroundServiceCustomHostsPatchesServices(t *testing.T) {
+	var gotAuth string
+	var gotBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch || r.URL.Path != "/api/playgrounds/playground-123" {
+			t.Fatalf("request=%s %s, want PATCH /api/playgrounds/playground-123", r.Method, r.URL.Path)
+		}
+		gotAuth = r.Header.Get("Authorization")
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Fatal(err)
+		}
+		writeJSONResponse(t, w, map[string]any{"id": 123, "status": "running"})
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server, "agent", "marquee")
+	err := client.UpdatePlaygroundServiceCustomHosts(t.Context(), "playground-123", map[string][]string{
+		"app": []string{"App.Customer.Example.", "app.customer.example"},
+		"api": []string{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotAuth != "Bearer test" {
+		t.Fatalf("Authorization=%q, want bearer token", gotAuth)
+	}
+	playground := gotBody["playground"].(map[string]any)
+	services := playground["services"].(map[string]any)
+	app := services["app"].(map[string]any)
+	api := services["api"].(map[string]any)
+	if hosts := app["custom_hosts"].([]any); len(hosts) != 1 || hosts[0] != "app.customer.example" {
+		t.Fatalf("app custom_hosts=%#v, want normalized unique host", app["custom_hosts"])
+	}
+	if hosts := api["custom_hosts"].([]any); len(hosts) != 0 {
+		t.Fatalf("api custom_hosts=%#v, want empty clear list", api["custom_hosts"])
+	}
+}
+
 func TestCreateGreenfieldUsesTemplateVersionIDOnlyWhenConfigured(t *testing.T) {
 	for _, tc := range []struct {
 		name              string

@@ -4217,6 +4217,164 @@ func TestProjectCustomDomainVerifyMarksDNSVerifiedCNAME(t *testing.T) {
 	}
 }
 
+func TestProjectCustomDomainVerifyActivatesFibeRouting(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	var patches []map[string]any
+	fibeServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch || r.URL.Path != "/api/playgrounds/123" {
+			t.Fatalf("Fibe request=%s %s, want PATCH /api/playgrounds/123", r.Method, r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer test-key" {
+			t.Fatalf("Authorization=%q, want bearer token", got)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		patches = append(patches, body)
+		writeJSONResponse(t, w, map[string]any{"id": 123, "status": "running"})
+	}))
+	defer fibeServer.Close()
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url": fibeServer.URL,
+		"fibe_api_key":  "test-key",
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{
+		store:  store,
+		config: RuntimeConfig{BaseURL: "http://example.test"},
+		http:   fibeServer.Client(),
+		domainDNS: fakeCNAMEResolver{
+			"app.customer.example": {cname: "app-target.example.test."},
+		},
+	}
+	user, err := store.UpsertUser(t.Context(), "domain-routing@example.com", "Domain Routing", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateSession(t.Context(), user.ID, "domain-routing-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{ID: "project-domain-routing", UserID: user.ID, Title: "Domain Routing", ConversationID: "conv-domain-routing", AgentID: "agent-1", MarqueeID: "server-1", PlaygroundID: "123", Status: "ready", PreviewURL: "https://app-target.example.test", SelectedService: "app"}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ReplaceProjectResources(t.Context(), project.ID, nil, []ProjectService{
+		{ProjectID: project.ID, Name: "app", URL: "https://app-target.example.test", Type: "dynamic", Visibility: "external"},
+		{ProjectID: project.ID, Name: "api", URL: "https://api-target.example.test", Type: "dynamic", Visibility: "external"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if granted, err := store.GrantProjectProduction(t.Context(), user.ID, project.ID, "cs_domain_routing_project", time.Now().UTC().Add(30*24*time.Hour)); err != nil || !granted {
+		t.Fatalf("production grant=%v err=%v, want granted", granted, err)
+	}
+
+	req := httptest.NewRequest(http.MethodPut, "/api/projects/project-domain-routing/domain", strings.NewReader(`{"domain":"app.customer.example"}`))
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "domain-routing-token"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("domain save returned %d: %s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/projects/project-domain-routing/domain/verify", nil)
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "domain-routing-token"})
+	rec = httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("domain verify returned %d: %s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Project Project `json:"project"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Project.CustomDomainStatus != "active" {
+		t.Fatalf("custom domain status=%q, want active", body.Project.CustomDomainStatus)
+	}
+	if len(patches) != 1 {
+		t.Fatalf("patches=%d, want one Fibe routing patch", len(patches))
+	}
+	playground := patches[0]["playground"].(map[string]any)
+	services := playground["services"].(map[string]any)
+	app := services["app"].(map[string]any)
+	api := services["api"].(map[string]any)
+	if hosts := app["custom_hosts"].([]any); len(hosts) != 1 || hosts[0] != "app.customer.example" {
+		t.Fatalf("app custom_hosts=%#v, want custom domain", app["custom_hosts"])
+	}
+	if hosts := api["custom_hosts"].([]any); len(hosts) != 0 {
+		t.Fatalf("api custom_hosts=%#v, want cleared hosts", api["custom_hosts"])
+	}
+}
+
+func TestProjectCustomDomainDeleteClearsFibeRouting(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	var patch map[string]any
+	fibeServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch || r.URL.Path != "/api/playgrounds/123" {
+			t.Fatalf("Fibe request=%s %s, want PATCH /api/playgrounds/123", r.Method, r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
+			t.Fatal(err)
+		}
+		writeJSONResponse(t, w, map[string]any{"id": 123, "status": "running"})
+	}))
+	defer fibeServer.Close()
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url": fibeServer.URL,
+		"fibe_api_key":  "test-key",
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: fibeServer.Client()}
+	user, err := store.UpsertUser(t.Context(), "domain-clear@example.com", "Domain Clear", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateSession(t.Context(), user.ID, "domain-clear-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{ID: "project-domain-clear", UserID: user.ID, Title: "Domain Clear", ConversationID: "conv-domain-clear", AgentID: "agent-1", MarqueeID: "server-1", PlaygroundID: "123", Status: "ready", SelectedService: "app"}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ReplaceProjectResources(t.Context(), project.ID, nil, []ProjectService{
+		{ProjectID: project.ID, Name: "app", URL: "https://app-target.example.test", Type: "dynamic", Visibility: "external"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertProjectDomain(t.Context(), user.ID, project.ID, "app.customer.example", "app-target.example.test"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdateProjectDomainStatus(t.Context(), user.ID, project.ID, "active"); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/projects/project-domain-clear/domain", nil)
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "domain-clear-token"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("domain delete returned %d: %s", rec.Code, rec.Body.String())
+	}
+	playground := patch["playground"].(map[string]any)
+	services := playground["services"].(map[string]any)
+	app := services["app"].(map[string]any)
+	if hosts := app["custom_hosts"].([]any); len(hosts) != 0 {
+		t.Fatalf("app custom_hosts=%#v, want cleared hosts", app["custom_hosts"])
+	}
+}
+
 func TestProjectDomainVerifySweepMarksDNSVerifiedCNAME(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {

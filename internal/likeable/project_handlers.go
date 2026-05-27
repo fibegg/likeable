@@ -414,12 +414,26 @@ func (s *Server) handleProjectDomain(w http.ResponseWriter, r *http.Request, use
 			writeError(w, http.StatusConflict, "project CNAME target is not available")
 			return
 		}
+		if existing := strings.TrimSpace(project.CustomDomain); existing != "" && existing != domain {
+			if err := s.syncProjectCustomDomainRouting(r.Context(), project, ""); err != nil {
+				log.Printf("clear old custom domain routing for project %s: %v", project.ID, err)
+				writeError(w, http.StatusBadGateway, "could not update custom domain routing")
+				return
+			}
+		}
 		if err := s.store.UpsertProjectDomain(r.Context(), user.ID, project.ID, domain, target); err != nil {
 			log.Printf("project domain upsert for project %s: %v", project.ID, err)
 			writeError(w, http.StatusConflict, "custom domain is already linked to another project")
 			return
 		}
 	case http.MethodDelete:
+		if strings.TrimSpace(project.CustomDomain) != "" {
+			if err := s.syncProjectCustomDomainRouting(r.Context(), project, ""); err != nil {
+				log.Printf("clear custom domain routing for project %s: %v", project.ID, err)
+				writeError(w, http.StatusBadGateway, "could not update custom domain routing")
+				return
+			}
+		}
 		if err := s.store.DeleteProjectDomain(r.Context(), user.ID, project.ID); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -529,6 +543,32 @@ func projectCustomDomainTarget(project *Project) string {
 		}
 	}
 	return ""
+}
+
+func projectCustomDomainServiceName(project *Project) string {
+	if project == nil {
+		return ""
+	}
+	selected := strings.TrimSpace(project.SelectedService)
+	if selected != "" {
+		for _, service := range project.Services {
+			if service.Name == selected && projectURLHost(service.URL) != "" {
+				return selected
+			}
+		}
+		if project.PreviewURL != "" {
+			return selected
+		}
+	}
+	for _, service := range project.Services {
+		if strings.TrimSpace(service.Name) != "" && projectURLHost(service.URL) != "" {
+			return strings.TrimSpace(service.Name)
+		}
+	}
+	if project.PreviewURL != "" {
+		return firstNonEmpty(selected, "app")
+	}
+	return selected
 }
 
 func projectURLHost(rawURL string) string {
