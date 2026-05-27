@@ -37,7 +37,7 @@ func (s *Store) UpdateProjectProvisioning(ctx context.Context, projectID, userID
 	now := nowString()
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE projects
-		SET playground_id = ?, playspec_id = ?, prop_id = ?, repo_url = ?, preview_url = ?, selected_service_name = ?, status = ?, error_message = '',
+		SET playground_id = ?, playspec_id = ?, prop_id = ?, repo_url = ?, preview_url = ?, selected_service_name = ?, status = ?, error_message = '', internal_error_message = '',
 			playground_last_used_at = CASE WHEN ? = 'ready' AND playground_last_used_at = '' THEN ? ELSE playground_last_used_at END,
 			updated_at = ?
 		WHERE id = ? AND user_id = ? AND status != 'deleting'
@@ -116,19 +116,39 @@ func (s *Store) ClearProjectCleanupLease(ctx context.Context, projectID, userID 
 }
 
 func (s *Store) UpdateProjectError(ctx context.Context, projectID, userID, message string) error {
-	return s.updateProjectError(ctx, projectID, userID, publicProjectErrorMessage(message))
+	return s.updateProjectError(ctx, projectID, userID, publicProjectErrorMessage(message), internalProjectErrorMessage(message))
 }
 
 func (s *Store) UpdateProjectErrorFromError(ctx context.Context, projectID, userID string, err error) error {
-	return s.updateProjectError(ctx, projectID, userID, publicProjectErrorMessageFromError(err))
+	return s.updateProjectError(ctx, projectID, userID, publicProjectErrorMessageFromError(err), internalProjectErrorMessageFromError(err))
 }
 
-func (s *Store) updateProjectError(ctx context.Context, projectID, userID, message string) error {
+func (s *Store) UpdateProjectProvisioningRetryError(ctx context.Context, projectID, userID, status string, err error) error {
+	status = strings.TrimSpace(status)
+	if status == "" {
+		status = "creating"
+	}
+	result, execErr := s.db.ExecContext(ctx, `
+		UPDATE projects
+		SET status = ?, internal_error_message = ?, updated_at = ?
+		WHERE id = ? AND user_id = ? AND status != 'deleting'
+	`, status, internalProjectErrorMessageFromError(err), nowString(), projectID, userID)
+	if execErr != nil {
+		return execErr
+	}
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (s *Store) updateProjectError(ctx context.Context, projectID, userID, message, internalMessage string) error {
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE projects
-		SET status = 'error', error_message = ?, updated_at = ?
+		SET status = 'error', error_message = ?, internal_error_message = ?, updated_at = ?
 		WHERE id = ? AND user_id = ? AND status != 'deleting'
-	`, message, nowString(), projectID, userID)
+	`, message, internalMessage, nowString(), projectID, userID)
 	if err != nil {
 		return err
 	}
@@ -137,6 +157,22 @@ func (s *Store) updateProjectError(ctx context.Context, projectID, userID, messa
 		return sql.ErrNoRows
 	}
 	return nil
+}
+
+func internalProjectErrorMessageFromError(err error) string {
+	if err == nil {
+		return ""
+	}
+	return internalProjectErrorMessage(err.Error())
+}
+
+func internalProjectErrorMessage(message string) string {
+	message = strings.TrimSpace(message)
+	const maxInternalProjectErrorMessage = 2000
+	if len(message) > maxInternalProjectErrorMessage {
+		return message[:maxInternalProjectErrorMessage]
+	}
+	return message
 }
 
 type projectPublicErrorKind interface {
@@ -380,7 +416,7 @@ func (s *Store) SaveProjectProvisioningSnapshot(ctx context.Context, project *Pr
 
 	result, err := tx.ExecContext(ctx, `
 		UPDATE projects
-		SET agent_id = ?, marquee_id = ?, playground_id = ?, playground_name = ?, playspec_id = ?, prop_id = ?, repo_url = ?, preview_url = ?, selected_service_name = ?, status = ?, error_message = '', cleanup_last_error = '',
+		SET agent_id = ?, marquee_id = ?, playground_id = ?, playground_name = ?, playspec_id = ?, prop_id = ?, repo_url = ?, preview_url = ?, selected_service_name = ?, status = ?, error_message = '', internal_error_message = '', cleanup_last_error = '',
 			playground_last_used_at = CASE WHEN playground_last_used_at = '' AND ? != '' THEN ? ELSE playground_last_used_at END,
 			updated_at = ?
 		WHERE id = ? AND user_id = ? AND status != 'deleting'

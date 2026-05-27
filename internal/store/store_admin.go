@@ -385,6 +385,10 @@ func (s *Store) AdminProjectDiagnostics(ctx context.Context, userID, projectID s
 	if err != nil {
 		return nil, err
 	}
+	internalErrorMessage, err := s.projectInternalErrorMessage(ctx, userID, projectID)
+	if err != nil {
+		return nil, err
+	}
 	return &AdminProjectDiagnostics{
 		Project: *project,
 		Internal: AdminProjectInternal{
@@ -398,10 +402,24 @@ func (s *Store) AdminProjectDiagnostics(ctx context.Context, userID, projectID s
 			PropID:                project.PropID,
 			RepoURL:               project.RepoURL,
 			ProvisioningLockUntil: project.ProvisioningLockUntil,
+			InternalErrorMessage:  internalErrorMessage,
 			CleanupLastError:      project.CleanupLastError,
 		},
 		WorkSessions: workSessions,
 		HourLedger:   hourLedger,
 		Payments:     payments,
 	}, nil
+}
+
+func (s *Store) projectInternalErrorMessage(ctx context.Context, userID, projectID string) (string, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT internal_error_message
+		FROM projects
+		WHERE id = ? AND user_id = ?
+	`, projectID, userID)
+	var message string
+	if err := row.Scan(&message); err != nil {
+		return "", err
+	}
+	return message, nil
 }

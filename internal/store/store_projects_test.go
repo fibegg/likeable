@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -451,5 +452,46 @@ func TestPublicProjectErrorMessageExplainsRuntimeBilling(t *testing.T) {
 	want := "The workspace runtime is not funded. Ask an admin to fund the linked Fibe workspace, then retry starting the project."
 	if got != want {
 		t.Fatalf("message=%q, want %q", got, want)
+	}
+}
+
+func TestAdminProjectDiagnosticsExposeInternalProjectError(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	user, err := store.UpsertUser(t.Context(), "project-internal-error@example.com", "Internal Error", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{
+		ID:             "project-internal-error",
+		UserID:         user.ID,
+		Title:          "Internal Error",
+		ConversationID: "conv-internal-error",
+		Status:         "creating",
+	}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+	rawErr := &fibe.PlatformError{Code: "INTERNAL_ERROR", Status: 422, Message: "unexpected status 422"}
+	if err := store.UpdateProjectErrorFromError(t.Context(), project.ID, user.ID, rawErr); err != nil {
+		t.Fatal(err)
+	}
+
+	stored, err := store.ProjectForUser(t.Context(), user.ID, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(stored.ErrorMessage, "unexpected status 422") {
+		t.Fatalf("public error_message=%q should stay sanitized", stored.ErrorMessage)
+	}
+	diagnostics, err := store.AdminProjectDiagnostics(t.Context(), user.ID, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(diagnostics.Internal.InternalErrorMessage, "unexpected status 422") {
+		t.Fatalf("internal_error_message=%q, want raw platform cause", diagnostics.Internal.InternalErrorMessage)
 	}
 }

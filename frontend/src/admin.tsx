@@ -636,6 +636,7 @@ function diagnosticEntries(diagnostics: AdminProjectDiagnostics): [string, strin
     ['custom_domain_target', diagnostics.project.customDomainTarget ?? ''],
     ['services', services.map((service) => `${service.name}:${service.url}`).join(' | ')],
     ['repositories', repositories.map((repository) => `${repository.role}:${repository.sourceRepoUrl || repository.id}`).join(' | ')],
+    ['internal_error', internal.internalErrorMessage ?? ''],
     ['cleanup_error', internal.cleanupLastError ?? ''],
     ['provisioning_lock_until', internal.provisioningLockUntil ?? '']
   ];

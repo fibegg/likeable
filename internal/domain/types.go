@@ -291,6 +291,7 @@ type AdminProjectInternal struct {
 	PropID                     string `json:"propId,omitempty"`
 	RepoURL                    string `json:"repoUrl,omitempty"`
 	ProvisioningLockUntil      string `json:"provisioningLockUntil,omitempty"`
+	InternalErrorMessage       string `json:"internalErrorMessage,omitempty"`
 	CleanupLastError           string `json:"cleanupLastError,omitempty"`
 	ProductionRuntimeStatus    string `json:"productionRuntimeStatus,omitempty"`
 	ProductionRuntimeMessage   string `json:"productionRuntimeMessage,omitempty"`
