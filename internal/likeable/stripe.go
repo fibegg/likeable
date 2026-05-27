@@ -396,6 +396,7 @@ func (s *Server) applyStripeCheckoutSession(ctx context.Context, cfg map[string]
 			expiresAt := time.Now().UTC().Add(time.Duration(days) * 24 * time.Hour)
 			if granted, err := s.store.GrantProjectProduction(ctx, userID, productionProjectID, sessionID, expiresAt); err == nil && granted {
 				result.Granted = true
+				s.startProductionProjectIfStopped(ctx, userID, productionProjectID)
 				s.notifyProductionProjectPurchased(ctx, userID, productionProjectID, expiresAt)
 			} else if err != nil {
 				return result, err

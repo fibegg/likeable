@@ -611,6 +611,7 @@ func (s *Server) handleAdminUserProjectProductionGrant(w http.ResponseWriter, r 
 		return
 	}
 	if granted {
+		s.startProductionProjectIfStopped(r.Context(), userID, projectID)
 		s.notifyProductionProjectPurchased(r.Context(), userID, projectID, expiresAt)
 	}
 	updated, err := s.store.ProjectForUser(r.Context(), userID, projectID)

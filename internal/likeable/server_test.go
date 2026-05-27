@@ -6380,6 +6380,7 @@ func TestAdminCanGrantProjectProduction(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer appStore.Close()
+	cliPath, logPath, _ := fakeFibeCLI(t)
 	server := &Server{store: appStore, config: RuntimeConfig{BaseURL: "http://example.test", AdminEmail: "admin@example.com"}, http: http.DefaultClient}
 	admin, err := appStore.UpsertUser(t.Context(), "admin@example.com", "Admin", "")
 	if err != nil {
@@ -6392,7 +6393,12 @@ func TestAdminCanGrantProjectProduction(t *testing.T) {
 	if err := appStore.CreateSession(t.Context(), admin.ID, "admin-production-token", time.Hour); err != nil {
 		t.Fatal(err)
 	}
-	if err := appStore.UpsertConfig(t.Context(), map[string]string{"production_project_days": "14"}, secretConfigKeys); err != nil {
+	if err := appStore.UpsertConfig(t.Context(), map[string]string{
+		"production_project_days": "14",
+		"fibe_base_url":           "server.test:3000",
+		"fibe_api_key":            "test-key",
+		"fibe_cli_path":           cliPath,
+	}, secretConfigKeys); err != nil {
 		t.Fatal(err)
 	}
 	project := &Project{
@@ -6400,8 +6406,9 @@ func TestAdminCanGrantProjectProduction(t *testing.T) {
 		UserID:               user.ID,
 		Title:                "Admin Production",
 		ConversationID:       "conv-admin-production",
+		AgentID:              "agent-1",
 		PlaygroundID:         "playground-admin-production",
-		Status:               "ready",
+		Status:               "stopped",
 		PlaygroundLastUsedAt: time.Now().UTC().Add(-9 * time.Hour).Format(time.RFC3339Nano),
 	}
 	if err := appStore.CreateProject(t.Context(), project); err != nil {
@@ -6425,15 +6432,18 @@ func TestAdminCanGrantProjectProduction(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 		t.Fatal(err)
 	}
-	if !resp.Granted || resp.Days != 14 || resp.Project.ProductionExpiresAt == "" || resp.Project.PlaygroundIdleStopAt != "" {
-		t.Fatalf("response=%+v, want 14 day production grant without idle stop deadline", resp)
+	if !resp.Granted || resp.Days != 14 || resp.Project.ProductionExpiresAt == "" || resp.Project.PlaygroundIdleStopAt != "" || resp.Project.Status != "launching" {
+		t.Fatalf("response=%+v, want 14 day production grant with playground starting and no idle stop deadline", resp)
 	}
 	stored, err := appStore.ProjectForUser(t.Context(), user.ID, project.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stored.ProductionExpiresAt == "" || stored.PlaygroundIdleStopAt != "" {
-		t.Fatalf("stored project=%+v, want production grant reflected", stored)
+	if stored.ProductionExpiresAt == "" || stored.PlaygroundIdleStopAt != "" || stored.Status != "launching" {
+		t.Fatalf("stored project=%+v, want production grant reflected with playground starting", stored)
+	}
+	if log := readFile(t, logPath); !strings.Contains(log, "playgrounds start playground-admin-production") {
+		t.Fatalf("missing production start command; log=%s", log)
 	}
 	notices, err := appStore.NoticesForUser(t.Context(), user.ID, 10)
 	if err != nil {
@@ -7014,10 +7024,14 @@ func TestStripeWebhookGrantsProductionProject(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
+	cliPath, logPath, _ := fakeFibeCLI(t)
 	if err := store.UpsertConfig(t.Context(), map[string]string{
 		"stripe_secret_key":                  "sk_test",
 		"stripe_webhook_secret":              "whsec_test",
 		"stripe_production_project_price_id": "price_production_project",
+		"fibe_base_url":                      "server.test:3000",
+		"fibe_api_key":                       "test-key",
+		"fibe_cli_path":                      cliPath,
 	}, secretConfigKeys); err != nil {
 		t.Fatal(err)
 	}
@@ -7025,7 +7039,7 @@ func TestStripeWebhookGrantsProductionProject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	project := &Project{ID: "project-production-webhook", UserID: user.ID, Title: "Production webhook", ConversationID: "conv-production-webhook", Status: "ready"}
+	project := &Project{ID: "project-production-webhook", UserID: user.ID, Title: "Production webhook", ConversationID: "conv-production-webhook", AgentID: "agent-1", PlaygroundID: "playground-production-webhook", Status: "stopped"}
 	if err := store.CreateProject(t.Context(), project); err != nil {
 		t.Fatal(err)
 	}
@@ -7039,7 +7053,7 @@ func TestStripeWebhookGrantsProductionProject(t *testing.T) {
 			Body:       io.NopCloser(strings.NewReader(`{"data":[{"price":{"id":"price_production_project"}}]}`)),
 		}, nil
 	})}
-	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: client}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: fakeFibeHTTPClient(client, fakeFibeTransportConfig{LogPath: logPath})}
 	event := map[string]any{
 		"type": "checkout.session.completed",
 		"data": map[string]any{"object": map[string]any{
@@ -7070,8 +7084,11 @@ func TestStripeWebhookGrantsProductionProject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stored.ProductionExpiresAt == "" || stored.PlaygroundIdleStopAt != "" {
-		t.Fatalf("project=%+v, want active production grant without idle stop", stored)
+	if stored.ProductionExpiresAt == "" || stored.PlaygroundIdleStopAt != "" || stored.Status != "launching" {
+		t.Fatalf("project=%+v, want production grant with playground starting and no idle stop", stored)
+	}
+	if log := readFile(t, logPath); !strings.Contains(log, "playgrounds start playground-production-webhook") {
+		t.Fatalf("missing production start command; log=%s", log)
 	}
 	expires, err := time.Parse(time.RFC3339Nano, stored.ProductionExpiresAt)
 	if err != nil {
