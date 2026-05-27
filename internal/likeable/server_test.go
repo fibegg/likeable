@@ -6652,6 +6652,176 @@ func TestProductionProjectStartBlockedByRuntimeBillingNotifiesUser(t *testing.T)
 	}
 }
 
+func TestAdminCanRetryProductionProjectStart(t *testing.T) {
+	appStore, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer appStore.Close()
+	cliPath, logPath, _ := fakeFibeCLI(t)
+	if err := appStore.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url": "server.test:3000",
+		"fibe_api_key":  "test-key",
+		"fibe_cli_path": cliPath,
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: appStore, config: RuntimeConfig{BaseURL: "http://example.test", AdminEmail: "admin@example.com"}, http: http.DefaultClient}
+	admin, err := appStore.UpsertUser(t.Context(), "admin@example.com", "Admin", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	user, err := appStore.UpsertUser(t.Context(), "admin-production-start@example.com", "Admin Production Start", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := appStore.CreateSession(t.Context(), admin.ID, "admin-production-start-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{
+		ID:             "project-admin-production-start",
+		UserID:         user.ID,
+		Title:          "Admin Production Start",
+		ConversationID: "conv-admin-production-start",
+		AgentID:        "agent-1",
+		MarqueeID:      "server-1",
+		PlaygroundID:   "playground-admin-production-start",
+		Status:         "stopped",
+	}
+	if err := appStore.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+	if granted, err := appStore.GrantProjectProduction(t.Context(), user.ID, project.ID, "cs_admin_production_start", time.Now().UTC().Add(7*24*time.Hour)); err != nil || !granted {
+		t.Fatalf("production grant=%v err=%v, want granted", granted, err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/users/"+user.ID+"/projects/"+project.ID+"/production/start", strings.NewReader(`{}`))
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "admin-production-start-token"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("production start returned %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Detail      AdminUserDetail `json:"detail"`
+		Project     Project         `json:"project"`
+		Started     bool            `json:"started"`
+		BlockedCode string          `json:"blockedCode"`
+		Warning     string          `json:"warning"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if !resp.Started || resp.BlockedCode != "" || resp.Warning != "" || resp.Project.Status != "launching" {
+		t.Fatalf("response=%+v, want successful production start", resp)
+	}
+	if len(resp.Detail.Projects) != 1 || resp.Detail.Projects[0].Project.Status != "launching" {
+		t.Fatalf("detail projects=%+v, want launching project", resp.Detail.Projects)
+	}
+	if log := readFile(t, logPath); !strings.Contains(log, "playgrounds start playground-admin-production-start") {
+		t.Fatalf("missing production start command; log=%s", log)
+	}
+}
+
+func TestAdminProductionProjectStartRuntimeBillingReturnsWarning(t *testing.T) {
+	appStore, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer appStore.Close()
+	if err := appStore.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url": "server.test:3000",
+		"fibe_api_key":  "test-key",
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	logPath := filepath.Join(t.TempDir(), "fibe.log")
+	server := &Server{
+		store:  appStore,
+		config: RuntimeConfig{BaseURL: "http://example.test", AdminEmail: "admin@example.com"},
+		http:   fakeFibeHTTPClient(http.DefaultClient, fakeFibeTransportConfig{Mode: "runtime-billing-required", LogPath: logPath}),
+	}
+	admin, err := appStore.UpsertUser(t.Context(), "admin@example.com", "Admin", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	user, err := appStore.UpsertUser(t.Context(), "admin-runtime-billing@example.com", "Admin Runtime Billing", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := appStore.CreateSession(t.Context(), admin.ID, "admin-runtime-billing-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{
+		ID:             "project-admin-runtime-billing",
+		UserID:         user.ID,
+		Title:          "Admin Runtime Billing",
+		ConversationID: "conv-admin-runtime-billing",
+		AgentID:        "agent-1",
+		MarqueeID:      "server-1",
+		PlaygroundID:   "playground-admin-runtime-billing",
+		Status:         "stopped",
+	}
+	if err := appStore.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+	if granted, err := appStore.GrantProjectProduction(t.Context(), user.ID, project.ID, "cs_admin_runtime_billing", time.Now().UTC().Add(7*24*time.Hour)); err != nil || !granted {
+		t.Fatalf("production grant=%v err=%v, want granted", granted, err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/users/"+user.ID+"/projects/"+project.ID+"/production/start", strings.NewReader(`{}`))
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "admin-runtime-billing-token"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("production start returned %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Project     Project `json:"project"`
+		Started     bool    `json:"started"`
+		BlockedCode string  `json:"blockedCode"`
+		Warning     string  `json:"warning"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Started || resp.BlockedCode != "runtime_billing_required" || !strings.Contains(resp.Warning, "production runtime is not funded") || resp.Project.Status != "stopped" {
+		t.Fatalf("response=%+v, want runtime billing warning with stopped project", resp)
+	}
+	notices, err := appStore.NoticesForUser(t.Context(), user.ID, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(notices) != 1 || !strings.Contains(notices[0].Body, "Production runtime paused") {
+		t.Fatalf("notices=%+v, want production runtime notice", notices)
+	}
+	if log := readFile(t, logPath); strings.Count(log, "playgrounds start playground-admin-runtime-billing") != 1 {
+		t.Fatalf("log=%s, want one start attempt", log)
+	}
+
+	diagReq := httptest.NewRequest(http.MethodGet, "/api/admin/users/"+user.ID+"/projects/"+project.ID+"/diagnostics", nil)
+	diagReq.AddCookie(&http.Cookie{Name: "likeable_session", Value: "admin-runtime-billing-token"})
+	diagRec := httptest.NewRecorder()
+	server.routes().ServeHTTP(diagRec, diagReq)
+
+	if diagRec.Code != http.StatusOK {
+		t.Fatalf("diagnostics returned %d: %s", diagRec.Code, diagRec.Body.String())
+	}
+	var diagResp struct {
+		Diagnostics AdminProjectDiagnostics `json:"diagnostics"`
+	}
+	if err := json.NewDecoder(diagRec.Body).Decode(&diagResp); err != nil {
+		t.Fatal(err)
+	}
+	if diagResp.Diagnostics.Internal.ProductionRuntimeStatus != "runtime_billing_required" ||
+		!strings.Contains(diagResp.Diagnostics.Internal.ProductionRuntimeMessage, "not funded") ||
+		diagResp.Diagnostics.Internal.ProductionRuntimeBlockedAt == "" {
+		t.Fatalf("diagnostics internal=%+v, want runtime billing support context", diagResp.Diagnostics.Internal)
+	}
+}
+
 func TestAdminProductionGrantRejectsInactiveProject(t *testing.T) {
 	appStore, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {

@@ -281,17 +281,20 @@ type AdminHourCreditLedgerEntry struct {
 }
 
 type AdminProjectInternal struct {
-	UserID                string `json:"userId"`
-	ConversationID        string `json:"conversationId,omitempty"`
-	AgentID               string `json:"agentId,omitempty"`
-	ServerID              string `json:"serverId,omitempty"`
-	PlaygroundID          string `json:"playgroundId,omitempty"`
-	PlaygroundName        string `json:"playgroundName,omitempty"`
-	PlayspecID            string `json:"playspecId,omitempty"`
-	PropID                string `json:"propId,omitempty"`
-	RepoURL               string `json:"repoUrl,omitempty"`
-	ProvisioningLockUntil string `json:"provisioningLockUntil,omitempty"`
-	CleanupLastError      string `json:"cleanupLastError,omitempty"`
+	UserID                     string `json:"userId"`
+	ConversationID             string `json:"conversationId,omitempty"`
+	AgentID                    string `json:"agentId,omitempty"`
+	ServerID                   string `json:"serverId,omitempty"`
+	PlaygroundID               string `json:"playgroundId,omitempty"`
+	PlaygroundName             string `json:"playgroundName,omitempty"`
+	PlayspecID                 string `json:"playspecId,omitempty"`
+	PropID                     string `json:"propId,omitempty"`
+	RepoURL                    string `json:"repoUrl,omitempty"`
+	ProvisioningLockUntil      string `json:"provisioningLockUntil,omitempty"`
+	CleanupLastError           string `json:"cleanupLastError,omitempty"`
+	ProductionRuntimeStatus    string `json:"productionRuntimeStatus,omitempty"`
+	ProductionRuntimeMessage   string `json:"productionRuntimeMessage,omitempty"`
+	ProductionRuntimeBlockedAt string `json:"productionRuntimeBlockedAt,omitempty"`
 }
 
 type AdminProjectDiagnostics struct {

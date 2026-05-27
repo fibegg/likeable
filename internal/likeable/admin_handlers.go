@@ -353,6 +353,8 @@ func (s *Server) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 		s.handleAdminUserProjectDiagnostics(w, r, userID, parts[2])
 	case len(parts) == 4 && parts[1] == "projects" && parts[3] == "production" && r.Method == http.MethodPost:
 		s.handleAdminUserProjectProductionGrant(w, r, userID, parts[2])
+	case len(parts) == 5 && parts[1] == "projects" && parts[3] == "production" && parts[4] == "start" && r.Method == http.MethodPost:
+		s.handleAdminUserProjectProductionStart(w, r, userID, parts[2])
 	case len(parts) == 4 && parts[1] == "projects" && parts[3] == "assignment" && r.Method == http.MethodPatch:
 		s.handleAdminUserProjectAssignment(w, r, userID, parts[2])
 	default:
@@ -572,6 +574,7 @@ func (s *Server) handleAdminUserProjectDiagnostics(w http.ResponseWriter, r *htt
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.decorateAdminProjectRuntimeDiagnostics(r.Context(), diagnostics)
 	writeJSON(w, http.StatusOK, map[string]any{"diagnostics": diagnostics})
 }
 
@@ -634,6 +637,99 @@ func (s *Server) handleAdminUserProjectProductionGrant(w http.ResponseWriter, r 
 	decorateAdminDetailAssignmentStatuses(detail, pool)
 	detail.AgentPool = pool
 	writeJSON(w, http.StatusOK, map[string]any{"detail": detail, "project": updated, "granted": granted, "days": days})
+}
+
+func (s *Server) handleAdminUserProjectProductionStart(w http.ResponseWriter, r *http.Request, userID, projectID string) {
+	target, err := s.store.UserByID(r.Context(), userID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "user not found")
+		return
+	}
+	project, err := s.store.ProjectForUser(r.Context(), userID, projectID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "project not found")
+		return
+	}
+	if strings.TrimSpace(project.ProductionExpiresAt) == "" {
+		writeError(w, http.StatusConflict, "production start retry requires an active production grant")
+		return
+	}
+	if project.Status == "archived" || project.Status == "deleting" {
+		writeError(w, http.StatusConflict, "production start retry requires an active project")
+		return
+	}
+
+	started := false
+	blockedCode := ""
+	warning := ""
+	updated := project
+	if project.Status == "stopped" {
+		updated, err = s.controlProjectPlayground(r.Context(), target, project, "start")
+		if err != nil {
+			if fibe.IsRuntimeBillingRequiredError(err) {
+				blockedCode = "runtime_billing_required"
+				warning = productionRuntimeBillingRequiredMessage
+				s.notifyProductionProjectStartBlocked(r.Context(), target, project)
+				updated = project
+			} else if isPlatformRateLimited(err) {
+				writeError(w, http.StatusServiceUnavailable, "workspace platform is rate limited; try again shortly")
+				return
+			} else {
+				writeError(w, http.StatusBadGateway, "could not start production playground")
+				return
+			}
+		} else {
+			started = true
+		}
+	}
+
+	windowStart, windowEnd := s.freeHourWindow(time.Now(), r.Context())
+	detail, err := s.store.AdminUserDetail(r.Context(), userID, s.freeHourLimitMs(r.Context()), windowStart, windowEnd)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	detail.Summary.ProjectLimit = s.baseProjectCap(r.Context()) + detail.Summary.PaidProjectSlots
+	pool, err := s.adminAgentPoolOptions(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	decorateAdminDetailAssignmentStatuses(detail, pool)
+	detail.AgentPool = pool
+	writeJSON(w, http.StatusAccepted, map[string]any{"detail": detail, "project": updated, "started": started, "blockedCode": blockedCode, "warning": warning})
+}
+
+func (s *Server) decorateAdminProjectRuntimeDiagnostics(ctx context.Context, diagnostics *AdminProjectDiagnostics) {
+	if diagnostics == nil || strings.TrimSpace(diagnostics.Project.ProductionExpiresAt) == "" {
+		return
+	}
+	switch diagnostics.Project.Status {
+	case "ready":
+		diagnostics.Internal.ProductionRuntimeStatus = "running"
+	case "creating", "launching":
+		diagnostics.Internal.ProductionRuntimeStatus = "starting"
+	case "stopped":
+		diagnostics.Internal.ProductionRuntimeStatus = "stopped"
+	default:
+		diagnostics.Internal.ProductionRuntimeStatus = diagnostics.Project.Status
+	}
+	if diagnostics.Project.Status != "stopped" {
+		return
+	}
+	notices, err := s.store.NoticesForUser(ctx, diagnostics.Project.UserID, 50)
+	if err != nil {
+		return
+	}
+	prefix := "Production runtime paused: " + strconv.Quote(diagnostics.Project.Title)
+	for _, notice := range notices {
+		if notice.Sender == "system" && strings.HasPrefix(notice.Body, prefix) {
+			diagnostics.Internal.ProductionRuntimeStatus = "runtime_billing_required"
+			diagnostics.Internal.ProductionRuntimeMessage = notice.Body
+			diagnostics.Internal.ProductionRuntimeBlockedAt = notice.CreatedAt
+			return
+		}
+	}
 }
 
 func (s *Server) handleAdminUserProjectAssignment(w http.ResponseWriter, r *http.Request, userID, projectID string) {

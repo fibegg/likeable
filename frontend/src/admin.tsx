@@ -21,6 +21,7 @@ function AdminCustomersPanel() {
   const [actionError, setActionError] = useState('');
   const [reassigningProjectID, setReassigningProjectID] = useState('');
   const [productionGrantingProjectID, setProductionGrantingProjectID] = useState('');
+  const [productionStartingProjectID, setProductionStartingProjectID] = useState('');
   const [diagnosticsProjectID, setDiagnosticsProjectID] = useState('');
   const [diagnostics, setDiagnostics] = useState<AdminProjectDiagnostics | null>(null);
   const [diagnosticsLoadingID, setDiagnosticsLoadingID] = useState('');
@@ -278,6 +279,36 @@ function AdminCustomersPanel() {
       setDiagnosticsLoadingID('');
     }
   };
+  const refreshOpenProjectDiagnostics = async (projectID: string) => {
+    if (!selectedUserID || diagnosticsProjectID !== projectID) return;
+    try {
+      const response = await api<AdminProjectDiagnosticsResponse>(`/api/admin/users/${selectedUserID}/projects/${projectID}/diagnostics`);
+      setDiagnostics(response.diagnostics);
+    } catch {
+      setDiagnosticsProjectID('');
+      setDiagnostics(null);
+    }
+  };
+  const retryProductionStart = async (projectID: string) => {
+    if (!selectedUserID) return;
+    setActionError('');
+    setProductionStartingProjectID(projectID);
+    try {
+      const response = await api<{ detail: AdminUserDetail; warning?: string }>(`/api/admin/users/${selectedUserID}/projects/${projectID}/production/start`, {
+        method: 'POST',
+        body: JSON.stringify({})
+      });
+      setDetail(response.detail);
+      setAgentPool((current) => response.detail.agentPool ?? current);
+      if (response.warning) setActionError(response.warning);
+      await refreshOpenProjectDiagnostics(projectID);
+      await loadUsers();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : t('admin.productionStart.failed'));
+    } finally {
+      setProductionStartingProjectID('');
+    }
+  };
 
   return (
     <section className="adminCard customersCard">
@@ -482,6 +513,7 @@ function AdminCustomersPanel() {
                   const assignment = item.assignment;
                   const assignmentValue = pairValue(assignment?.agentId ?? '', assignment?.serverId ?? '');
                   const canReassign = options.some((option) => option.status === 'active') && item.project.status !== 'archived' && item.project.status !== 'deleting';
+                  const canRetryProductionStart = Boolean(item.project.productionExpiresAt) && item.project.status === 'stopped';
                   const previewUrl = item.project.previewUrl;
                   const projectDiagnostics = diagnosticsProjectID === item.project.id ? diagnostics : null;
                   return (
@@ -517,6 +549,12 @@ function AdminCustomersPanel() {
                             {productionGrantingProjectID === item.project.id ? <Loader2 className="spinIcon" size={15} /> : <ShieldCheck size={15} />}
                             {item.project.productionExpiresAt ? t('admin.productionGrant.extend') : t('admin.productionGrant.enable')}
                           </button>
+                          {item.project.productionExpiresAt && (
+                            <button className="ghostButton" disabled={!canRetryProductionStart || productionStartingProjectID === item.project.id} onClick={() => void retryProductionStart(item.project.id)}>
+                              {productionStartingProjectID === item.project.id ? <Loader2 className="spinIcon" size={15} /> : <RefreshCw size={15} />}
+                              {t('admin.productionStart.retry')}
+                            </button>
+                          )}
                           <button className="projectDelete" onClick={() => void deleteProject(item.project.id)} aria-label={t('admin.deleteProject.aria', { title: item.project.title })}><Trash2 size={15} /></button>
                         </div>
                       </div>
@@ -590,6 +628,9 @@ function diagnosticEntries(diagnostics: AdminProjectDiagnostics): [string, strin
     ['repo_url', internal.repoUrl ?? ''],
     ['selected_service', diagnostics.project.selectedServiceName ?? ''],
     ['production_expires_at', diagnostics.project.productionExpiresAt ?? ''],
+    ['production_runtime_status', internal.productionRuntimeStatus ?? ''],
+    ['production_runtime_blocked_at', internal.productionRuntimeBlockedAt ?? ''],
+    ['production_runtime_message', internal.productionRuntimeMessage ?? ''],
     ['custom_domain', diagnostics.project.customDomain ?? ''],
     ['custom_domain_status', diagnostics.project.customDomainStatus ?? ''],
     ['custom_domain_target', diagnostics.project.customDomainTarget ?? ''],
