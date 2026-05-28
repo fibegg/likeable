@@ -5765,6 +5765,11 @@ func TestAdminReadinessPassesWithProductionConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
+	templatePath := filepath.Join(t.TempDir(), "greenfield.yml")
+	if err := os.WriteFile(templatePath, []byte("services:\n  app:\n    image: test\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LIKEABLE_GREENFIELD_TEMPLATE_BODY_PATH", templatePath)
 	fibeServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method + " " + r.URL.Path {
 		case http.MethodGet + " /api/agents/agent-ready":
@@ -5792,7 +5797,6 @@ func TestAdminReadinessPassesWithProductionConfig(t *testing.T) {
 		"stripe_production_project_price_id": "price_production_project",
 		"fibe_base_url":                      fibeServer.URL,
 		"fibe_api_key":                       "test-key",
-		"fibe_template_version_id":           "template-ready",
 		"fibe_agent_server_pool":             `[{"label":"Main","agent_id":"agent-ready","server_id":"server-ready","status":"active"}]`,
 		"google_client_id":                   "google-client",
 		"google_client_secret":               "google-secret",
@@ -5822,6 +5826,9 @@ func TestAdminReadinessPassesWithProductionConfig(t *testing.T) {
 	}
 	if check := readinessCheck(t, body.Readiness, "fibe_active_pool_health"); !check.OK || check.Detail != "Main" {
 		t.Fatalf("active pool health check=%+v, want healthy Main detail", check)
+	}
+	if check := readinessCheck(t, body.Readiness, "fibe_template_version"); !check.OK || check.Detail != "bundled template body" {
+		t.Fatalf("greenfield template check=%+v, want bundled template body", check)
 	}
 }
 

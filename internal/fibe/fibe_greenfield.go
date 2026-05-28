@@ -134,6 +134,11 @@ func (c *Client) greenfieldParams(name string, serviceSubdomains map[string]stri
 }
 
 func greenfieldTemplateBody() (string, error) {
+	return GreenfieldTemplateBody()
+}
+
+// GreenfieldTemplateBody returns the configured inline template body used when no Fibe template version is pinned.
+func GreenfieldTemplateBody() (string, error) {
 	path := strings.TrimSpace(os.Getenv("LIKEABLE_GREENFIELD_TEMPLATE_BODY_PATH"))
 	if path == "" {
 		path = "/usr/local/share/likeable/go-fibe-greenfield.yaml"

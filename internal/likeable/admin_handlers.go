@@ -263,7 +263,8 @@ func (s *Server) adminReadiness(cfg map[string]string, pool []AgentPoolOption, p
 	addAdminReadinessCheck(&checks, "stripe_hour_prices", "blocker", priceStatus["oneHour"] || priceStatus["tenHours"] || priceStatus["hundredHours"], "")
 	addAdminReadinessCheck(&checks, "stripe_project_quota_price", "blocker", priceStatus["projectQuota"], "")
 	addAdminReadinessCheck(&checks, "stripe_production_project_price", "blocker", priceStatus["productionProject"], "")
-	addAdminReadinessCheck(&checks, "fibe_template_version", "blocker", strings.TrimSpace(cfg["fibe_template_version_id"]) != "", "")
+	greenfieldReady, greenfieldDetail := greenfieldTemplateReadiness(cfg)
+	addAdminReadinessCheck(&checks, "fibe_template_version", "blocker", greenfieldReady, greenfieldDetail)
 	activePoolCount := 0
 	for _, option := range pool {
 		if strings.TrimSpace(option.Status) == fibe.AssignmentStatusActive {
@@ -307,6 +308,20 @@ func addAdminReadinessCheck(checks *[]AdminReadinessCheck, key, severity string,
 		Severity: severity,
 		Detail:   strings.TrimSpace(detail),
 	})
+}
+
+func greenfieldTemplateReadiness(cfg map[string]string) (bool, string) {
+	if strings.TrimSpace(cfg["fibe_template_version_id"]) != "" {
+		return true, "template version id"
+	}
+	body, err := fibe.GreenfieldTemplateBody()
+	if err != nil {
+		return false, err.Error()
+	}
+	if strings.TrimSpace(body) != "" {
+		return true, "bundled template body"
+	}
+	return false, "no template version id or bundled template body"
 }
 
 func activeAdminPoolOptions(pool []AgentPoolOption) []AgentPoolOption {
