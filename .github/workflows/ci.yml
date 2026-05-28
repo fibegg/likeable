@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  preflight:
+    name: Deploy preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Bun
+        run: npm install -g bun@1.3.10
+
+      - name: Install frontend dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run deploy preflight
+        run: bin/deploy-preflight
