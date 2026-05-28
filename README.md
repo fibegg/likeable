@@ -99,6 +99,8 @@ bin/live-configure
 
 Optional SMTP env keys are `LIKEABLE_SMTP_PORT`, `LIKEABLE_SMTP_USERNAME`, `LIKEABLE_SMTP_PASSWORD`, `LIKEABLE_SMTP_FROM_NAME`, and `LIKEABLE_SMTP_TLS_MODE`. Use `LIKEABLE_DRY_RUN=1` to print the config keys that would be applied without changing the live environment.
 
+`bin/live-configure` validates common operator mistakes before it writes config: production price IDs must start with `price_`, Google client ID/secret must be supplied together, SMTP port must be numeric, and SMTP TLS mode must be one of `auto`, `tls`, `starttls`, or `none`.
+
 ## Test Deployment Runbook
 
 Use this flow for the Vyakymenko Likeable test environment or any equivalent test VPS.

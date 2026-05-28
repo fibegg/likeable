@@ -33,14 +33,35 @@ const mappings = [
   ["LIKEABLE_SMTP_TLS_MODE", "smtp_tls_mode"],
 ];
 const payload = {};
+const provided = new Set();
 for (const [envName, configKey] of mappings) {
   const value = process.env[envName];
   if (value !== undefined && value !== "") {
     payload[configKey] = value;
+    provided.add(envName);
   }
 }
 if (Object.keys(payload).length === 0) {
   console.error("no config env vars were provided");
+  process.exit(2);
+}
+const errors = [];
+if (payload.stripe_production_project_price_id && !payload.stripe_production_project_price_id.startsWith("price_")) {
+  errors.push("LIKEABLE_STRIPE_PRODUCTION_PROJECT_PRICE_ID must start with price_");
+}
+if (provided.has("LIKEABLE_GOOGLE_CLIENT_ID") !== provided.has("LIKEABLE_GOOGLE_CLIENT_SECRET")) {
+  errors.push("LIKEABLE_GOOGLE_CLIENT_ID and LIKEABLE_GOOGLE_CLIENT_SECRET must be provided together");
+}
+if (payload.smtp_port && !/^[0-9]+$/.test(payload.smtp_port)) {
+  errors.push("LIKEABLE_SMTP_PORT must be numeric");
+}
+if (payload.smtp_tls_mode && !["auto", "tls", "starttls", "none"].includes(payload.smtp_tls_mode.trim().toLowerCase())) {
+  errors.push("LIKEABLE_SMTP_TLS_MODE must be one of auto, tls, starttls, none");
+}
+if (errors.length > 0) {
+  for (const error of errors) {
+    console.error(error);
+  }
   process.exit(2);
 }
 console.error(`config keys: ${Object.keys(payload).join(", ")}`);
