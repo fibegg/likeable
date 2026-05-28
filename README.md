@@ -142,6 +142,7 @@ Checkout uses backend-created Stripe Checkout Sessions and does not require `str
 
 5. Smoke the user flows.
 
+- Admin launch readiness is `ready`, or every remaining failed check is an explicitly accepted rollout warning.
 - Admin billing health has no blocking issues.
 - A new user can sign in, create a project, and send a first message.
 - Sending a message to a stopped project wakes the playground and then sends the prompt.
@@ -164,7 +165,7 @@ Support flow:
 
 The hourly production sweep also retries stopped production projects, so `Retry start` is mainly for immediate support verification after funding.
 
-Domain routing is currently manual: after a production-project purchase, the user can save the intended custom domain, point a CNAME at the project target, and run DNS verification from the project menu. Admin diagnostics include the saved domain, DNS status, and target. Automatic Traefik routing and certificate provisioning for arbitrary customer domains are separate follow-up work.
+Custom-domain routing still depends on customer DNS: after a production-project purchase, the user saves the intended custom domain, points a CNAME at the project target, and runs DNS verification from the project menu. Once DNS verifies, Likeable syncs the custom host into the Fibe app routing. Admin diagnostics include the saved domain, DNS status, target, and any routing failure.
 
 ## Development With Live Reload
 

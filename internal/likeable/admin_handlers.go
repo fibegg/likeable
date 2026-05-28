@@ -17,6 +17,21 @@ import (
 const adminMaxHourGrant = 100
 const adminMaxProductionGrantDays = maxProductionProjectDays
 
+type AdminReadinessCheck struct {
+	Key      string `json:"key"`
+	OK       bool   `json:"ok"`
+	Severity string `json:"severity"`
+	Detail   string `json:"detail,omitempty"`
+}
+
+type AdminReadiness struct {
+	CheckedAt    string                `json:"checkedAt"`
+	Ready        bool                  `json:"ready"`
+	BlockerCount int                   `json:"blockerCount"`
+	WarningCount int                   `json:"warningCount"`
+	Checks       []AdminReadinessCheck `json:"checks"`
+}
+
 var secretConfigKeys = map[string]bool{
 	"fibe_api_key":          true,
 	"stripe_secret_key":     true,
@@ -152,6 +167,25 @@ func (s *Server) handleAdminRecovery(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) handleAdminReadiness(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	cfg, err := s.store.ConfigMap(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	pool, err := adminAgentPoolOptionsFromConfig(cfg)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	poolHealth := s.adminAgentPoolHealth(r.Context(), cfg, activeAdminPoolOptions(pool))
+	writeJSON(w, http.StatusOK, map[string]any{"readiness": s.adminReadiness(cfg, pool, poolHealth)})
+}
+
 func (s *Server) handleAdminBillingHealth(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -168,29 +202,8 @@ func (s *Server) handleAdminBillingHealth(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	priceStatus := map[string]bool{
-		"oneHour":           strings.TrimSpace(stripeCfg["price_1_hour"]) != "",
-		"tenHours":          strings.TrimSpace(stripeCfg["price_10_hours"]) != "",
-		"hundredHours":      strings.TrimSpace(stripeCfg["price_100_hours"]) != "",
-		"projectQuota":      strings.TrimSpace(stripeCfg["project_quota_price"]) != "",
-		"productionProject": strings.TrimSpace(stripeCfg["production_project_price"]) != "",
-	}
-	issues := []string{}
-	if strings.TrimSpace(stripeCfg["secret"]) == "" {
-		issues = append(issues, "stripe_secret_missing")
-	}
-	if strings.TrimSpace(stripeCfg["webhook"]) == "" {
-		issues = append(issues, "stripe_webhook_missing")
-	}
-	if !priceStatus["oneHour"] && !priceStatus["tenHours"] && !priceStatus["hundredHours"] {
-		issues = append(issues, "stripe_hour_prices_missing")
-	}
-	if !priceStatus["projectQuota"] {
-		issues = append(issues, "stripe_project_quota_price_missing")
-	}
-	if !priceStatus["productionProject"] {
-		issues = append(issues, "stripe_production_project_price_missing")
-	}
+	priceStatus := stripePriceStatus(stripeCfg)
+	issues := stripeBillingIssues(stripeCfg, priceStatus)
 	products := billingProductsFromConfig(stripeCfg)
 	products["projectQuotaDays"] = s.projectQuotaDays(r.Context())
 	products["productionProjectDays"] = s.productionProjectDays(r.Context())
@@ -209,6 +222,133 @@ func (s *Server) handleAdminBillingHealth(w http.ResponseWriter, r *http.Request
 			"recentPayments": payments,
 		},
 	})
+}
+
+func stripePriceStatus(stripeCfg map[string]string) map[string]bool {
+	return map[string]bool{
+		"oneHour":           strings.TrimSpace(stripeCfg["price_1_hour"]) != "",
+		"tenHours":          strings.TrimSpace(stripeCfg["price_10_hours"]) != "",
+		"hundredHours":      strings.TrimSpace(stripeCfg["price_100_hours"]) != "",
+		"projectQuota":      strings.TrimSpace(stripeCfg["project_quota_price"]) != "",
+		"productionProject": strings.TrimSpace(stripeCfg["production_project_price"]) != "",
+	}
+}
+
+func stripeBillingIssues(stripeCfg map[string]string, priceStatus map[string]bool) []string {
+	issues := []string{}
+	if strings.TrimSpace(stripeCfg["secret"]) == "" {
+		issues = append(issues, "stripe_secret_missing")
+	}
+	if strings.TrimSpace(stripeCfg["webhook"]) == "" {
+		issues = append(issues, "stripe_webhook_missing")
+	}
+	if !priceStatus["oneHour"] && !priceStatus["tenHours"] && !priceStatus["hundredHours"] {
+		issues = append(issues, "stripe_hour_prices_missing")
+	}
+	if !priceStatus["projectQuota"] {
+		issues = append(issues, "stripe_project_quota_price_missing")
+	}
+	if !priceStatus["productionProject"] {
+		issues = append(issues, "stripe_production_project_price_missing")
+	}
+	return issues
+}
+
+func (s *Server) adminReadiness(cfg map[string]string, pool []AgentPoolOption, poolHealth []AgentPoolHealth) AdminReadiness {
+	stripeCfg := stripeConfigFromMap(cfg)
+	priceStatus := stripePriceStatus(stripeCfg)
+	checks := []AdminReadinessCheck{}
+	addAdminReadinessCheck(&checks, "stripe_secret", "blocker", strings.TrimSpace(stripeCfg["secret"]) != "", "")
+	addAdminReadinessCheck(&checks, "stripe_webhook", "blocker", strings.TrimSpace(stripeCfg["webhook"]) != "", "")
+	addAdminReadinessCheck(&checks, "stripe_hour_prices", "blocker", priceStatus["oneHour"] || priceStatus["tenHours"] || priceStatus["hundredHours"], "")
+	addAdminReadinessCheck(&checks, "stripe_project_quota_price", "blocker", priceStatus["projectQuota"], "")
+	addAdminReadinessCheck(&checks, "stripe_production_project_price", "blocker", priceStatus["productionProject"], "")
+	addAdminReadinessCheck(&checks, "fibe_template_version", "blocker", strings.TrimSpace(cfg["fibe_template_version_id"]) != "", "")
+	activePoolCount := 0
+	for _, option := range pool {
+		if strings.TrimSpace(option.Status) == fibe.AssignmentStatusActive {
+			activePoolCount++
+		}
+	}
+	addAdminReadinessCheck(&checks, "fibe_active_pool", "blocker", activePoolCount > 0, "")
+	healthyActivePool, activePoolDetail := activePoolReadiness(poolHealth, activePoolCount)
+	addAdminReadinessCheck(&checks, "fibe_active_pool_health", "blocker", healthyActivePool, activePoolDetail)
+	addAdminReadinessCheck(&checks, "google_oauth", "blocker", strings.TrimSpace(cfg["google_client_id"]) != "" && strings.TrimSpace(cfg["google_client_secret"]) != "", "")
+	addAdminReadinessCheck(&checks, "smtp_delivery", "warning", strings.TrimSpace(cfg["smtp_host"]) != "" && strings.TrimSpace(cfg["smtp_from_email"]) != "", "")
+	signupMode := strings.TrimSpace(cfg["signup_mode"])
+	if signupMode == "" {
+		signupMode = "forbidden"
+	}
+	addAdminReadinessCheck(&checks, "signup_enabled", "warning", signupMode != "forbidden", signupMode)
+
+	readiness := AdminReadiness{
+		CheckedAt: time.Now().UTC().Format(time.RFC3339Nano),
+		Checks:    checks,
+		Ready:     true,
+	}
+	for _, check := range checks {
+		if check.OK {
+			continue
+		}
+		if check.Severity == "warning" {
+			readiness.WarningCount++
+			continue
+		}
+		readiness.BlockerCount++
+		readiness.Ready = false
+	}
+	return readiness
+}
+
+func addAdminReadinessCheck(checks *[]AdminReadinessCheck, key, severity string, ok bool, detail string) {
+	*checks = append(*checks, AdminReadinessCheck{
+		Key:      key,
+		OK:       ok,
+		Severity: severity,
+		Detail:   strings.TrimSpace(detail),
+	})
+}
+
+func activeAdminPoolOptions(pool []AgentPoolOption) []AgentPoolOption {
+	active := []AgentPoolOption{}
+	for _, option := range pool {
+		if strings.TrimSpace(option.Status) == fibe.AssignmentStatusActive {
+			active = append(active, option)
+		}
+	}
+	return active
+}
+
+func activePoolReadiness(poolHealth []AgentPoolHealth, activePoolCount int) (bool, string) {
+	if activePoolCount == 0 {
+		return false, "no active agent/server pairs configured"
+	}
+	failures := []string{}
+	for _, health := range poolHealth {
+		if strings.TrimSpace(health.Status) != fibe.AssignmentStatusActive {
+			continue
+		}
+		pair := readinessPoolPairLabel(health.Label, health.AgentID, health.ServerID)
+		if health.OK {
+			return true, pair
+		}
+		if len(health.Problems) > 0 {
+			failures = append(failures, pair+": "+strings.Join(health.Problems, "; "))
+		} else {
+			failures = append(failures, pair)
+		}
+	}
+	if len(failures) == 0 {
+		return false, "active agent/server pairs did not return health"
+	}
+	return false, strings.Join(failures, " | ")
+}
+
+func readinessPoolPairLabel(label, agentID, serverID string) string {
+	if strings.TrimSpace(label) != "" {
+		return strings.TrimSpace(label)
+	}
+	return strings.TrimSpace(agentID) + "/" + strings.TrimSpace(serverID)
 }
 
 type adminRecoveryProject struct {

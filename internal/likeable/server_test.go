@@ -5466,6 +5466,17 @@ func stringSliceContains(values []string, target string) bool {
 	return false
 }
 
+func readinessCheck(t *testing.T, readiness AdminReadiness, key string) AdminReadinessCheck {
+	t.Helper()
+	for _, check := range readiness.Checks {
+		if check.Key == key {
+			return check
+		}
+	}
+	t.Fatalf("readiness checks=%+v, want key %q", readiness.Checks, key)
+	return AdminReadinessCheck{}
+}
+
 func TestSignupPolicyDefaultsClosedButAllowsAdminExistingAndAllowlist(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {
@@ -5699,6 +5710,118 @@ func TestAdminConfigIncludesAgentPoolHealth(t *testing.T) {
 	}
 	if !stringSliceContains(body.AgentPoolHealth[0].Problems, "server runtime is not funded") {
 		t.Fatalf("problems=%+v, want runtime funding problem", body.AgentPoolHealth[0].Problems)
+	}
+}
+
+func TestAdminReadinessReportsLaunchBlockers(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test", AdminEmail: "admin@example.com"}, http: http.DefaultClient}
+	admin, err := store.UpsertUser(t.Context(), "admin@example.com", "Admin", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateSession(t.Context(), admin.ID, "admin-readiness-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/readiness", nil)
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "admin-readiness-token"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("admin readiness returned %d: %s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Readiness AdminReadiness `json:"readiness"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Readiness.Ready || body.Readiness.BlockerCount == 0 {
+		t.Fatalf("readiness=%+v, want launch blockers", body.Readiness)
+	}
+	if check := readinessCheck(t, body.Readiness, "stripe_production_project_price"); check.OK || check.Severity != "blocker" {
+		t.Fatalf("production price check=%+v, want blocking failure", check)
+	}
+	if check := readinessCheck(t, body.Readiness, "fibe_active_pool"); check.OK || check.Severity != "blocker" {
+		t.Fatalf("active pool check=%+v, want blocking failure", check)
+	}
+	if check := readinessCheck(t, body.Readiness, "fibe_active_pool_health"); check.OK || !strings.Contains(check.Detail, "no active") {
+		t.Fatalf("active pool health check=%+v, want no active detail", check)
+	}
+	if check := readinessCheck(t, body.Readiness, "signup_enabled"); check.OK || check.Severity != "warning" {
+		t.Fatalf("signup check=%+v, want warning failure", check)
+	}
+}
+
+func TestAdminReadinessPassesWithProductionConfig(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	fibeServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method + " " + r.URL.Path {
+		case http.MethodGet + " /api/agents/agent-ready":
+			writeJSONResponse(t, w, map[string]any{"id": 1, "status": "authenticated", "authenticated": true})
+		case http.MethodGet + " /api/marquees/server-ready":
+			writeJSONResponse(t, w, map[string]any{"id": 1, "status": "active", "billing_runtime_active": true, "chat_launchable": true})
+		default:
+			t.Fatalf("unexpected Fibe request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer fibeServer.Close()
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test", AdminEmail: "admin@example.com"}, http: fibeServer.Client()}
+	admin, err := store.UpsertUser(t.Context(), "admin@example.com", "Admin", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateSession(t.Context(), admin.ID, "admin-readiness-ready-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"stripe_secret_key":                  "sk_test_ready",
+		"stripe_webhook_secret":              "whsec_ready",
+		"stripe_price_id_10_hours":           "price_hours",
+		"stripe_project_quota_price_id":      "price_project_quota",
+		"stripe_production_project_price_id": "price_production_project",
+		"fibe_base_url":                      fibeServer.URL,
+		"fibe_api_key":                       "test-key",
+		"fibe_template_version_id":           "template-ready",
+		"fibe_agent_server_pool":             `[{"label":"Main","agent_id":"agent-ready","server_id":"server-ready","status":"active"}]`,
+		"google_client_id":                   "google-client",
+		"google_client_secret":               "google-secret",
+		"smtp_host":                          "smtp.example.test",
+		"smtp_from_email":                    "support@example.test",
+		"signup_mode":                        "allowlist",
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/readiness", nil)
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "admin-readiness-ready-token"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("admin readiness returned %d: %s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Readiness AdminReadiness `json:"readiness"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.Readiness.Ready || body.Readiness.BlockerCount != 0 || body.Readiness.WarningCount != 0 {
+		t.Fatalf("readiness=%+v, want ready with no blockers or warnings", body.Readiness)
+	}
+	if check := readinessCheck(t, body.Readiness, "fibe_active_pool_health"); !check.OK || check.Detail != "Main" {
+		t.Fatalf("active pool health check=%+v, want healthy Main detail", check)
 	}
 }
 

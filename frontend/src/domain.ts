@@ -81,6 +81,9 @@ export type AdminBillingHealth = {
   recentPayments: AdminBillingPayment[];
 };
 export type AdminBillingHealthResponse = { health: AdminBillingHealth };
+export type AdminReadinessCheck = { key: string; ok: boolean; severity: 'blocker' | 'warning' | string; detail?: string };
+export type AdminReadiness = { checkedAt: string; ready: boolean; blockerCount: number; warningCount: number; checks: AdminReadinessCheck[] };
+export type AdminReadinessResponse = { readiness: AdminReadiness };
 export type AppDialogConfig = {
   title: string;
   body: string;

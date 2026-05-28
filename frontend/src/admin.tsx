@@ -4,7 +4,7 @@ import { cleanPoolRows, makePoolRow, parsePoolRows } from './admin_pool';
 import { api } from './api';
 import { AppDialog, Metric } from './builder_components';
 import { ADMIN_CONFIG_SECTIONS } from './config';
-import type { AdminBillingHealth, AdminBillingHealthResponse, AdminConfigEntry, AdminConfigResponse, AdminProjectDiagnostics, AdminProjectDiagnosticsResponse, AdminProjectSummary, AdminRecoveryResponse, AdminUserDetail, AdminUserSummary, AdminUsersResponse, AgentAssignmentSummary, AgentPoolHealth, AgentPoolOption, AgentPoolStat, AppDialogConfig, PoolRow } from './domain';
+import type { AdminBillingHealth, AdminBillingHealthResponse, AdminConfigEntry, AdminConfigResponse, AdminProjectDiagnostics, AdminProjectDiagnosticsResponse, AdminProjectSummary, AdminReadiness, AdminReadinessResponse, AdminRecoveryResponse, AdminUserDetail, AdminUserSummary, AdminUsersResponse, AgentAssignmentSummary, AgentPoolHealth, AgentPoolOption, AgentPoolStat, AppDialogConfig, PoolRow } from './domain';
 import { formatBillingDuration, formatMessageTime, formatShortDate, userInitials } from './format';
 import { resetCountdownLabels, statusLabel, TranslationKey, useDocumentTitle, useI18n } from './i18n';
 
@@ -820,6 +820,85 @@ function AdminBillingHealthPanel() {
   );
 }
 
+function readinessCheckLabel(key: string, t: (key: TranslationKey, params?: Record<string, string | number>) => string): string {
+  const keys: Record<string, TranslationKey> = {
+    stripe_secret: 'admin.readiness.check.stripeSecret',
+    stripe_webhook: 'admin.readiness.check.stripeWebhook',
+    stripe_hour_prices: 'admin.readiness.check.hourPrices',
+    stripe_project_quota_price: 'admin.readiness.check.projectQuotaPrice',
+    stripe_production_project_price: 'admin.readiness.check.productionProjectPrice',
+    fibe_template_version: 'admin.readiness.check.fibeTemplate',
+    fibe_active_pool: 'admin.readiness.check.activePool',
+    fibe_active_pool_health: 'admin.readiness.check.activePoolHealth',
+    google_oauth: 'admin.readiness.check.googleOauth',
+    smtp_delivery: 'admin.readiness.check.smtp',
+    signup_enabled: 'admin.readiness.check.signup'
+  };
+  const labelKey = keys[key];
+  return labelKey ? t(labelKey) : t('admin.readiness.check.unknown', { key });
+}
+
+function AdminReadinessPanel() {
+  const { locale, t } = useI18n();
+  const [readiness, setReadiness] = useState<AdminReadiness | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const load = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const response = await api<AdminReadinessResponse>('/api/admin/readiness');
+      setReadiness(response.readiness);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('admin.readiness.loadFailed'));
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => {
+    void load();
+  }, []);
+  const failedChecks = readiness?.checks.filter((check) => !check.ok) ?? [];
+  return (
+    <section className="adminCard">
+      <div className="adminCardHeader withAction">
+        <div>
+          <h3>{t('admin.readiness.title')}</h3>
+          <p>{t('admin.readiness.body')}</p>
+        </div>
+        <button className="ghostButton" type="button" disabled={loading} onClick={() => void load()}>
+          {loading ? <Loader2 className="spinIcon" size={15} /> : <RefreshCw size={15} />}
+          {t('admin.readiness.refresh')}
+        </button>
+      </div>
+      {error && <div className="adminError inlineAdminError">{error}</div>}
+      <div className="customerMetricGrid">
+        <Metric label={t('admin.readiness.status')} value={readiness ? (readiness.ready ? t('admin.readiness.ready') : t('admin.readiness.blocked')) : '—'} />
+        <Metric label={t('admin.readiness.blockers')} value={String(readiness?.blockerCount ?? 0)} />
+        <Metric label={t('admin.readiness.warnings')} value={String(readiness?.warningCount ?? 0)} />
+        <Metric label={t('admin.readiness.checkedAt')} value={readiness?.checkedAt ? formatMessageTime(readiness.checkedAt, locale) : '—'} />
+      </div>
+      {readiness && (
+        failedChecks.length === 0 ? (
+          <div className="emptyPool">{t('admin.readiness.noIssues')}</div>
+        ) : (
+          <div className="recoveryList">
+            {failedChecks.map((check) => (
+              <div className={`recoveryRow ${check.severity === 'warning' ? 'waiting' : 'failed'}`} key={check.key}>
+                <span>
+                  <strong>{readinessCheckLabel(check.key, t)}</strong>
+                  <em>{check.detail || (check.severity === 'warning' ? t('admin.readiness.warning') : t('admin.readiness.blocker'))}</em>
+                </span>
+                <code>{check.key}</code>
+              </div>
+            ))}
+          </div>
+        )
+      )}
+    </section>
+  );
+}
+
 function adminConfigLabel(key: string, t: (key: TranslationKey) => string): string {
   const labelKeys: Record<string, TranslationKey> = {
     github_client_id: 'admin.config.github_client_id',
@@ -979,6 +1058,7 @@ export function Admin() {
       <div className="adminStack">
         <AdminCustomersPanel />
         <AdminBillingHealthPanel />
+        <AdminReadinessPanel />
 
         <section className="adminCard recoveryCard">
           <div className="adminCardHeader withAction">
