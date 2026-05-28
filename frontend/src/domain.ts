@@ -1,7 +1,7 @@
 export type User = { id: string; email: string; name: string; avatarUrl: string; accessStatus?: string; accessNote?: string };
 export type ProjectRepository = { id: string; role: string; sourceRepoUrl?: string; provider?: string; serviceNames?: string[]; createdAt?: string };
 export type ProjectService = { id: string; name: string; url: string; type?: string; visibility?: string; authRequired?: boolean; createdAt?: string };
-export type Project = { id: string; title: string; previewUrl?: string; selectedServiceName?: string; repositories?: ProjectRepository[]; services?: ProjectService[]; status: string; errorMessage?: string; playgroundLastUsedAt?: string; playgroundIdleStopAt?: string; productionExpiresAt?: string; customDomain?: string; customDomainStatus?: string; customDomainTarget?: string; customDomainUpdatedAt?: string; createdAt: string; updatedAt: string };
+export type Project = { id: string; title: string; previewUrl?: string; selectedServiceName?: string; repositories?: ProjectRepository[]; services?: ProjectService[]; status: string; errorMessage?: string; playgroundLastUsedAt?: string; playgroundIdleStopAt?: string; createdAt: string; updatedAt: string };
 export type HourQuota = { usedMs: number; limitMs: number; remainingMs: number; paidRemainingMs?: number; lifetimeUsedMs?: number; resetsAt?: string; windowHours?: number };
 export type ProjectQuota = { used: number; limit: number; remaining: number; baseLimit: number; paidSlots: number; nextExpiresAt?: string };
 export type BillingProducts = { hourPacks: number[]; projectQuota: boolean; projectQuotaDays?: number };
@@ -66,7 +66,7 @@ export type AdminProjectSummary = { project: Project; workMs: number; assignment
 export type AdminUserDetail = { summary: AdminUserSummary; projects: AdminProjectSummary[]; notices: UserNotice[]; agentPool?: AgentPoolOption[] };
 export type AdminUsersResponse = { users: AdminUserSummary[]; agentPool?: AgentPoolOption[]; pagination: { page: number; perPage: number; total: number } };
 export type AdminBillingPayment = { id: string; userId: string; userEmail: string; providerPaymentId: string; amountCents: number; currency: string; status: string; createdAt: string };
-export type AdminProjectInternal = { userId: string; conversationId?: string; agentId?: string; serverId?: string; playgroundId?: string; playgroundName?: string; playspecId?: string; propId?: string; repoUrl?: string; provisioningLockUntil?: string; internalErrorMessage?: string; cleanupLastError?: string; productionRuntimeStatus?: string; productionRuntimeMessage?: string; productionRuntimeBlockedAt?: string };
+export type AdminProjectInternal = { userId: string; conversationId?: string; agentId?: string; serverId?: string; playgroundId?: string; playgroundName?: string; playspecId?: string; propId?: string; repoUrl?: string; provisioningLockUntil?: string; internalErrorMessage?: string; cleanupLastError?: string };
 export type AdminProjectWorkSession = { projectId: string; userId: string; sessionKey: string; startedAt: string; completedAt?: string; elapsedMs: number; freeBilledMs: number; paidBilledMs: number; billedAt?: string; createdAt: string; updatedAt: string };
 export type AdminHourCreditLedgerEntry = { id: string; userId: string; deltaMs: number; reason: string; paymentId?: string; workSessionKey?: string; createdAt: string };
 export type AdminProjectDiagnostics = { project: Project; internal: AdminProjectInternal; workSessions: AdminProjectWorkSession[]; hourLedger: AdminHourCreditLedgerEntry[]; payments: AdminBillingPayment[] };

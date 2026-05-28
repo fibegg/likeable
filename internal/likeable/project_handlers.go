@@ -7,9 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"net"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -414,126 +412,6 @@ func (s *Server) handleProjectDomain(w http.ResponseWriter, r *http.Request, use
 
 func (s *Server) handleProjectDomainVerify(w http.ResponseWriter, r *http.Request, user *User, project *Project) {
 	writeError(w, http.StatusGone, "custom domains are managed in Fibe")
-}
-
-func normalizeProjectCustomDomain(value string) (string, error) {
-	value = strings.ToLower(strings.TrimSpace(value))
-	if value == "" {
-		return "", errors.New("custom domain is required")
-	}
-	if strings.Contains(value, "://") {
-		parsed, err := url.Parse(value)
-		if err != nil || parsed.Hostname() == "" {
-			return "", errors.New("custom domain must be a valid hostname")
-		}
-		if parsed.User != nil || parsed.Port() != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
-			return "", errors.New("custom domain must be a hostname without user info, path, port, query, or fragment")
-		}
-		if parsed.Path != "" && parsed.Path != "/" {
-			return "", errors.New("custom domain must not include a path")
-		}
-		value = parsed.Hostname()
-	}
-	value = strings.Trim(value, ".")
-	if strings.ContainsAny(value, "/:?#[]@") || strings.Contains(value, "*") {
-		return "", errors.New("custom domain must be a hostname without path, port, or wildcard")
-	}
-	if len(value) > 253 || !strings.Contains(value, ".") {
-		return "", errors.New("custom domain must be a fully qualified hostname")
-	}
-	labels := strings.Split(value, ".")
-	for _, label := range labels {
-		if label == "" || len(label) > 63 || strings.HasPrefix(label, "-") || strings.HasSuffix(label, "-") {
-			return "", errors.New("custom domain contains an invalid label")
-		}
-		for _, r := range label {
-			if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-' {
-				return "", errors.New("custom domain must use DNS-safe ASCII labels")
-			}
-		}
-	}
-	if allDigits(labels[len(labels)-1]) {
-		return "", errors.New("custom domain top-level label must not be numeric")
-	}
-	return value, nil
-}
-
-func allDigits(value string) bool {
-	if value == "" {
-		return false
-	}
-	for _, r := range value {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return true
-}
-
-func projectCustomDomainTarget(project *Project) string {
-	if project == nil {
-		return ""
-	}
-	selected := strings.TrimSpace(project.SelectedService)
-	for _, service := range project.Services {
-		if selected != "" && service.Name != selected {
-			continue
-		}
-		if target := projectURLHost(service.URL); target != "" {
-			return target
-		}
-	}
-	if target := projectURLHost(project.PreviewURL); target != "" {
-		return target
-	}
-	for _, service := range project.Services {
-		if target := projectURLHost(service.URL); target != "" {
-			return target
-		}
-	}
-	return ""
-}
-
-func projectCustomDomainServiceName(project *Project) string {
-	if project == nil {
-		return ""
-	}
-	selected := strings.TrimSpace(project.SelectedService)
-	if selected != "" {
-		for _, service := range project.Services {
-			if service.Name == selected && projectURLHost(service.URL) != "" {
-				return selected
-			}
-		}
-		if project.PreviewURL != "" {
-			return selected
-		}
-	}
-	for _, service := range project.Services {
-		if strings.TrimSpace(service.Name) != "" && projectURLHost(service.URL) != "" {
-			return strings.TrimSpace(service.Name)
-		}
-	}
-	if project.PreviewURL != "" {
-		return firstNonEmpty(selected, "app")
-	}
-	return selected
-}
-
-func projectURLHost(rawURL string) string {
-	rawURL = strings.TrimSpace(rawURL)
-	if rawURL == "" {
-		return ""
-	}
-	if parsed, err := url.Parse(rawURL); err == nil && parsed.Host != "" {
-		return parsed.Hostname()
-	}
-	rawURL = strings.TrimPrefix(strings.TrimPrefix(rawURL, "https://"), "http://")
-	host := strings.Split(rawURL, "/")[0]
-	if withoutPort, _, err := net.SplitHostPort(host); err == nil && withoutPort != "" {
-		return strings.Trim(withoutPort, "[]")
-	}
-	return host
 }
 
 func (s *Server) handleProjectFeed(w http.ResponseWriter, r *http.Request, user *User, project *Project) {

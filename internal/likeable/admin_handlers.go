@@ -736,7 +736,6 @@ func (s *Server) handleAdminUserProjectDiagnostics(w http.ResponseWriter, r *htt
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.decorateAdminProjectRuntimeDiagnostics(r.Context(), diagnostics)
 	writeJSON(w, http.StatusOK, map[string]any{"diagnostics": diagnostics})
 }
 
@@ -746,38 +745,6 @@ func (s *Server) handleAdminUserProjectProductionGrant(w http.ResponseWriter, r 
 
 func (s *Server) handleAdminUserProjectProductionStart(w http.ResponseWriter, r *http.Request, userID, projectID string) {
 	writeError(w, http.StatusGone, "production hosting is handled in Fibe")
-}
-
-func (s *Server) decorateAdminProjectRuntimeDiagnostics(ctx context.Context, diagnostics *AdminProjectDiagnostics) {
-	if diagnostics == nil || strings.TrimSpace(diagnostics.Project.ProductionExpiresAt) == "" {
-		return
-	}
-	switch diagnostics.Project.Status {
-	case "ready":
-		diagnostics.Internal.ProductionRuntimeStatus = "running"
-	case "creating", "launching":
-		diagnostics.Internal.ProductionRuntimeStatus = "starting"
-	case "stopped":
-		diagnostics.Internal.ProductionRuntimeStatus = "stopped"
-	default:
-		diagnostics.Internal.ProductionRuntimeStatus = diagnostics.Project.Status
-	}
-	if diagnostics.Project.Status != "stopped" {
-		return
-	}
-	notices, err := s.store.NoticesForUser(ctx, diagnostics.Project.UserID, 50)
-	if err != nil {
-		return
-	}
-	prefix := "Production runtime paused: " + strconv.Quote(diagnostics.Project.Title)
-	for _, notice := range notices {
-		if notice.Sender == "system" && strings.HasPrefix(notice.Body, prefix) {
-			diagnostics.Internal.ProductionRuntimeStatus = "runtime_billing_required"
-			diagnostics.Internal.ProductionRuntimeMessage = notice.Body
-			diagnostics.Internal.ProductionRuntimeBlockedAt = notice.CreatedAt
-			return
-		}
-	}
 }
 
 func (s *Server) handleAdminUserProjectAssignment(w http.ResponseWriter, r *http.Request, userID, projectID string) {

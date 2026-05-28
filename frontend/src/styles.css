@@ -6027,10 +6027,6 @@ body {
   transition: border-color .16s ease, background .16s ease, box-shadow .16s ease;
 }
 
-.projectRow.domainEditing {
-  flex-wrap: wrap;
-}
-
 .projectRow:hover,
 .projectRow:focus-within,
 .serviceOption:hover,
@@ -6109,12 +6105,6 @@ body {
   text-transform: uppercase;
 }
 
-.projectCurrentBadge.production {
-  border-color: rgba(80, 202, 154, .22);
-  background: rgba(80, 202, 154, .1);
-  color: #7ee0b9;
-}
-
 .projectSelectMeta {
   width: 100%;
   min-width: 0;
@@ -6174,64 +6164,6 @@ body {
 
 .projectSelectDetail.error {
   color: var(--danger);
-}
-
-.projectSelectDetail.production {
-  color: #7ee0b9;
-}
-
-.projectDomainForm {
-  flex: 1 0 calc(100% - 42px);
-  margin-left: 38px;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px;
-  border: 1px solid rgba(80, 202, 154, .2);
-  border-radius: 10px;
-  background: rgba(80, 202, 154, .06);
-}
-
-.projectDomainForm > svg {
-  flex: 0 0 auto;
-  color: #7ee0b9;
-}
-
-.projectDomainForm input {
-  flex: 1 1 auto;
-  min-width: 0;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: var(--text-primary);
-  font-size: 12px;
-  font-weight: 650;
-}
-
-.projectDomainForm button {
-  min-height: 28px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  background: rgba(4, 12, 16, .55);
-  color: var(--text-secondary);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 0 9px;
-  font-size: 11px;
-  font-weight: 760;
-}
-
-.projectDomainForm button:hover {
-  border-color: rgba(80, 202, 154, .3);
-  color: #7ee0b9;
-}
-
-.projectDomainForm button:disabled {
-  opacity: .48;
-  cursor: not-allowed;
 }
 
 .projectSelectDetail.archived,

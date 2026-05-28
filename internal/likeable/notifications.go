@@ -156,37 +156,6 @@ func (s *Server) notifyProjectQuotaPurchased(ctx context.Context, userID string,
 	s.addSystemNoticeAndEmail(ctx, user, "info", body, "Likeable project quota added", body+"\n\nManage projects:\n"+s.profileURL())
 }
 
-func (s *Server) notifyProductionProjectPurchased(ctx context.Context, userID, projectID string, expiresAt time.Time) {
-	user, err := s.store.UserByID(ctx, userID)
-	if err != nil {
-		log.Printf("load user for production project purchase notice %s: %v", userID, err)
-		return
-	}
-	project, err := s.store.ProjectForUser(ctx, userID, projectID)
-	if err != nil {
-		log.Printf("load project for production project purchase notice %s/%s: %v", userID, projectID, err)
-		return
-	}
-	body := fmt.Sprintf("Production project enabled: %q will stay online until %s. Use the project menu for CNAME instructions.", project.Title, expiresAt.UTC().Format("2006-01-02 15:04 UTC"))
-	s.addSystemNoticeAndEmail(ctx, user, "info", body, "Likeable production project enabled", body+"\n\nOpen Likeable:\n"+s.config.BaseURL)
-}
-
-func (s *Server) notifyProductionProjectStartBlocked(ctx context.Context, user *User, project *Project) {
-	if user == nil || project == nil {
-		return
-	}
-	prefix := fmt.Sprintf("Production runtime paused: %q", project.Title)
-	exists, err := s.store.NoticeExistsSince(ctx, user.ID, "system", prefix, time.Now().UTC().Add(-24*time.Hour))
-	if err == nil && exists {
-		return
-	}
-	if err != nil {
-		log.Printf("production runtime notice dedupe for %s project=%s: %v", user.Email, project.ID, err)
-	}
-	body := prefix + " has an active production grant, but the linked Fibe runtime is not funded yet. Support must fund the runtime, then Likeable will retry starting it automatically."
-	s.addSystemNoticeAndEmail(ctx, user, "warning", body, "Likeable production runtime paused", body+"\n\nOpen Likeable:\n"+s.config.BaseURL)
-}
-
 func (s *Server) notifyProjectExportReady(ctx context.Context, user *User, project *Project, repoURL string) {
 	if user == nil || project == nil || strings.TrimSpace(repoURL) == "" {
 		return

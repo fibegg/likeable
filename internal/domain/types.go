@@ -7,12 +7,6 @@ import (
 
 const DefaultPlaygroundIdleStopAfter = 8 * time.Hour
 
-const (
-	ProjectDomainStatusPendingDNS  = "pending_dns"
-	ProjectDomainStatusDNSVerified = "dns_verified"
-	ProjectDomainStatusActive      = "active"
-)
-
 type User struct {
 	ID           string `json:"id"`
 	Email        string `json:"email"`
@@ -45,22 +39,13 @@ type Project struct {
 	CleanupLastError      string              `json:"-"`
 	PlaygroundLastUsedAt  string              `json:"playgroundLastUsedAt,omitempty"`
 	PlaygroundIdleStopAt  string              `json:"playgroundIdleStopAt,omitempty"`
-	ProductionExpiresAt   string              `json:"productionExpiresAt,omitempty"`
-	CustomDomain          string              `json:"customDomain,omitempty"`
-	CustomDomainStatus    string              `json:"customDomainStatus,omitempty"`
-	CustomDomainTarget    string              `json:"customDomainTarget,omitempty"`
-	CustomDomainUpdatedAt string              `json:"customDomainUpdatedAt,omitempty"`
+	ProductionExpiresAt   string              `json:"-"`
+	CustomDomain          string              `json:"-"`
+	CustomDomainStatus    string              `json:"-"`
+	CustomDomainTarget    string              `json:"-"`
+	CustomDomainUpdatedAt string              `json:"-"`
 	CreatedAt             string              `json:"createdAt"`
 	UpdatedAt             string              `json:"updatedAt"`
-}
-
-type ProjectDomain struct {
-	ProjectID string
-	UserID    string
-	Domain    string
-	Target    string
-	Status    string
-	UpdatedAt string
 }
 
 func (p *Project) RefreshComputedFields() {
@@ -299,21 +284,18 @@ type AdminHourCreditLedgerEntry struct {
 }
 
 type AdminProjectInternal struct {
-	UserID                     string `json:"userId"`
-	ConversationID             string `json:"conversationId,omitempty"`
-	AgentID                    string `json:"agentId,omitempty"`
-	ServerID                   string `json:"serverId,omitempty"`
-	PlaygroundID               string `json:"playgroundId,omitempty"`
-	PlaygroundName             string `json:"playgroundName,omitempty"`
-	PlayspecID                 string `json:"playspecId,omitempty"`
-	PropID                     string `json:"propId,omitempty"`
-	RepoURL                    string `json:"repoUrl,omitempty"`
-	ProvisioningLockUntil      string `json:"provisioningLockUntil,omitempty"`
-	InternalErrorMessage       string `json:"internalErrorMessage,omitempty"`
-	CleanupLastError           string `json:"cleanupLastError,omitempty"`
-	ProductionRuntimeStatus    string `json:"productionRuntimeStatus,omitempty"`
-	ProductionRuntimeMessage   string `json:"productionRuntimeMessage,omitempty"`
-	ProductionRuntimeBlockedAt string `json:"productionRuntimeBlockedAt,omitempty"`
+	UserID                string `json:"userId"`
+	ConversationID        string `json:"conversationId,omitempty"`
+	AgentID               string `json:"agentId,omitempty"`
+	ServerID              string `json:"serverId,omitempty"`
+	PlaygroundID          string `json:"playgroundId,omitempty"`
+	PlaygroundName        string `json:"playgroundName,omitempty"`
+	PlayspecID            string `json:"playspecId,omitempty"`
+	PropID                string `json:"propId,omitempty"`
+	RepoURL               string `json:"repoUrl,omitempty"`
+	ProvisioningLockUntil string `json:"provisioningLockUntil,omitempty"`
+	InternalErrorMessage  string `json:"internalErrorMessage,omitempty"`
+	CleanupLastError      string `json:"cleanupLastError,omitempty"`
 }
 
 type AdminProjectDiagnostics struct {

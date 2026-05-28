@@ -29,7 +29,6 @@ type Server struct {
 	cleanupSlots    chan struct{}
 	email           emailSender
 	jobs            *JobSystem
-	domainDNS       customDomainResolver
 	limiter         *RateLimiter
 	limiterOnce     sync.Once
 	platform        platformBackoffState

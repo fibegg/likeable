@@ -4178,30 +4178,6 @@ func TestProjectCustomDomainEndpointsAreDisabled(t *testing.T) {
 	}
 }
 
-func TestProjectCustomDomainRejectsInvalidHostnames(t *testing.T) {
-	for _, raw := range []string{
-		"",
-		"https://app.example.com/path",
-		"https://app.example.com:8443/",
-		"https://app.example.com/?preview=true",
-		"https://user@app.example.com/",
-		"*.example.com",
-		"localhost",
-		"app.example.123",
-		"арр.example.com",
-		"-app.example.com",
-		"app-.example.com",
-		"app.example.com:8443",
-		"app..example.com",
-	} {
-		t.Run(raw, func(t *testing.T) {
-			if domain, err := normalizeProjectCustomDomain(raw); err == nil {
-				t.Fatalf("domain=%q, want validation error for %q", domain, raw)
-			}
-		})
-	}
-}
-
 func TestProjectPassiveActionsDoNotTouchPlaygroundUsage(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {
@@ -6600,9 +6576,6 @@ func TestAdminProjectDiagnosticsExposeSupportContext(t *testing.T) {
 	if err := appStore.ReplaceProjectResources(t.Context(), project.ID, []store.ProjectRepository{{Role: "source", SourceRepoURL: "https://github.test/source/repo", Provider: "github"}}, []store.ProjectService{{Name: "app", URL: "https://app.test", Type: "dynamic", Visibility: "external"}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := appStore.UpsertProjectDomain(t.Context(), user.ID, project.ID, "app.customer.example", "app.test"); err != nil {
-		t.Fatal(err)
-	}
 	if err := appStore.UpsertPayment(t.Context(), store.Payment{ID: "payment-diag", UserID: user.ID, ProviderPaymentID: "cs_diag", AmountCents: 2000, Currency: "usd", Status: "paid", CreatedAt: "2026-05-27T10:00:00Z"}); err != nil {
 		t.Fatal(err)
 	}
@@ -6625,10 +6598,16 @@ func TestAdminProjectDiagnosticsExposeSupportContext(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("diagnostics returned %d: %s", rec.Code, rec.Body.String())
 	}
+	bodyBytes := rec.Body.Bytes()
+	for _, hidden := range []string{"productionExpiresAt", "productionRuntimeStatus", "customDomain", "customDomainStatus", "customDomainTarget"} {
+		if bytes.Contains(bodyBytes, []byte(hidden)) {
+			t.Fatalf("diagnostics response includes hidden legacy field %q: %s", hidden, string(bodyBytes))
+		}
+	}
 	var resp struct {
 		Diagnostics AdminProjectDiagnostics `json:"diagnostics"`
 	}
-	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+	if err := json.Unmarshal(bodyBytes, &resp); err != nil {
 		t.Fatal(err)
 	}
 	if resp.Diagnostics.Internal.ConversationID != "conv-diagnostics" || resp.Diagnostics.Internal.PlaygroundID != "playground-diag" || resp.Diagnostics.Internal.RepoURL != "https://gitea.test/owner/repo.git" {
@@ -6636,9 +6615,6 @@ func TestAdminProjectDiagnosticsExposeSupportContext(t *testing.T) {
 	}
 	if len(resp.Diagnostics.Project.Services) != 1 || resp.Diagnostics.Project.Services[0].URL != "https://app.test" {
 		t.Fatalf("services=%+v, want attached service", resp.Diagnostics.Project.Services)
-	}
-	if resp.Diagnostics.Project.CustomDomain != "app.customer.example" || resp.Diagnostics.Project.CustomDomainTarget != "app.test" {
-		t.Fatalf("project domain=%+v, want custom domain diagnostics", resp.Diagnostics.Project)
 	}
 	if len(resp.Diagnostics.WorkSessions) != 1 || resp.Diagnostics.WorkSessions[0].SessionKey != "turn-diag" {
 		t.Fatalf("work sessions=%+v, want turn", resp.Diagnostics.WorkSessions)
@@ -6707,67 +6683,6 @@ func TestAdminProductionGrantIsDisabled(t *testing.T) {
 	}
 	if len(notices) != 0 {
 		t.Fatalf("notices=%+v, want none", notices)
-	}
-}
-
-func TestProductionProjectStartBlockedByRuntimeBillingNotifiesUser(t *testing.T) {
-	appStore, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer appStore.Close()
-	if err := appStore.UpsertConfig(t.Context(), map[string]string{
-		"fibe_base_url": "server.test:3000",
-		"fibe_api_key":  "test-key",
-	}, secretConfigKeys); err != nil {
-		t.Fatal(err)
-	}
-	user, err := appStore.UpsertUser(t.Context(), "runtime-billing@example.com", "Runtime Billing", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	project := &Project{
-		ID:             "project-runtime-billing",
-		UserID:         user.ID,
-		Title:          "Runtime billing",
-		ConversationID: "conv-runtime-billing",
-		AgentID:        "agent-1",
-		MarqueeID:      "server-1",
-		PlaygroundID:   "playground-runtime-billing",
-		Status:         "stopped",
-	}
-	if err := appStore.CreateProject(t.Context(), project); err != nil {
-		t.Fatal(err)
-	}
-	if granted, err := appStore.GrantProjectProduction(t.Context(), user.ID, project.ID, "cs_runtime_billing", time.Now().UTC().Add(7*24*time.Hour)); err != nil || !granted {
-		t.Fatalf("production grant=%v err=%v, want granted", granted, err)
-	}
-	logPath := filepath.Join(t.TempDir(), "fibe.log")
-	server := &Server{
-		store:  appStore,
-		config: RuntimeConfig{BaseURL: "http://example.test"},
-		http:   fakeFibeHTTPClient(http.DefaultClient, fakeFibeTransportConfig{Mode: "runtime-billing-required", LogPath: logPath}),
-	}
-
-	server.startProductionProjectIfStopped(t.Context(), user.ID, project.ID)
-	server.startProductionProjectIfStopped(t.Context(), user.ID, project.ID)
-
-	stored, err := appStore.ProjectForUser(t.Context(), user.ID, project.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if stored.Status != "stopped" {
-		t.Fatalf("status=%q, want stopped after blocked start", stored.Status)
-	}
-	notices, err := appStore.NoticesForUser(t.Context(), user.ID, 10)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(notices) != 1 || notices[0].Severity != "warning" || !strings.Contains(notices[0].Body, "Production runtime paused") || !strings.Contains(notices[0].Body, "not funded") {
-		t.Fatalf("notices=%+v, want one runtime billing warning", notices)
-	}
-	if log := readFile(t, logPath); strings.Count(log, "playgrounds start playground-runtime-billing") != 2 {
-		t.Fatalf("log=%s, want two start attempts", log)
 	}
 }
 
