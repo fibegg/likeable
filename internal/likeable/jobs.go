@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fibegg/likeable/internal/domain"
 	projecttext "github.com/fibegg/likeable/internal/project"
 	"github.com/hibiken/asynq"
 )
@@ -27,11 +26,8 @@ const projectCleanupLeaseTTL = projectCleanupTaskTimeout + 30*time.Second
 const projectCleanupSweepTimeout = 30 * time.Second
 const projectDeletionSweepInterval = 5 * time.Minute
 const projectDeletionSweepUniqueTTL = 4 * time.Minute
-const projectDomainVerificationSweepUniqueTTL = 50 * time.Minute
-const productionProjectStartSweepUniqueTTL = 30 * time.Minute
 const maxConcurrentProjectCleanup = 1
 const defaultJobWorkerConcurrency = 32
-const idleProjectStopAfter = domain.PlaygroundIdleStopAfter
 
 const (
 	taskProvisionProject             = "likeable:project:provision"
@@ -86,11 +82,11 @@ func newJobSystem(redisOpt asynq.RedisClientOpt, s *Server) *JobSystem {
 	mux.HandleFunc(taskArchiveDeleteProject, s.handleArchiveDeleteProjectTask)
 	mux.HandleFunc(taskStopIdleProjectsSweep, s.handleStopIdleProjectsSweepTask)
 	mux.HandleFunc(taskStopIdleProject, s.handleStopIdleProjectTask)
-	mux.HandleFunc(taskStartProductionProjectsSweep, s.handleStartProductionProjectsSweepTask)
 	mux.HandleFunc(taskMonitorProjectNotifications, s.handleMonitorProjectNotificationsTask)
 	mux.HandleFunc(taskSendEmail, s.handleSendEmailTask)
 	mux.HandleFunc(taskProjectQuotaSweep, s.handleProjectQuotaSweepTask)
 	mux.HandleFunc(taskProjectDomainVerifySweep, s.handleProjectDomainVerifySweepTask)
+	mux.HandleFunc(taskStartProductionProjectsSweep, s.handleStartProductionProjectsSweepTask)
 	server := asynq.NewServer(redisOpt, asynq.Config{
 		Concurrency:     jobWorkerConcurrency(),
 		ShutdownTimeout: 20 * time.Second,
@@ -261,34 +257,6 @@ func (s *Server) enqueueStopIdleProjectsSweep(ctx context.Context, delay time.Du
 	}
 }
 
-func (s *Server) enqueueProjectDomainVerifySweep(ctx context.Context, delay time.Duration) {
-	if s.jobs == nil {
-		return
-	}
-	opts := []asynq.Option{asynq.Queue("low"), asynq.MaxRetry(2), asynq.Timeout(2 * time.Minute), asynq.Unique(projectDomainVerificationSweepUniqueTTL)}
-	if delay > 0 {
-		opts = append(opts, asynq.ProcessIn(delay))
-	}
-	_, err := s.jobs.client.EnqueueContext(ctx, asynq.NewTask(taskProjectDomainVerifySweep, nil), opts...)
-	if err != nil && !errors.Is(err, asynq.ErrDuplicateTask) {
-		log.Printf("enqueue custom domain DNS verification sweep: %v", err)
-	}
-}
-
-func (s *Server) enqueueStartProductionProjectsSweep(ctx context.Context, delay time.Duration) {
-	if s.jobs == nil {
-		return
-	}
-	opts := []asynq.Option{asynq.Queue("low"), asynq.MaxRetry(2), asynq.Timeout(15 * time.Minute), asynq.Unique(productionProjectStartSweepUniqueTTL)}
-	if delay > 0 {
-		opts = append(opts, asynq.ProcessIn(delay))
-	}
-	_, err := s.jobs.client.EnqueueContext(ctx, asynq.NewTask(taskStartProductionProjectsSweep, nil), opts...)
-	if err != nil && !errors.Is(err, asynq.ErrDuplicateTask) {
-		log.Printf("enqueue production playground start sweep: %v", err)
-	}
-}
-
 func (s *Server) startRecurringJobs(ctx context.Context) {
 	if s.jobs == nil {
 		return
@@ -296,8 +264,6 @@ func (s *Server) startRecurringJobs(ctx context.Context) {
 	s.enqueueProjectQuotaSweep(ctx, 0)
 	s.enqueueProjectDeletionSweep(ctx, 0)
 	s.enqueueStopIdleProjectsSweep(ctx, 0)
-	s.enqueueProjectDomainVerifySweep(ctx, 0)
-	s.enqueueStartProductionProjectsSweep(ctx, 0)
 	go func() {
 		hourlyTicker := time.NewTicker(time.Hour)
 		deletionTicker := time.NewTicker(projectDeletionSweepInterval)
@@ -313,8 +279,6 @@ func (s *Server) startRecurringJobs(ctx context.Context) {
 				s.enqueueProjectQuotaSweep(context.Background(), 0)
 				s.enqueueProjectDeletionSweep(context.Background(), 0)
 				s.enqueueStopIdleProjectsSweep(context.Background(), 0)
-				s.enqueueProjectDomainVerifySweep(context.Background(), 0)
-				s.enqueueStartProductionProjectsSweep(context.Background(), 0)
 			}
 		}
 	}()
@@ -652,39 +616,16 @@ func (s *Server) handleProjectQuotaSweepTask(ctx context.Context, _ *asynq.Task)
 }
 
 func (s *Server) handleProjectDomainVerifySweepTask(ctx context.Context, _ *asynq.Task) error {
-	projectDomains, err := s.store.PendingProjectDomains(ctx, 100)
-	if err != nil {
-		return err
-	}
-	for _, projectDomain := range projectDomains {
-		project, err := s.store.ProjectForUser(ctx, projectDomain.UserID, projectDomain.ProjectID)
-		if err != nil {
-			if !errors.Is(err, sql.ErrNoRows) {
-				log.Printf("load custom domain project=%s domain=%s: %v", projectDomain.ProjectID, projectDomain.Domain, err)
-			}
-			continue
-		}
-		if _, err := s.verifyProjectCustomDomain(ctx, project); err != nil {
-			log.Printf("verify custom domain project=%s domain=%s: %v", projectDomain.ProjectID, projectDomain.Domain, err)
-		}
-	}
 	return nil
 }
 
 func (s *Server) handleStartProductionProjectsSweepTask(ctx context.Context, _ *asynq.Task) error {
-	projects, err := s.store.StoppedProductionProjects(ctx, 100)
-	if err != nil {
-		return err
-	}
-	for i := range projects {
-		project := &projects[i]
-		s.startProductionProjectIfStopped(ctx, project.UserID, project.ID)
-	}
 	return nil
 }
 
 func (s *Server) handleStopIdleProjectsSweepTask(ctx context.Context, _ *asynq.Task) error {
-	cutoff := time.Now().UTC().Add(-idleProjectStopAfter)
+	idleStopAfter := s.playgroundIdleStopAfter(ctx)
+	cutoff := time.Now().UTC().Add(-idleStopAfter)
 	projects, err := s.store.IdleProjectsForPlaygroundStop(ctx, cutoff, 100)
 	if err != nil {
 		return err
@@ -698,7 +639,7 @@ func (s *Server) handleStopIdleProjectsSweepTask(ctx context.Context, _ *asynq.T
 			}
 			return err
 		}
-		if err := s.enqueueProjectJob(ctx, taskStopIdleProject, projectJobPayload{UserID: user.ID, UserEmail: user.Email, ProjectID: project.ID, Reason: "idle for 8 hours"}, asynq.Queue("low"), asynq.MaxRetry(6), asynq.Timeout(2*time.Minute), asynq.Unique(30*time.Minute)); err != nil {
+		if err := s.enqueueProjectJob(ctx, taskStopIdleProject, projectJobPayload{UserID: user.ID, UserEmail: user.Email, ProjectID: project.ID, Reason: "idle for " + idleStopAfter.String()}, asynq.Queue("low"), asynq.MaxRetry(6), asynq.Timeout(2*time.Minute), asynq.Unique(30*time.Minute)); err != nil {
 			return err
 		}
 	}
@@ -717,7 +658,8 @@ func (s *Server) handleStopIdleProjectTask(ctx context.Context, task *asynq.Task
 		}
 		return err
 	}
-	idle, skipReason, err := s.store.ProjectIdleForPlaygroundStop(ctx, project.ID, time.Now().UTC().Add(-idleProjectStopAfter))
+	idleStopAfter := s.playgroundIdleStopAfter(ctx)
+	idle, skipReason, err := s.store.ProjectIdleForPlaygroundStop(ctx, project.ID, time.Now().UTC().Add(-idleStopAfter))
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil
@@ -738,7 +680,7 @@ func (s *Server) handleStopIdleProjectTask(ctx context.Context, task *asynq.Task
 		}
 		return err
 	}
-	log.Printf("stop idle playground for project %s: no explicit playground activity for %s", project.ID, idleProjectStopAfter)
+	log.Printf("stop idle playground for project %s: no explicit playground activity for %s", project.ID, idleStopAfter)
 	_, err = s.controlProjectPlayground(ctx, user, project, "stop")
 	return err
 }

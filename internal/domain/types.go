@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-const PlaygroundIdleStopAfter = 8 * time.Hour
+const DefaultPlaygroundIdleStopAfter = 8 * time.Hour
 
 const (
 	ProjectDomainStatusPendingDNS  = "pending_dns"
@@ -64,9 +64,13 @@ type ProjectDomain struct {
 }
 
 func (p *Project) RefreshComputedFields() {
+	p.RefreshComputedFieldsWithIdleStopAfter(DefaultPlaygroundIdleStopAfter)
+}
+
+func (p *Project) RefreshComputedFieldsWithIdleStopAfter(idleStopAfter time.Duration) {
 	p.PlaygroundIdleStopAt = ""
-	if strings.TrimSpace(p.ProductionExpiresAt) != "" {
-		return
+	if idleStopAfter <= 0 {
+		idleStopAfter = DefaultPlaygroundIdleStopAfter
 	}
 	if p.Status != "ready" || strings.TrimSpace(p.PlaygroundLastUsedAt) == "" {
 		return
@@ -75,7 +79,7 @@ func (p *Project) RefreshComputedFields() {
 	if err != nil {
 		return
 	}
-	p.PlaygroundIdleStopAt = lastUsedAt.UTC().Add(PlaygroundIdleStopAfter).Format(time.RFC3339Nano)
+	p.PlaygroundIdleStopAt = lastUsedAt.UTC().Add(idleStopAfter).Format(time.RFC3339Nano)
 }
 
 type ProjectRepository struct {

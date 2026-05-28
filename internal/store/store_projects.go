@@ -612,15 +612,9 @@ func (s *Store) IdleProjectsForPlaygroundStop(ctx context.Context, cutoff time.T
 			projects.selected_service_name, projects.status, projects.error_message, projects.provisioning_lock_until, projects.cleanup_last_error, projects.playground_last_used_at, projects.created_at, projects.updated_at
 		FROM projects
 		WHERE projects.status = 'ready' AND TRIM(projects.playground_id) != '' AND TRIM(projects.playground_last_used_at) != '' AND projects.playground_last_used_at < ?
-			AND NOT EXISTS (
-				SELECT 1
-				FROM project_production_grants
-				WHERE project_production_grants.project_id = projects.id
-					AND project_production_grants.expires_at > ?
-			)
 		ORDER BY projects.playground_last_used_at ASC
 		LIMIT ?
-	`, cutoffString, nowString(), limit)
+	`, cutoffString, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -652,23 +646,16 @@ func (s *Store) IdleProjectsForPlaygroundStop(ctx context.Context, cutoff time.T
 
 func (s *Store) ProjectIdleForPlaygroundStop(ctx context.Context, projectID string, cutoff time.Time) (bool, string, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT projects.status, projects.playground_id, projects.playground_last_used_at,
-			COALESCE((SELECT MAX(project_production_grants.expires_at)
-				FROM project_production_grants
-				WHERE project_production_grants.project_id = projects.id
-					AND project_production_grants.expires_at > ?), '')
+		SELECT projects.status, projects.playground_id, projects.playground_last_used_at
 		FROM projects
 		WHERE projects.id = ?
-	`, nowString(), projectID)
-	var status, playgroundID, lastUsedAt, productionExpiresAt string
-	if err := row.Scan(&status, &playgroundID, &lastUsedAt, &productionExpiresAt); err != nil {
+	`, projectID)
+	var status, playgroundID, lastUsedAt string
+	if err := row.Scan(&status, &playgroundID, &lastUsedAt); err != nil {
 		return false, "", err
 	}
 	if status != "ready" || strings.TrimSpace(playgroundID) == "" {
 		return false, "", nil
-	}
-	if strings.TrimSpace(productionExpiresAt) != "" {
-		return false, "production project active until " + productionExpiresAt, nil
 	}
 	lastUsedAt = strings.TrimSpace(lastUsedAt)
 	if lastUsedAt == "" {

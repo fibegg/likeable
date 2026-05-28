@@ -8,18 +8,18 @@ import (
 )
 
 const (
-	defaultFreeBuildMinutes      = 30
-	maxFreeBuildMinutes          = 24 * 60
-	defaultFreeHourWindowHours   = 5
-	maxFreeHourWindowHours       = 24
-	defaultProjectQuotaDays      = 30
-	maxProjectQuotaDays          = 365
-	defaultProductionProjectDays = 30
-	maxProductionProjectDays     = 365
-	maxPromptImproveChargeMin    = 60
-	freeHourWindow               = time.Duration(defaultFreeHourWindowHours) * time.Hour
-	msPerHour                    = int64(time.Hour / time.Millisecond)
-	msPerMinute                  = int64(time.Minute / time.Millisecond)
+	defaultFreeBuildMinutes        = 30
+	maxFreeBuildMinutes            = 24 * 60
+	defaultFreeHourWindowHours     = 5
+	maxFreeHourWindowHours         = 24
+	defaultPlaygroundIdleStopHours = 8
+	maxPlaygroundIdleStopHours     = 168
+	defaultProjectQuotaDays        = 30
+	maxProjectQuotaDays            = 365
+	maxPromptImproveChargeMin      = 60
+	freeHourWindow                 = time.Duration(defaultFreeHourWindowHours) * time.Hour
+	msPerHour                      = int64(time.Hour / time.Millisecond)
+	msPerMinute                    = int64(time.Minute / time.Millisecond)
 )
 
 func (s *Server) canSendMessage(ctx context.Context, user *User) bool {
@@ -158,6 +158,26 @@ func (s *Server) freeHourWindowHours(ctx context.Context) int {
 	return n
 }
 
+func (s *Server) playgroundIdleStopHours(ctx context.Context) int {
+	cfg, _ := s.store.ConfigMap(ctx)
+	raw := strings.TrimSpace(cfg["playground_idle_stop_hours"])
+	if raw == "" {
+		return defaultPlaygroundIdleStopHours
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		return defaultPlaygroundIdleStopHours
+	}
+	if n > maxPlaygroundIdleStopHours {
+		return maxPlaygroundIdleStopHours
+	}
+	return n
+}
+
+func (s *Server) playgroundIdleStopAfter(ctx context.Context) time.Duration {
+	return time.Duration(s.playgroundIdleStopHours(ctx)) * time.Hour
+}
+
 func (s *Server) promptImproveChargeMinutes(ctx context.Context) int {
 	cfg, _ := s.store.ConfigMap(ctx)
 	raw := strings.TrimSpace(cfg["prompt_improve_charge_minutes"])
@@ -186,22 +206,6 @@ func (s *Server) projectQuotaDays(ctx context.Context) int {
 	}
 	if n > maxProjectQuotaDays {
 		return maxProjectQuotaDays
-	}
-	return n
-}
-
-func (s *Server) productionProjectDays(ctx context.Context) int {
-	cfg, _ := s.store.ConfigMap(ctx)
-	raw := strings.TrimSpace(cfg["production_project_days"])
-	if raw == "" {
-		return defaultProductionProjectDays
-	}
-	n, err := strconv.Atoi(raw)
-	if err != nil || n <= 0 {
-		return defaultProductionProjectDays
-	}
-	if n > maxProductionProjectDays {
-		return maxProductionProjectDays
 	}
 	return n
 }

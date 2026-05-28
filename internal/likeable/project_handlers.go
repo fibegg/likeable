@@ -18,12 +18,9 @@ import (
 )
 
 var (
-	errInvalidPlaygroundAction     = errors.New("invalid playground action")
-	errProjectPlaygroundMissing    = errors.New("project has no playground")
-	errProductionProjectCannotStop = errors.New("production project cannot be stopped")
+	errInvalidPlaygroundAction  = errors.New("invalid playground action")
+	errProjectPlaygroundMissing = errors.New("project has no playground")
 )
-
-const productionRuntimeBillingRequiredMessage = "production runtime is not funded yet; support has been notified and Likeable will retry starting it automatically"
 
 func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 	user := userFromContext(r.Context())
@@ -35,6 +32,7 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		projects = s.refreshProjectListResources(r.Context(), user, projects)
+		s.decorateProjectsComputedFields(r.Context(), projects)
 		s.recoverProjectsAsync(user.ID, user.Email, projects)
 		projectQuota := s.projectQuota(r.Context(), user)
 		writeJSON(w, http.StatusOK, map[string]any{"projects": projects, "projectCap": projectQuota["limit"], "projectQuota": projectQuota})
@@ -69,6 +67,20 @@ func (s *Server) refreshProjectListResources(ctx context.Context, user *User, pr
 		}
 	}
 	return out
+}
+
+func (s *Server) decorateProjectComputedFields(ctx context.Context, project *Project) {
+	if project == nil {
+		return
+	}
+	project.RefreshComputedFieldsWithIdleStopAfter(s.playgroundIdleStopAfter(ctx))
+}
+
+func (s *Server) decorateProjectsComputedFields(ctx context.Context, projects []Project) {
+	idleStopAfter := s.playgroundIdleStopAfter(ctx)
+	for i := range projects {
+		projects[i].RefreshComputedFieldsWithIdleStopAfter(idleStopAfter)
+	}
 }
 
 func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request, user *User) {
@@ -132,6 +144,7 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request, use
 	}
 	s.notifyProjectQuotaIfNeeded(r.Context(), user)
 	created, _ := s.store.ProjectForUser(r.Context(), user.ID, project.ID)
+	s.decorateProjectComputedFields(r.Context(), created)
 	writeJSON(w, http.StatusCreated, map[string]any{"project": created})
 }
 
@@ -152,6 +165,7 @@ func (s *Server) handleProjectRoute(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
 			s.recoverProjectAsync(user.ID, user.Email, project)
+			s.decorateProjectComputedFields(r.Context(), project)
 			writeJSON(w, http.StatusOK, map[string]any{"project": project})
 		case http.MethodPatch:
 			s.handleProjectUpdate(w, r, user, project)
@@ -244,12 +258,14 @@ func (s *Server) handleProjectUpdate(w http.ResponseWriter, r *http.Request, use
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.decorateProjectComputedFields(r.Context(), updated)
 	writeJSON(w, http.StatusOK, map[string]any{"project": updated})
 }
 
 func (s *Server) handleProjectDelete(w http.ResponseWriter, r *http.Request, user *User, project *Project) {
 	if project.Status == "deleting" {
 		s.deleteProjectResourcesAsync(user.ID, user.Email, project)
+		s.decorateProjectComputedFields(r.Context(), project)
 		writeJSON(w, http.StatusAccepted, map[string]any{"project": project})
 		return
 	}
@@ -260,6 +276,7 @@ func (s *Server) handleProjectDelete(w http.ResponseWriter, r *http.Request, use
 	project.Status = "deleting"
 	s.notifyProjectDeletionScheduled(r.Context(), user, project)
 	s.deleteProjectResourcesAsync(user.ID, user.Email, project)
+	s.decorateProjectComputedFields(r.Context(), project)
 	writeJSON(w, http.StatusAccepted, map[string]any{"project": project})
 }
 
@@ -307,18 +324,12 @@ func (s *Server) handleProjectPlaygroundAction(w http.ResponseWriter, r *http.Re
 	action := strings.ToLower(strings.TrimSpace(body.Action))
 	updated, err := s.controlProjectPlayground(r.Context(), user, project, action)
 	if err != nil {
-		if errors.Is(err, errProjectExportOnly) || errors.Is(err, errProjectRetiring) || errors.Is(err, errProductionProjectCannotStop) {
+		if errors.Is(err, errProjectExportOnly) || errors.Is(err, errProjectRetiring) {
 			writeError(w, http.StatusConflict, developmentBlockedMessage(err))
 			return
 		}
 		if errors.Is(err, errInvalidPlaygroundAction) || errors.Is(err, errProjectPlaygroundMissing) {
 			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		if action == "start" && strings.TrimSpace(project.ProductionExpiresAt) != "" && fibegateway.IsRuntimeBillingRequiredError(err) {
-			log.Printf("project playground start blocked by Fibe runtime billing project=%s playground=%s: %v", project.ID, strings.TrimSpace(project.PlaygroundID), err)
-			s.notifyProductionProjectStartBlocked(r.Context(), user, project)
-			writeErrorCode(w, http.StatusConflict, "runtime_billing_required", productionRuntimeBillingRequiredMessage)
 			return
 		}
 		log.Printf("project playground action %s for project %s: %v", body.Action, project.ID, err)
@@ -330,6 +341,7 @@ func (s *Server) handleProjectPlaygroundAction(w http.ResponseWriter, r *http.Re
 		return
 	}
 	s.clearPlatformBackoff()
+	s.decorateProjectComputedFields(r.Context(), updated)
 	writeJSON(w, http.StatusAccepted, map[string]any{"project": updated})
 }
 
@@ -342,9 +354,6 @@ func (s *Server) controlProjectPlayground(ctx context.Context, user *User, proje
 	}
 	if project.Status == "deleting" {
 		return nil, errInvalidPlaygroundAction
-	}
-	if action == "stop" && strings.TrimSpace(project.ProductionExpiresAt) != "" {
-		return nil, errProductionProjectCannotStop
 	}
 	playgroundID := strings.TrimSpace(project.PlaygroundID)
 	if playgroundID == "" {
@@ -400,80 +409,11 @@ func (s *Server) controlProjectPlayground(ctx context.Context, user *User, proje
 }
 
 func (s *Server) handleProjectDomain(w http.ResponseWriter, r *http.Request, user *User, project *Project) {
-	switch r.Method {
-	case http.MethodPut:
-		if strings.TrimSpace(project.ProductionExpiresAt) == "" {
-			writeError(w, http.StatusConflict, "production project is required before adding a custom domain")
-			return
-		}
-		var body struct {
-			Domain string `json:"domain"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid json")
-			return
-		}
-		domain, err := normalizeProjectCustomDomain(body.Domain)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		target := projectCustomDomainTarget(project)
-		if target == "" {
-			writeError(w, http.StatusConflict, "project CNAME target is not available")
-			return
-		}
-		if existing := strings.TrimSpace(project.CustomDomain); existing != "" && existing != domain && projectCustomDomainRoutingSynced(project) {
-			if err := s.syncProjectCustomDomainRouting(r.Context(), project, ""); err != nil {
-				log.Printf("clear old custom domain routing for project %s: %v", project.ID, err)
-				writeError(w, http.StatusBadGateway, "could not update custom domain routing")
-				return
-			}
-		}
-		if err := s.store.UpsertProjectDomain(r.Context(), user.ID, project.ID, domain, target); err != nil {
-			log.Printf("project domain upsert for project %s: %v", project.ID, err)
-			writeError(w, http.StatusConflict, "custom domain is already linked to another project")
-			return
-		}
-	case http.MethodDelete:
-		if projectCustomDomainRoutingSynced(project) {
-			if err := s.syncProjectCustomDomainRouting(r.Context(), project, ""); err != nil {
-				log.Printf("clear custom domain routing for project %s: %v", project.ID, err)
-				writeError(w, http.StatusBadGateway, "could not update custom domain routing")
-				return
-			}
-		}
-		if err := s.store.DeleteProjectDomain(r.Context(), user.ID, project.ID); err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-	default:
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
-	updated, err := s.store.ProjectForUser(r.Context(), user.ID, project.ID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"project": updated})
+	writeError(w, http.StatusGone, "custom domains are managed in Fibe")
 }
 
 func (s *Server) handleProjectDomainVerify(w http.ResponseWriter, r *http.Request, user *User, project *Project) {
-	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
-	if strings.TrimSpace(project.CustomDomain) == "" {
-		writeError(w, http.StatusConflict, "custom domain is not configured")
-		return
-	}
-	updated, err := s.verifyProjectCustomDomain(r.Context(), project)
-	if err != nil {
-		writeError(w, http.StatusBadGateway, "could not verify custom domain DNS")
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"project": updated})
+	writeError(w, http.StatusGone, "custom domains are managed in Fibe")
 }
 
 func normalizeProjectCustomDomain(value string) (string, error) {
@@ -610,6 +550,7 @@ func (s *Server) handleProjectFeed(w http.ResponseWriter, r *http.Request, user 
 			log.Printf("load project notification timings for project %s: %v", project.ID, timingErr)
 			timings = map[string]ProjectNotificationTiming{}
 		}
+		s.decorateProjectComputedFields(r.Context(), project)
 		writeJSON(w, http.StatusOK, map[string]any{"project": project, "localMessages": local, "messages": []any{}, "activity": []any{}, "live": nil, "notificationTimings": timings, "warning": "This project is archived. Export it or create a new project."})
 		return
 	}
@@ -623,6 +564,7 @@ func (s *Server) handleProjectFeed(w http.ResponseWriter, r *http.Request, user 
 		}
 		cancel()
 	}
+	s.decorateProjectComputedFields(r.Context(), project)
 	snapshot, err := s.loadProjectFeedSnapshot(r.Context(), user, project, true)
 	if err != nil {
 		log.Printf("load project feed for project %s: %v", project.ID, err)

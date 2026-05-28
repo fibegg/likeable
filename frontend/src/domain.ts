@@ -4,7 +4,7 @@ export type ProjectService = { id: string; name: string; url: string; type?: str
 export type Project = { id: string; title: string; previewUrl?: string; selectedServiceName?: string; repositories?: ProjectRepository[]; services?: ProjectService[]; status: string; errorMessage?: string; playgroundLastUsedAt?: string; playgroundIdleStopAt?: string; productionExpiresAt?: string; customDomain?: string; customDomainStatus?: string; customDomainTarget?: string; customDomainUpdatedAt?: string; createdAt: string; updatedAt: string };
 export type HourQuota = { usedMs: number; limitMs: number; remainingMs: number; paidRemainingMs?: number; lifetimeUsedMs?: number; resetsAt?: string; windowHours?: number };
 export type ProjectQuota = { used: number; limit: number; remaining: number; baseLimit: number; paidSlots: number; nextExpiresAt?: string };
-export type BillingProducts = { hourPacks: number[]; projectQuota: boolean; projectQuotaDays?: number; productionProject?: boolean; productionProjectDays?: number };
+export type BillingProducts = { hourPacks: number[]; projectQuota: boolean; projectQuotaDays?: number };
 export type UserNotice = { id: string; userId?: string; sender: 'admin' | 'system' | 'user'; severity: string; body: string; readAt?: string; dismissedAt?: string; unsentAt?: string; createdAt: string };
 export type ProjectArchive = { id: string; projectId: string; projectTitle: string; downloadUrl?: string; githubRepoUrl?: string; status: string; error?: string; expiresAt: string; createdAt: string };
 export type Me = { user: User | null; isAdmin?: boolean; githubConnected?: boolean; githubNeedsReconnect?: boolean; hourQuota?: HourQuota; projectQuota?: ProjectQuota; billingProducts?: BillingProducts; notices?: UserNotice[]; auth?: { googleConfigured: boolean; devAuth: boolean; devEmail?: string } };
@@ -75,7 +75,7 @@ export type AdminBillingHealth = {
   checkedAt: string;
   configured: { publishableKey: boolean; secretKey: boolean; webhookSecret: boolean };
   products: BillingProducts;
-  prices: { oneHour: boolean; tenHours: boolean; hundredHours: boolean; projectQuota: boolean; productionProject?: boolean };
+  prices: { oneHour: boolean; tenHours: boolean; hundredHours: boolean; projectQuota: boolean };
   free: { minutes: number; windowHours: number };
   issues: string[];
   recentPayments: AdminBillingPayment[];

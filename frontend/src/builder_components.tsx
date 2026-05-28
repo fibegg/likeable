@@ -1,16 +1,14 @@
 import { useEffect, useState, type MouseEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, ChevronLeft, ChevronRight, CircleAlert, CircleHelp, Download, FileOutput, GitBranch, Globe2, Loader2, MessageSquare, Minimize2, MoreHorizontal, Paperclip, Pencil, Play, Plus, RotateCcw, Sparkles, Square, Trash2, X } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, CircleAlert, CircleHelp, Download, FileOutput, GitBranch, Loader2, MessageSquare, Minimize2, MoreHorizontal, Paperclip, Pencil, Play, Plus, RotateCcw, Sparkles, Square, Trash2, X } from 'lucide-react';
 import type { AppDialogConfig, MessageAttachment, Project, ProjectService, UserFeedRow } from './domain';
-import { formatElapsedDuration, formatMessageTime, formatShortDate } from './format';
+import { formatElapsedDuration, formatMessageTime } from './format';
 import { elapsedDurationLabels, statusLabel, useI18n } from './i18n';
 
-export function ProjectList({ projects, activeID, projectCap, busy, exportingID, controllingID, productionCheckoutID, productionPurchasable, domainUpdatingID, domainVerifyingID, onSelect, onNew, onRename, onDelete, onExport, onControlPlayground, onCheckoutProductionProject, onUpdateProjectDomain, onVerifyProjectDomain, onClose }: { projects: Project[]; activeID: string; projectCap: number | null; busy: boolean; exportingID: string; controllingID: string; productionCheckoutID: string; productionPurchasable: boolean; domainUpdatingID: string; domainVerifyingID: string; onSelect: (id: string) => void; onNew: () => void; onRename: (project: Project, title: string) => Promise<void>; onDelete: (project: Project) => void; onExport: (project: Project) => void; onControlPlayground: (project: Project, action: 'start' | 'stop' | 'restart') => Promise<void>; onCheckoutProductionProject: (project: Project) => Promise<void>; onUpdateProjectDomain: (project: Project, domain: string) => Promise<void>; onVerifyProjectDomain: (project: Project) => Promise<void>; onClose: () => void }) {
+export function ProjectList({ projects, activeID, projectCap, busy, exportingID, controllingID, onSelect, onNew, onRename, onDelete, onExport, onControlPlayground, onClose }: { projects: Project[]; activeID: string; projectCap: number | null; busy: boolean; exportingID: string; controllingID: string; onSelect: (id: string) => void; onNew: () => void; onRename: (project: Project, title: string) => Promise<void>; onDelete: (project: Project) => void; onExport: (project: Project) => void; onControlPlayground: (project: Project, action: 'start' | 'stop' | 'restart') => Promise<void>; onClose: () => void }) {
   const { locale, t } = useI18n();
   const [editingID, setEditingID] = useState('');
   const [draftTitle, setDraftTitle] = useState('');
-  const [domainEditingID, setDomainEditingID] = useState('');
-  const [domainDraft, setDomainDraft] = useState('');
   const [menuID, setMenuID] = useState('');
   const quotaProjectCount = projects.filter((project) => project.status !== 'archived' && project.status !== 'deleting').length;
   const capReached = projectCap != null && quotaProjectCount >= projectCap;
@@ -38,32 +36,8 @@ export function ProjectList({ projects, activeID, projectCap, busy, exportingID,
     setMenuID('');
     await onControlPlayground(project, action);
   };
-  const checkoutProductionProject = async (project: Project) => {
-    setMenuID('');
-    await onCheckoutProductionProject(project);
-  };
-  const startDomainEdit = (project: Project) => {
-    setMenuID('');
-    setDomainEditingID(project.id);
-    setDomainDraft(project.customDomain ?? '');
-  };
-  const cancelDomainEdit = () => {
-    setDomainEditingID('');
-    setDomainDraft('');
-  };
-  const saveDomain = async (project: Project) => {
-    await onUpdateProjectDomain(project, domainDraft.trim());
-    cancelDomainEdit();
-  };
-  const verifyDomain = async (project: Project) => {
-    await onVerifyProjectDomain(project);
-  };
-  const removeDomain = async (project: Project) => {
-    setMenuID('');
-    await onUpdateProjectDomain(project, '');
-  };
   const canStartPlayground = (project: Project) => project.status === 'stopped';
-  const canStopPlayground = (project: Project) => project.status === 'ready' && !project.productionExpiresAt;
+  const canStopPlayground = (project: Project) => project.status === 'ready';
   const canRestartPlayground = (project: Project) => project.status === 'ready';
   const projectRuntimeState = (project: Project) => {
     if (controllingID === project.id) return t('projects.actions.working');
@@ -91,9 +65,6 @@ export function ProjectList({ projects, activeID, projectCap, busy, exportingID,
       : t('projects.rowMeta.servicesOnly', { services: serviceCount });
   };
   const projectRowDetail = (project: Project) => {
-    if (project.productionExpiresAt) {
-      return t('projects.production.until', { date: formatShortDate(project.productionExpiresAt, locale) });
-    }
     switch (project.status) {
       case 'creating':
       case 'launching':
@@ -108,16 +79,6 @@ export function ProjectList({ projects, activeID, projectCap, busy, exportingID,
         return '';
     }
   };
-  const projectDomainTarget = (project: Project) => {
-    const url = project.services?.find((service) => service.name === (project.selectedServiceName || 'app'))?.url || project.previewUrl || project.services?.[0]?.url || '';
-    if (!url) return '';
-    try {
-      return new URL(url).host;
-    } catch {
-      return url.replace(/^https?:\/\//, '').split('/')[0] ?? '';
-    }
-  };
-  const isDomainDNSVerified = (project: Project) => project.customDomainStatus === 'dns_verified' || project.customDomainStatus === 'active';
   return (
     <div className="projectList">
       <div className="inlinePanelHeader projectPanelHeader">
@@ -131,14 +92,9 @@ export function ProjectList({ projects, activeID, projectCap, busy, exportingID,
       <div className={menuID ? 'projectRows menuOpen' : 'projectRows'}>
         {projects.map((project, index) => {
           const detail = projectRowDetail(project);
-          const cnameTarget = project.customDomainTarget || projectDomainTarget(project);
-          const domainEditing = domainEditingID === project.id;
-          const domainSaving = domainUpdatingID === project.id;
-          const domainVerifying = domainVerifyingID === project.id;
-          const domainBusy = domainSaving || domainVerifying;
           const menuOpensUp = index > 0;
           return (
-          <div key={project.id} className={`projectRow ${project.id === activeID ? 'selected' : ''} ${menuID === project.id ? 'menuActive' : ''} ${domainEditing ? 'domainEditing' : ''}`}>
+          <div key={project.id} className={`projectRow ${project.id === activeID ? 'selected' : ''} ${menuID === project.id ? 'menuActive' : ''}`}>
             {editingID === project.id ? (
               <form className="projectTitleEdit" onSubmit={(event) => { event.preventDefault(); void saveTitle(project); }}>
                 <input
@@ -167,12 +123,9 @@ export function ProjectList({ projects, activeID, projectCap, busy, exportingID,
                   <span className="projectSelectTitleLine">
                     <span>{project.title}</span>
                     {project.id === activeID && <strong className="projectCurrentBadge">{t('service.current')}</strong>}
-                    {project.productionExpiresAt && <strong className="projectCurrentBadge production">{t('projects.production.badge')}</strong>}
                   </span>
                   <small className="projectSelectMeta">{projectRowMeta(project)}</small>
                   {detail && <small className={`projectSelectDetail ${project.status}`}>{detail}</small>}
-                  {project.customDomain && <small className="projectSelectDetail production">{t('projects.production.domain', { domain: project.customDomain })} · {isDomainDNSVerified(project) ? t('projects.production.domainActive') : t('projects.production.domainPending')}</small>}
-                  {project.productionExpiresAt && cnameTarget && <small className="projectSelectDetail production">{t('projects.production.cname', { host: cnameTarget })}</small>}
                 </button>
                 <em className={`projectStatusChip ${project.status}`}>{statusLabel(project.status, t)}</em>
                 <div className="projectRowActions">
@@ -208,53 +161,10 @@ export function ProjectList({ projects, activeID, projectCap, busy, exportingID,
                         <button role="menuitem" disabled={busy || !canStartPlayground(project)} onClick={() => void runPlaygroundAction(project, 'start')}><Play size={14} /> <span>{t('projects.start')}</span></button>
                         <button role="menuitem" disabled={busy || !canStopPlayground(project)} onClick={() => void runPlaygroundAction(project, 'stop')}><Square size={13} /> <span>{t('projects.stop')}</span></button>
                         <button role="menuitem" disabled={busy || !canRestartPlayground(project)} onClick={() => void runPlaygroundAction(project, 'restart')}><RotateCcw size={14} /> <span>{t('projects.restart')}</span></button>
-                        <button role="menuitem" disabled={busy || !productionPurchasable || Boolean(project.productionExpiresAt) || project.status === 'archived' || project.status === 'deleting'} onClick={() => void checkoutProductionProject(project)}>
-                          {productionCheckoutID === project.id ? <Loader2 className="spinIcon" size={14} /> : <Sparkles size={14} />}
-                          <span>{productionPurchasable ? t('projects.production.buy') : t('projects.production.unavailable')}</span>
-                        </button>
-                        <button role="menuitem" disabled={busy || !project.productionExpiresAt || project.status === 'archived' || project.status === 'deleting'} onClick={() => startDomainEdit(project)}>
-                          <Globe2 size={14} />
-                          <span>{t('projects.production.domainAction')}</span>
-                        </button>
-                        {project.customDomain && (
-                          <button role="menuitem" disabled={busy || domainBusy} onClick={() => void verifyDomain(project)}>
-                            {domainVerifying ? <Loader2 className="spinIcon" size={14} /> : <RotateCcw size={14} />}
-                            <span>{domainVerifying ? t('projects.production.domainChecking') : t('projects.production.domainCheck')}</span>
-                          </button>
-                        )}
-                        {project.customDomain && (
-                          <button role="menuitem" disabled={busy || domainBusy} onClick={() => void removeDomain(project)}>
-                            {domainSaving ? <Loader2 className="spinIcon" size={14} /> : <X size={14} />}
-                            <span>{t('projects.production.domainRemove')}</span>
-                          </button>
-                        )}
                       </div>
                     )}
                   </div>
                 </div>
-                {domainEditing && (
-                  <form className="projectDomainForm" onSubmit={(event) => { event.preventDefault(); void saveDomain(project); }}>
-                    <Globe2 size={14} />
-                    <input
-                      value={domainDraft}
-                      autoFocus
-                      maxLength={253}
-                      placeholder={t('projects.production.domainPlaceholder')}
-                      onChange={(event) => setDomainDraft(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Escape') {
-                          event.preventDefault();
-                          cancelDomainEdit();
-                        }
-                      }}
-                    />
-                    <button type="submit" disabled={busy || domainSaving || !domainDraft.trim()}>
-                      {domainSaving ? <Loader2 className="spinIcon" size={14} /> : <Check size={14} />}
-                      <span>{t('projects.production.domainSave')}</span>
-                    </button>
-                    <button type="button" disabled={domainSaving} onClick={cancelDomainEdit}><X size={14} /></button>
-                  </form>
-                )}
               </>
             )}
           </div>

@@ -322,9 +322,6 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const [exportingID, setExportingID] = useState('');
   const [exportingMode, setExportingMode] = useState<'github' | 'zip' | ''>('');
   const [controllingProjectID, setControllingProjectID] = useState('');
-  const [productionCheckoutProjectID, setProductionCheckoutProjectID] = useState('');
-  const [domainUpdatingProjectID, setDomainUpdatingProjectID] = useState('');
-  const [domainVerifyingProjectID, setDomainVerifyingProjectID] = useState('');
   const [dialog, setDialog] = useState<AppDialogConfig | null>(null);
   const [iframeLoaded, setIframeLoaded] = useState(false);
   const [previewStatus, setPreviewStatus] = useState<PreviewStatus | null>(null);
@@ -954,54 +951,6 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       setBusy(false);
     }
   };
-  const checkoutProductionProject = async (project: Project) => {
-    if (!signedIn) return;
-    setBusy(true);
-    setProductionCheckoutProjectID(project.id);
-    try {
-      const res = await api<{ url: string }>('/api/billing/checkout', {
-        method: 'POST',
-        body: JSON.stringify({ product: 'production_project', projectId: project.id })
-      });
-      location.href = res.url;
-    } catch (err) {
-      setDialog({ title: t('profile.checkoutFailed'), body: err instanceof Error ? err.message : t('dialog.requestFailed.title'), tone: 'warning', confirmLabel: t('common.close') });
-      setProductionCheckoutProjectID('');
-      setBusy(false);
-    }
-  };
-  const updateProjectDomain = async (project: Project, domain: string) => {
-    if (!signedIn) return;
-    setBusy(true);
-    setDomainUpdatingProjectID(project.id);
-    try {
-      const res = await api<{ project: Project }>(`/api/projects/${project.id}/domain`, domain
-        ? { method: 'PUT', body: JSON.stringify({ domain }) }
-        : { method: 'DELETE' });
-      setProjects((current) => current.map((item) => item.id === project.id ? res.project : item));
-      setFeed((current) => current?.project.id === project.id ? { ...current, project: res.project } : current);
-    } catch (err) {
-      setDialog({ title: t('dialog.requestFailed.title'), body: err instanceof Error ? err.message : t('dialog.requestFailed.title'), tone: 'warning', confirmLabel: t('common.close') });
-    } finally {
-      setDomainUpdatingProjectID('');
-      setBusy(false);
-    }
-  };
-  const verifyProjectDomain = async (project: Project) => {
-    if (!signedIn) return;
-    setBusy(true);
-    setDomainVerifyingProjectID(project.id);
-    try {
-      const res = await api<{ project: Project }>(`/api/projects/${project.id}/domain/verify`, { method: 'POST' });
-      setProjects((current) => current.map((item) => item.id === project.id ? res.project : item));
-      setFeed((current) => current?.project.id === project.id ? { ...current, project: res.project } : current);
-    } catch (err) {
-      setDialog({ title: t('projects.production.domainVerifyFailed'), body: err instanceof Error ? err.message : t('dialog.requestFailed.title'), tone: 'warning', confirmLabel: t('common.close') });
-    } finally {
-      setDomainVerifyingProjectID('');
-      setBusy(false);
-    }
-  };
   const requestProjectExport = (project: Project) => {
     setExportTarget(project);
   };
@@ -1454,7 +1403,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       </a>
       {projectTitleButton('chatProjectTitle', true, true)}
       {builderChrome}
-      {showProjects && <ProjectList projects={currentProjects} activeID={activeID} projectCap={projectCap} busy={busy} exportingID={exportingID} controllingID={controllingProjectID} productionCheckoutID={productionCheckoutProjectID} productionPurchasable={Boolean(accountMe.billingProducts?.productionProject)} domainUpdatingID={domainUpdatingProjectID} domainVerifyingID={domainVerifyingProjectID} onSelect={(id) => { setActiveID(id); setShowProjects(false); }} onNew={() => setConfirmNewProject(true)} onRename={renameProject} onDelete={setDeleteTarget} onExport={requestProjectExport} onControlPlayground={controlProjectPlayground} onCheckoutProductionProject={checkoutProductionProject} onUpdateProjectDomain={updateProjectDomain} onVerifyProjectDomain={verifyProjectDomain} onClose={() => setShowProjects(false)} />}
+      {showProjects && <ProjectList projects={currentProjects} activeID={activeID} projectCap={projectCap} busy={busy} exportingID={exportingID} controllingID={controllingProjectID} onSelect={(id) => { setActiveID(id); setShowProjects(false); }} onNew={() => setConfirmNewProject(true)} onRename={renameProject} onDelete={setDeleteTarget} onExport={requestProjectExport} onControlPlayground={controlProjectPlayground} onClose={() => setShowProjects(false)} />}
       {showProfile && <ProfilePanel me={accountMe} onClose={closeProfilePanel} onOpenTutorial={openOnboardingTutorial} onRefreshAccount={refreshBuilder} />}
       {showHelp && <HelpPanel markdown={t('help.markdown')} onClose={() => setShowHelp(false)} />}
       {showServices && activeProject?.services && <ServicePanel services={activeProject.services} selectedName={selectedService?.name} busy={busy} onSelect={(service) => void selectService(service)} onClose={() => setShowServices(false)} />}

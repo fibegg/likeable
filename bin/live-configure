@@ -21,7 +21,7 @@ trap cleanup EXIT
 
 node - <<'NODE' >"$payload_file"
 const mappings = [
-  ["LIKEABLE_STRIPE_PRODUCTION_PROJECT_PRICE_ID", "stripe_production_project_price_id"],
+  ["LIKEABLE_PLAYGROUND_IDLE_STOP_HOURS", "playground_idle_stop_hours"],
   ["LIKEABLE_GOOGLE_CLIENT_ID", "google_client_id"],
   ["LIKEABLE_GOOGLE_CLIENT_SECRET", "google_client_secret"],
   ["LIKEABLE_SMTP_HOST", "smtp_host"],
@@ -46,8 +46,13 @@ if (Object.keys(payload).length === 0) {
   process.exit(2);
 }
 const errors = [];
-if (payload.stripe_production_project_price_id && !payload.stripe_production_project_price_id.startsWith("price_")) {
-  errors.push("LIKEABLE_STRIPE_PRODUCTION_PROJECT_PRICE_ID must start with price_");
+if (payload.playground_idle_stop_hours && !/^[0-9]+$/.test(payload.playground_idle_stop_hours)) {
+  errors.push("LIKEABLE_PLAYGROUND_IDLE_STOP_HOURS must be numeric");
+} else if (payload.playground_idle_stop_hours) {
+  const hours = Number(payload.playground_idle_stop_hours);
+  if (hours < 1 || hours > 168) {
+    errors.push("LIKEABLE_PLAYGROUND_IDLE_STOP_HOURS must be between 1 and 168");
+  }
 }
 if (provided.has("LIKEABLE_GOOGLE_CLIENT_ID") !== provided.has("LIKEABLE_GOOGLE_CLIENT_SECRET")) {
   errors.push("LIKEABLE_GOOGLE_CLIENT_ID and LIKEABLE_GOOGLE_CLIENT_SECRET must be provided together");

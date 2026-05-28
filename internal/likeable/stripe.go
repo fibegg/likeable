@@ -30,13 +30,12 @@ func (s *Server) stripeConfig(r *http.Request) (map[string]string, error) {
 
 func stripeConfigFromMap(cfg map[string]string) map[string]string {
 	out := map[string]string{
-		"secret":                   strings.TrimSpace(cfg["stripe_secret_key"]),
-		"price_1_hour":             strings.TrimSpace(cfg["stripe_price_id_1_hour"]),
-		"price_10_hours":           strings.TrimSpace(cfg["stripe_price_id_10_hours"]),
-		"price_100_hours":          strings.TrimSpace(cfg["stripe_price_id_100_hours"]),
-		"project_quota_price":      strings.TrimSpace(cfg["stripe_project_quota_price_id"]),
-		"production_project_price": strings.TrimSpace(cfg["stripe_production_project_price_id"]),
-		"webhook":                  strings.TrimSpace(cfg["stripe_webhook_secret"]),
+		"secret":              strings.TrimSpace(cfg["stripe_secret_key"]),
+		"price_1_hour":        strings.TrimSpace(cfg["stripe_price_id_1_hour"]),
+		"price_10_hours":      strings.TrimSpace(cfg["stripe_price_id_10_hours"]),
+		"price_100_hours":     strings.TrimSpace(cfg["stripe_price_id_100_hours"]),
+		"project_quota_price": strings.TrimSpace(cfg["stripe_project_quota_price_id"]),
+		"webhook":             strings.TrimSpace(cfg["stripe_webhook_secret"]),
 	}
 	return out
 }
@@ -48,7 +47,6 @@ func (s *Server) billingProducts(ctx context.Context) map[string]any {
 	}
 	products := billingProductsFromConfig(stripeConfigFromMap(cfg))
 	products["projectQuotaDays"] = s.projectQuotaDays(ctx)
-	products["productionProjectDays"] = s.productionProjectDays(ctx)
 	return products
 }
 
@@ -67,20 +65,17 @@ func billingProductsFromConfig(cfg map[string]string) map[string]any {
 		hourPacks = append(hourPacks, 100)
 	}
 	return map[string]any{
-		"hourPacks":             hourPacks,
-		"projectQuota":          strings.TrimSpace(cfg["project_quota_price"]) != "",
-		"productionProject":     strings.TrimSpace(cfg["production_project_price"]) != "",
-		"productionProjectDays": defaultProductionProjectDays,
+		"hourPacks":        hourPacks,
+		"projectQuota":     strings.TrimSpace(cfg["project_quota_price"]) != "",
+		"projectQuotaDays": defaultProjectQuotaDays,
 	}
 }
 
 func emptyBillingProducts() map[string]any {
 	return map[string]any{
-		"hourPacks":             []int{},
-		"projectQuota":          false,
-		"projectQuotaDays":      defaultProjectQuotaDays,
-		"productionProject":     false,
-		"productionProjectDays": defaultProductionProjectDays,
+		"hourPacks":        []int{},
+		"projectQuota":     false,
+		"projectQuotaDays": defaultProjectQuotaDays,
 	}
 }
 
@@ -90,11 +85,6 @@ func (s *Server) handleBillingCheckout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user := userFromContext(r.Context())
-	cfg, err := s.stripeConfig(r)
-	if err != nil {
-		writeError(w, http.StatusServiceUnavailable, err.Error())
-		return
-	}
 	var body struct {
 		Pack      int    `json:"pack"`
 		Product   string `json:"product"`
@@ -106,12 +96,19 @@ func (s *Server) handleBillingCheckout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	product := normalizeStripeProduct(body.Product)
+	if product == "production_project" {
+		writeError(w, http.StatusGone, "production hosting is handled in Fibe")
+		return
+	}
+	cfg, err := s.stripeConfig(r)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
 	pack := 0
 	slots := 0
 	priceID := ""
 	switch product {
-	case "production_project":
-		priceID, err = stripeProductionProjectPrice(cfg)
 	case "project_quota":
 		slots, priceID, err = stripeProjectQuotaPrice(cfg, body.Slots)
 	default:
@@ -128,28 +125,7 @@ func (s *Server) handleBillingCheckout(w http.ResponseWriter, r *http.Request) {
 	form.Set("success_url", s.config.BaseURL+"/profile?billing=success&session_id={CHECKOUT_SESSION_ID}")
 	form.Set("cancel_url", s.config.BaseURL+"/profile?billing=cancel")
 	form.Set("metadata[purchase_kind]", product)
-	if product == "production_project" {
-		projectID := strings.TrimSpace(body.ProjectID)
-		if projectID == "" {
-			writeError(w, http.StatusBadRequest, "project_id is required")
-			return
-		}
-		project, err := s.store.ProjectForUser(r.Context(), user.ID, projectID)
-		if err != nil {
-			writeError(w, http.StatusNotFound, "project not found")
-			return
-		}
-		if project.Status == "archived" || project.Status == "deleting" {
-			writeError(w, http.StatusConflict, "production project requires an active project")
-			return
-		}
-		if strings.TrimSpace(project.ProductionExpiresAt) != "" {
-			writeError(w, http.StatusConflict, "production project is already active")
-			return
-		}
-		form.Set("metadata[project_id]", projectID)
-		form.Set("metadata[production_project_days]", strconv.Itoa(s.productionProjectDays(r.Context())))
-	} else if product == "project_quota" {
+	if product == "project_quota" {
 		form.Set("metadata[project_slots]", strconv.Itoa(slots))
 		form.Set("metadata[project_quota_days]", strconv.Itoa(s.projectQuotaDays(r.Context())))
 	} else {
@@ -267,13 +243,6 @@ func stripeProjectQuotaPrice(cfg map[string]string, slots int) (int, string, err
 	return slots, cfg["project_quota_price"], nil
 }
 
-func stripeProductionProjectPrice(cfg map[string]string) (string, error) {
-	if cfg["production_project_price"] == "" {
-		return "", fmt.Errorf("Stripe price for production project is not configured")
-	}
-	return cfg["production_project_price"], nil
-}
-
 func (s *Server) handleStripeWebhook(w http.ResponseWriter, r *http.Request) {
 	body := readAll(r.Body)
 	rawCfg, _ := s.store.ConfigMap(r.Context())
@@ -384,25 +353,6 @@ func (s *Server) applyStripeCheckoutSession(ctx context.Context, cfg map[string]
 			}
 		}
 	}
-	productionProjectID := stripeProductionProjectID(session["metadata"])
-	if productionProjectID != "" {
-		result.PurchaseKind = "production_project"
-		if err := s.verifyStripeCheckoutPrice(ctx, cfg, sessionID, cfg["production_project_price"]); err != nil {
-			return result, err
-		}
-		result.Applied = true
-		if sessionID != "" && sessionID != "<nil>" {
-			days := stripeProductionProjectDays(session["metadata"], s.productionProjectDays(ctx))
-			expiresAt := time.Now().UTC().Add(time.Duration(days) * 24 * time.Hour)
-			if granted, err := s.store.GrantProjectProduction(ctx, userID, productionProjectID, sessionID, expiresAt); err == nil && granted {
-				result.Granted = true
-				s.startProductionProjectIfStopped(ctx, userID, productionProjectID)
-				s.notifyProductionProjectPurchased(ctx, userID, productionProjectID, expiresAt)
-			} else if err != nil {
-				return result, err
-			}
-		}
-	}
 	projectSlots := stripeProjectSlots(session["metadata"])
 	if projectSlots > 0 {
 		result.PurchaseKind = "project_quota"
@@ -420,6 +370,9 @@ func (s *Server) applyStripeCheckoutSession(ctx context.Context, cfg map[string]
 				return result, err
 			}
 		}
+	}
+	if stripeProductionProjectID(session["metadata"]) != "" {
+		result.PurchaseKind = "production_project"
 	}
 	if subscriptionID != "" && subscriptionID != "<nil>" {
 		result.Applied = true
@@ -532,27 +485,6 @@ func stripeProductionProjectID(metadata any) string {
 		}
 	}
 	return ""
-}
-
-func stripeProductionProjectDays(metadata any, fallback int) int {
-	if fallback <= 0 || fallback > maxProductionProjectDays {
-		fallback = defaultProductionProjectDays
-	}
-	raw := ""
-	if m, ok := metadata.(map[string]any); ok {
-		raw = fmt.Sprint(m["production_project_days"])
-	}
-	if raw == "" || raw == "<nil>" {
-		return fallback
-	}
-	n, err := strconv.Atoi(raw)
-	if err != nil || n <= 0 {
-		return fallback
-	}
-	if n > maxProductionProjectDays {
-		return maxProductionProjectDays
-	}
-	return n
 }
 
 func expectedStripeHourPackPrice(cfg map[string]string, pack int) string {

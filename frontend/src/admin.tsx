@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Loader2, Plus, RefreshCw, Send, ShieldCheck, Trash2 } from 'lucide-react';
+import { Loader2, Plus, RefreshCw, Send, Trash2 } from 'lucide-react';
 import { cleanPoolRows, makePoolRow, parsePoolRows } from './admin_pool';
 import { api } from './api';
 import { AppDialog, Metric } from './builder_components';
@@ -20,8 +20,6 @@ function AdminCustomersPanel() {
   const [loading, setLoading] = useState(false);
   const [actionError, setActionError] = useState('');
   const [reassigningProjectID, setReassigningProjectID] = useState('');
-  const [productionGrantingProjectID, setProductionGrantingProjectID] = useState('');
-  const [productionStartingProjectID, setProductionStartingProjectID] = useState('');
   const [diagnosticsProjectID, setDiagnosticsProjectID] = useState('');
   const [diagnostics, setDiagnostics] = useState<AdminProjectDiagnostics | null>(null);
   const [diagnosticsLoadingID, setDiagnosticsLoadingID] = useState('');
@@ -228,38 +226,6 @@ function AdminCustomersPanel() {
       setReassigningProjectID('');
     }
   };
-  const applyProductionGrant = async (projectID: string) => {
-    if (!selectedUserID) return;
-    setActionError('');
-    setProductionGrantingProjectID(projectID);
-    try {
-      const response = await api<{ detail: AdminUserDetail }>(`/api/admin/users/${selectedUserID}/projects/${projectID}/production`, {
-        method: 'POST',
-        body: JSON.stringify({})
-      });
-      setDetail(response.detail);
-      setAgentPool((current) => response.detail.agentPool ?? current);
-      await loadUsers();
-      if (diagnosticsProjectID === projectID) {
-        setDiagnosticsProjectID('');
-        setDiagnostics(null);
-      }
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : t('admin.productionGrant.failed'));
-    } finally {
-      setProductionGrantingProjectID('');
-    }
-  };
-  const grantProduction = async (project: AdminProjectSummary['project']) => {
-    if (!selectedUserID) return;
-    setDialog({
-      title: t('admin.productionGrantDialog.title'),
-      body: t('admin.productionGrantDialog.body', { title: project.title }),
-      tone: 'warning',
-      confirmLabel: t(project.productionExpiresAt ? 'admin.productionGrant.extend' : 'admin.productionGrant.enable'),
-      onConfirm: () => applyProductionGrant(project.id)
-    });
-  };
   const loadProjectDiagnostics = async (projectID: string) => {
     if (!selectedUserID) return;
     if (diagnosticsProjectID === projectID) {
@@ -279,37 +245,6 @@ function AdminCustomersPanel() {
       setDiagnosticsLoadingID('');
     }
   };
-  const refreshOpenProjectDiagnostics = async (projectID: string) => {
-    if (!selectedUserID || diagnosticsProjectID !== projectID) return;
-    try {
-      const response = await api<AdminProjectDiagnosticsResponse>(`/api/admin/users/${selectedUserID}/projects/${projectID}/diagnostics`);
-      setDiagnostics(response.diagnostics);
-    } catch {
-      setDiagnosticsProjectID('');
-      setDiagnostics(null);
-    }
-  };
-  const retryProductionStart = async (projectID: string) => {
-    if (!selectedUserID) return;
-    setActionError('');
-    setProductionStartingProjectID(projectID);
-    try {
-      const response = await api<{ detail: AdminUserDetail; warning?: string }>(`/api/admin/users/${selectedUserID}/projects/${projectID}/production/start`, {
-        method: 'POST',
-        body: JSON.stringify({})
-      });
-      setDetail(response.detail);
-      setAgentPool((current) => response.detail.agentPool ?? current);
-      if (response.warning) setActionError(response.warning);
-      await refreshOpenProjectDiagnostics(projectID);
-      await loadUsers();
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : t('admin.productionStart.failed'));
-    } finally {
-      setProductionStartingProjectID('');
-    }
-  };
-
   return (
     <section className="adminCard customersCard">
       {dialog && <AppDialog dialog={dialog} onClose={() => setDialog(null)} />}
@@ -513,7 +448,6 @@ function AdminCustomersPanel() {
                   const assignment = item.assignment;
                   const assignmentValue = pairValue(assignment?.agentId ?? '', assignment?.serverId ?? '');
                   const canReassign = options.some((option) => option.status === 'active') && item.project.status !== 'archived' && item.project.status !== 'deleting';
-                  const canRetryProductionStart = Boolean(item.project.productionExpiresAt) && item.project.status === 'stopped';
                   const previewUrl = item.project.previewUrl;
                   const projectDiagnostics = diagnosticsProjectID === item.project.id ? diagnostics : null;
                   return (
@@ -545,16 +479,6 @@ function AdminCustomersPanel() {
                             {diagnosticsLoadingID === item.project.id ? <Loader2 className="spinIcon" size={15} /> : null}
                             {projectDiagnostics ? t('admin.diagnostics.hide') : t('admin.diagnostics.show')}
                           </button>
-                          <button className="ghostButton" disabled={productionGrantingProjectID === item.project.id || item.project.status === 'archived' || item.project.status === 'deleting'} onClick={() => void grantProduction(item.project)}>
-                            {productionGrantingProjectID === item.project.id ? <Loader2 className="spinIcon" size={15} /> : <ShieldCheck size={15} />}
-                            {item.project.productionExpiresAt ? t('admin.productionGrant.extend') : t('admin.productionGrant.enable')}
-                          </button>
-                          {item.project.productionExpiresAt && (
-                            <button className="ghostButton" disabled={!canRetryProductionStart || productionStartingProjectID === item.project.id} onClick={() => void retryProductionStart(item.project.id)}>
-                              {productionStartingProjectID === item.project.id ? <Loader2 className="spinIcon" size={15} /> : <RefreshCw size={15} />}
-                              {t('admin.productionStart.retry')}
-                            </button>
-                          )}
                           <button className="projectDelete" onClick={() => void deleteProject(item.project.id)} aria-label={t('admin.deleteProject.aria', { title: item.project.title })}><Trash2 size={15} /></button>
                         </div>
                       </div>
@@ -725,8 +649,7 @@ function billingIssueLabel(issue: string, t: (key: TranslationKey, params?: Reco
     stripe_secret_missing: 'admin.billingHealth.issue.secret',
     stripe_webhook_missing: 'admin.billingHealth.issue.webhook',
     stripe_hour_prices_missing: 'admin.billingHealth.issue.hourPrices',
-    stripe_project_quota_price_missing: 'admin.billingHealth.issue.projectQuota',
-    stripe_production_project_price_missing: 'admin.billingHealth.issue.productionProject'
+    stripe_project_quota_price_missing: 'admin.billingHealth.issue.projectQuota'
   };
   const key = keys[issue];
   return key ? t(key) : t('admin.billingHealth.issue.unknown', { issue });
@@ -756,8 +679,7 @@ function AdminBillingHealthPanel() {
   const hourPacks = health?.products.hourPacks ?? [];
   const productsLabel = [
     hourPacks.length > 0 ? t('admin.billingHealth.hourPacks', { packs: hourPacks.map((pack) => `${pack}h`).join(', ') }) : t('admin.billingHealth.noHourPacks'),
-    health?.products.projectQuota ? t('admin.billingHealth.projectQuotaOn') : t('admin.billingHealth.projectQuotaOff'),
-    health?.products.productionProject ? t('admin.billingHealth.productionProjectOn') : t('admin.billingHealth.productionProjectOff')
+    health?.products.projectQuota ? t('admin.billingHealth.projectQuotaOn') : t('admin.billingHealth.projectQuotaOff')
   ].join(' · ');
   return (
     <section className="adminCard">
@@ -826,7 +748,6 @@ function readinessCheckLabel(key: string, t: (key: TranslationKey, params?: Reco
     stripe_webhook: 'admin.readiness.check.stripeWebhook',
     stripe_hour_prices: 'admin.readiness.check.hourPrices',
     stripe_project_quota_price: 'admin.readiness.check.projectQuotaPrice',
-    stripe_production_project_price: 'admin.readiness.check.productionProjectPrice',
     fibe_template_version: 'admin.readiness.check.fibeTemplate',
     fibe_active_pool: 'admin.readiness.check.activePool',
     fibe_active_pool_health: 'admin.readiness.check.activePoolHealth',
@@ -913,14 +834,13 @@ function adminConfigLabel(key: string, t: (key: TranslationKey) => string): stri
     stripe_price_id_10_hours: 'admin.config.stripe_price_id_10_hours',
     stripe_price_id_100_hours: 'admin.config.stripe_price_id_100_hours',
     stripe_project_quota_price_id: 'admin.config.stripe_project_quota_price_id',
-    stripe_production_project_price_id: 'admin.config.stripe_production_project_price_id',
     stripe_webhook_secret: 'admin.config.stripe_webhook_secret',
     free_minutes: 'admin.config.free_minutes',
     free_hour_window_hours: 'admin.config.free_hour_window_hours',
+    playground_idle_stop_hours: 'admin.config.playground_idle_stop_hours',
     prompt_improve_charge_minutes: 'admin.config.prompt_improve_charge_minutes',
     project_cap: 'admin.config.project_cap',
     project_quota_days: 'admin.config.project_quota_days',
-    production_project_days: 'admin.config.production_project_days',
     agent_artefacts: 'admin.config.agent_artefacts'
   };
   const labelKey = labelKeys[key];

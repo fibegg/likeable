@@ -15,7 +15,6 @@ import (
 )
 
 const adminMaxHourGrant = 100
-const adminMaxProductionGrantDays = maxProductionProjectDays
 
 type AdminReadinessCheck struct {
 	Key      string `json:"key"`
@@ -206,7 +205,6 @@ func (s *Server) handleAdminBillingHealth(w http.ResponseWriter, r *http.Request
 	issues := stripeBillingIssues(stripeCfg, priceStatus)
 	products := billingProductsFromConfig(stripeCfg)
 	products["projectQuotaDays"] = s.projectQuotaDays(r.Context())
-	products["productionProjectDays"] = s.productionProjectDays(r.Context())
 	writeJSON(w, http.StatusOK, map[string]any{
 		"health": map[string]any{
 			"checkedAt": time.Now().UTC().Format(time.RFC3339Nano),
@@ -226,11 +224,10 @@ func (s *Server) handleAdminBillingHealth(w http.ResponseWriter, r *http.Request
 
 func stripePriceStatus(stripeCfg map[string]string) map[string]bool {
 	return map[string]bool{
-		"oneHour":           strings.TrimSpace(stripeCfg["price_1_hour"]) != "",
-		"tenHours":          strings.TrimSpace(stripeCfg["price_10_hours"]) != "",
-		"hundredHours":      strings.TrimSpace(stripeCfg["price_100_hours"]) != "",
-		"projectQuota":      strings.TrimSpace(stripeCfg["project_quota_price"]) != "",
-		"productionProject": strings.TrimSpace(stripeCfg["production_project_price"]) != "",
+		"oneHour":      strings.TrimSpace(stripeCfg["price_1_hour"]) != "",
+		"tenHours":     strings.TrimSpace(stripeCfg["price_10_hours"]) != "",
+		"hundredHours": strings.TrimSpace(stripeCfg["price_100_hours"]) != "",
+		"projectQuota": strings.TrimSpace(stripeCfg["project_quota_price"]) != "",
 	}
 }
 
@@ -248,9 +245,6 @@ func stripeBillingIssues(stripeCfg map[string]string, priceStatus map[string]boo
 	if !priceStatus["projectQuota"] {
 		issues = append(issues, "stripe_project_quota_price_missing")
 	}
-	if !priceStatus["productionProject"] {
-		issues = append(issues, "stripe_production_project_price_missing")
-	}
 	return issues
 }
 
@@ -265,7 +259,6 @@ func (s *Server) adminReadiness(cfg map[string]string, pool []AgentPoolOption, p
 	addAdminReadinessCheck(&checks, "stripe_webhook", "blocker", stripeWebhookOK, missingReadinessDetail(stripeWebhookOK, "set stripe_webhook_secret"))
 	addAdminReadinessCheck(&checks, "stripe_hour_prices", "blocker", stripeHourPricesOK, missingReadinessDetail(stripeHourPricesOK, "set at least one hour-pack price id"))
 	addAdminReadinessCheck(&checks, "stripe_project_quota_price", "blocker", priceStatus["projectQuota"], missingReadinessDetail(priceStatus["projectQuota"], "set stripe_project_quota_price_id"))
-	addAdminReadinessCheck(&checks, "stripe_production_project_price", "blocker", priceStatus["productionProject"], missingReadinessDetail(priceStatus["productionProject"], "set stripe_production_project_price_id"))
 	greenfieldReady, greenfieldDetail := greenfieldTemplateReadiness(cfg)
 	addAdminReadinessCheck(&checks, "fibe_template_version", "blocker", greenfieldReady, greenfieldDetail)
 	activePoolCount := 0
@@ -748,125 +741,11 @@ func (s *Server) handleAdminUserProjectDiagnostics(w http.ResponseWriter, r *htt
 }
 
 func (s *Server) handleAdminUserProjectProductionGrant(w http.ResponseWriter, r *http.Request, userID, projectID string) {
-	var body struct {
-		Days int `json:"days"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid json")
-		return
-	}
-	days := body.Days
-	if days == 0 {
-		days = s.productionProjectDays(r.Context())
-	}
-	if days <= 0 || days > adminMaxProductionGrantDays {
-		writeError(w, http.StatusBadRequest, "days must be between 1 and "+strconv.Itoa(adminMaxProductionGrantDays))
-		return
-	}
-	if _, err := s.store.UserByID(r.Context(), userID); err != nil {
-		writeError(w, http.StatusNotFound, "user not found")
-		return
-	}
-	project, err := s.store.ProjectForUser(r.Context(), userID, projectID)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "project not found")
-		return
-	}
-	if project.Status == "archived" || project.Status == "deleting" {
-		writeError(w, http.StatusConflict, "production grant requires an active project")
-		return
-	}
-	expiresAt := time.Now().UTC().Add(time.Duration(days) * 24 * time.Hour)
-	granted, err := s.store.GrantProjectProduction(r.Context(), userID, projectID, "admin_production_"+uuid.NewString(), expiresAt)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if granted {
-		s.startProductionProjectIfStopped(r.Context(), userID, projectID)
-		s.notifyProductionProjectPurchased(r.Context(), userID, projectID, expiresAt)
-	}
-	updated, err := s.store.ProjectForUser(r.Context(), userID, projectID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	windowStart, windowEnd := s.freeHourWindow(time.Now(), r.Context())
-	detail, err := s.store.AdminUserDetail(r.Context(), userID, s.freeHourLimitMs(r.Context()), windowStart, windowEnd)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	detail.Summary.ProjectLimit = s.baseProjectCap(r.Context()) + detail.Summary.PaidProjectSlots
-	pool, err := s.adminAgentPoolOptions(r.Context())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	decorateAdminDetailAssignmentStatuses(detail, pool)
-	detail.AgentPool = pool
-	writeJSON(w, http.StatusOK, map[string]any{"detail": detail, "project": updated, "granted": granted, "days": days})
+	writeError(w, http.StatusGone, "production hosting is handled in Fibe")
 }
 
 func (s *Server) handleAdminUserProjectProductionStart(w http.ResponseWriter, r *http.Request, userID, projectID string) {
-	target, err := s.store.UserByID(r.Context(), userID)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "user not found")
-		return
-	}
-	project, err := s.store.ProjectForUser(r.Context(), userID, projectID)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "project not found")
-		return
-	}
-	if strings.TrimSpace(project.ProductionExpiresAt) == "" {
-		writeError(w, http.StatusConflict, "production start retry requires an active production grant")
-		return
-	}
-	if project.Status == "archived" || project.Status == "deleting" {
-		writeError(w, http.StatusConflict, "production start retry requires an active project")
-		return
-	}
-
-	started := false
-	blockedCode := ""
-	warning := ""
-	updated := project
-	if project.Status == "stopped" {
-		updated, err = s.controlProjectPlayground(r.Context(), target, project, "start")
-		if err != nil {
-			if fibe.IsRuntimeBillingRequiredError(err) {
-				blockedCode = "runtime_billing_required"
-				warning = productionRuntimeBillingRequiredMessage
-				s.notifyProductionProjectStartBlocked(r.Context(), target, project)
-				updated = project
-			} else if isPlatformRateLimited(err) {
-				writeError(w, http.StatusServiceUnavailable, "workspace platform is rate limited; try again shortly")
-				return
-			} else {
-				writeError(w, http.StatusBadGateway, "could not start production playground")
-				return
-			}
-		} else {
-			started = true
-		}
-	}
-
-	windowStart, windowEnd := s.freeHourWindow(time.Now(), r.Context())
-	detail, err := s.store.AdminUserDetail(r.Context(), userID, s.freeHourLimitMs(r.Context()), windowStart, windowEnd)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	detail.Summary.ProjectLimit = s.baseProjectCap(r.Context()) + detail.Summary.PaidProjectSlots
-	pool, err := s.adminAgentPoolOptions(r.Context())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	decorateAdminDetailAssignmentStatuses(detail, pool)
-	detail.AgentPool = pool
-	writeJSON(w, http.StatusAccepted, map[string]any{"detail": detail, "project": updated, "started": started, "blockedCode": blockedCode, "warning": warning})
+	writeError(w, http.StatusGone, "production hosting is handled in Fibe")
 }
 
 func (s *Server) decorateAdminProjectRuntimeDiagnostics(ctx context.Context, diagnostics *AdminProjectDiagnostics) {
@@ -1130,7 +1009,7 @@ func firstNonEmptyString(values ...string) string {
 
 func publicAdminConfig(cfg map[string]string) map[string]any {
 	out := map[string]any{}
-	for _, key := range []string{"fibe_base_url", "fibe_agent_server_pool", "fibe_template_version_id", "free_minutes", "free_hour_window_hours", "prompt_improve_charge_minutes", "project_cap", "project_quota_days", "production_project_days", "signup_mode", "signup_allowed_emails", "stripe_publishable_key", "stripe_price_id_1_hour", "stripe_price_id_10_hours", "stripe_price_id_100_hours", "stripe_project_quota_price_id", "stripe_production_project_price_id", "github_client_id", "github_username", "google_client_id", "smtp_host", "smtp_port", "smtp_username", "smtp_from_email", "smtp_from_name", "smtp_tls_mode"} {
+	for _, key := range []string{"fibe_base_url", "fibe_agent_server_pool", "fibe_template_version_id", "free_minutes", "free_hour_window_hours", "playground_idle_stop_hours", "prompt_improve_charge_minutes", "project_cap", "project_quota_days", "signup_mode", "signup_allowed_emails", "stripe_publishable_key", "stripe_price_id_1_hour", "stripe_price_id_10_hours", "stripe_price_id_100_hours", "stripe_project_quota_price_id", "github_client_id", "github_username", "google_client_id", "smtp_host", "smtp_port", "smtp_username", "smtp_from_email", "smtp_from_name", "smtp_tls_mode"} {
 		value := cfg[key]
 		set := strings.TrimSpace(cfg[key]) != ""
 		if key == "free_minutes" && strings.TrimSpace(value) == "" {
@@ -1169,14 +1048,14 @@ func publicConfigDefault(key string) string {
 		return strconv.Itoa(defaultFreeBuildMinutes)
 	case "free_hour_window_hours":
 		return strconv.Itoa(defaultFreeHourWindowHours)
+	case "playground_idle_stop_hours":
+		return strconv.Itoa(defaultPlaygroundIdleStopHours)
 	case "prompt_improve_charge_minutes":
 		return "0"
 	case "project_cap":
 		return "3"
 	case "project_quota_days":
 		return strconv.Itoa(defaultProjectQuotaDays)
-	case "production_project_days":
-		return strconv.Itoa(defaultProductionProjectDays)
 	case "signup_mode":
 		return "forbidden"
 	case "fibe_agent_server_pool":
@@ -1235,6 +1114,17 @@ func normalizeAdminConfigValues(values map[string]string) (map[string]string, er
 				return nil, errors.New("free_hour_window_hours must be between 1 and 24")
 			}
 			out[key] = strconv.Itoa(n)
+		case "playground_idle_stop_hours":
+			trimmed := strings.TrimSpace(value)
+			if trimmed == "" {
+				out[key] = ""
+				continue
+			}
+			n, err := strconv.Atoi(trimmed)
+			if err != nil || n <= 0 || n > maxPlaygroundIdleStopHours {
+				return nil, errors.New("playground_idle_stop_hours must be between 1 and 168")
+			}
+			out[key] = strconv.Itoa(n)
 		case "prompt_improve_charge_minutes":
 			trimmed := strings.TrimSpace(value)
 			if trimmed == "" {
@@ -1255,17 +1145,6 @@ func normalizeAdminConfigValues(values map[string]string) (map[string]string, er
 			n, err := strconv.Atoi(trimmed)
 			if err != nil || n <= 0 || n > maxProjectQuotaDays {
 				return nil, errors.New("project_quota_days must be between 1 and 365")
-			}
-			out[key] = strconv.Itoa(n)
-		case "production_project_days":
-			trimmed := strings.TrimSpace(value)
-			if trimmed == "" {
-				out[key] = ""
-				continue
-			}
-			n, err := strconv.Atoi(trimmed)
-			if err != nil || n <= 0 || n > maxProductionProjectDays {
-				return nil, errors.New("production_project_days must be between 1 and 365")
 			}
 			out[key] = strconv.Itoa(n)
 		default:

@@ -293,7 +293,7 @@ func TestIdleProjectsForPlaygroundStopUsesDedicatedUsageTimestamp(t *testing.T) 
 	}
 }
 
-func TestIdleProjectsForPlaygroundStopSkipsOnlyActiveProductionProjects(t *testing.T) {
+func TestIdleProjectsForPlaygroundStopIncludesLegacyProductionProjects(t *testing.T) {
 	store, err := Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -322,15 +322,19 @@ func TestIdleProjectsForPlaygroundStopSkipsOnlyActiveProductionProjects(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(projects) != 1 || projects[0].ID != expiredProject.ID {
-		t.Fatalf("idle projects=%+v, want only expired production project", projects)
+	got := map[string]bool{}
+	for _, project := range projects {
+		got[project.ID] = true
+	}
+	if len(projects) != 2 || !got[activeProject.ID] || !got[expiredProject.ID] {
+		t.Fatalf("idle projects=%+v, want active and expired legacy production projects", projects)
 	}
 	idle, reason, err := store.ProjectIdleForPlaygroundStop(t.Context(), activeProject.ID, time.Now().UTC().Add(-8*time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if idle || reason == "" {
-		t.Fatalf("active production idle=%v reason=%q, want skipped with reason", idle, reason)
+	if !idle || reason != "" {
+		t.Fatalf("active production idle=%v reason=%q, want eligible idle project", idle, reason)
 	}
 	idle, reason, err = store.ProjectIdleForPlaygroundStop(t.Context(), expiredProject.ID, time.Now().UTC().Add(-8*time.Hour))
 	if err != nil {

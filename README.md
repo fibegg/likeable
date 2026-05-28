@@ -27,7 +27,7 @@ After the first admin login, open Admin and configure:
 - GitHub OAuth for repository export.
 - Stripe prices and webhook secret.
 - SMTP delivery.
-- Signup mode, free build minutes/window, project cap, paid playground slot duration, and production project duration.
+- Signup mode, free build minutes/window, playground idle-stop hours, project cap, and paid playground slot duration.
 
 Signup defaults to forbidden until the admin changes it.
 
@@ -89,7 +89,7 @@ To apply launch-only live config without printing secret values:
 ```bash
 LIKEABLE_BASE_URL=https://likeable.example.com \
 LIKEABLE_ADMIN_EMAIL=admin@example.com \
-LIKEABLE_STRIPE_PRODUCTION_PROJECT_PRICE_ID=price_... \
+LIKEABLE_PLAYGROUND_IDLE_STOP_HOURS=8 \
 LIKEABLE_GOOGLE_CLIENT_ID=... \
 LIKEABLE_GOOGLE_CLIENT_SECRET=... \
 LIKEABLE_SMTP_HOST=smtp.example.com \
@@ -99,7 +99,7 @@ bin/live-configure
 
 Optional SMTP env keys are `LIKEABLE_SMTP_PORT`, `LIKEABLE_SMTP_USERNAME`, `LIKEABLE_SMTP_PASSWORD`, `LIKEABLE_SMTP_FROM_NAME`, and `LIKEABLE_SMTP_TLS_MODE`. Use `LIKEABLE_DRY_RUN=1` to print the config keys that would be applied without changing the live environment.
 
-`bin/live-configure` validates common operator mistakes before it writes config: production price IDs must start with `price_`, Google client ID/secret must be supplied together, SMTP port must be numeric, and SMTP TLS mode must be one of `auto`, `tls`, `starttls`, or `none`.
+`bin/live-configure` validates common operator mistakes before it writes config: playground idle-stop hours must be between 1 and 168, Google client ID/secret must be supplied together, SMTP port must be numeric, and SMTP TLS mode must be one of `auto`, `tls`, `starttls`, or `none`.
 
 ## Test Deployment Runbook
 
@@ -157,13 +157,12 @@ For a private smoke only, temporarily set `LIKEABLE_DEV_AUTH=1` and sign in with
 
 4. Configure Admin.
 
-Set Fibe, Google OAuth, GitHub export, SMTP, signup mode, free minutes/window, project cap, paid project-slot duration, production-project duration, and Stripe:
+Set Fibe, Google OAuth, GitHub export, SMTP, signup mode, free minutes/window, playground idle-stop hours, project cap, paid project-slot duration, and Stripe:
 
 - `stripe_secret_key`
 - `stripe_webhook_secret`
 - `stripe_price_id_1_hour`, `stripe_price_id_10_hours`, `stripe_price_id_100_hours`
 - `stripe_project_quota_price_id`
-- `stripe_production_project_price_id`
 
 Stripe webhook URL: `${BASE_URL}/api/stripe/webhook`.
 
@@ -175,26 +174,15 @@ Checkout uses backend-created Stripe Checkout Sessions and does not require `str
 - Admin billing health has no blocking issues.
 - A new user can sign in, create a project, and send a first message.
 - Sending a message to a stopped project wakes the playground and then sends the prompt.
+- Idle playgrounds pause after the configured inactive window; users can start them again when they return.
 - Hour-pack checkout grants build minutes.
 - Project-slot checkout increases the project cap for the configured number of days.
-- Production-project checkout pins that project as always-on until expiry, blocks manual stop, lets the user save a custom domain request, shows the CNAME target, and verifies customer DNS.
+- Likeable does not sell production hosting or custom domains. For always-on production hosting and domain setup, continue the project in Fibe.
 - Admin diagnostics for a user project shows conversation, agent, playground, server, repositories, payments, hour ledger, and work sessions.
 
-### Production Runtime Billing Operations
+### Production Handoff
 
-A production-project purchase grants the Likeable project permission to stay online, but the linked Fibe runtime must also be funded. If Fibe rejects a production start with runtime billing/payment status, Likeable keeps the project stopped, creates a warning notice for the user, and reports `runtime_billing_required`.
-
-Support flow:
-
-1. Open Admin, select the user, and inspect the production project.
-2. Open project diagnostics and check `production_runtime_status`, `production_runtime_message`, `server_id`, and `playground_id`.
-3. If the status is `runtime_billing_required`, fund the linked Fibe runtime/marquee outside Likeable.
-4. Click `Retry start` in Admin, or ask the user to click `Start playground`.
-5. Confirm the project moves to `launching` or `ready`, and `/healthz` remains healthy.
-
-The hourly production sweep also retries stopped production projects, so `Retry start` is mainly for immediate support verification after funding.
-
-Custom-domain routing still depends on customer DNS: after a production-project purchase, the user saves the intended custom domain, points a CNAME at the project target, and runs DNS verification from the project menu. Once DNS verifies, Likeable syncs the custom host into the Fibe app routing. Admin diagnostics include the saved domain, DNS status, target, and any routing failure.
+Likeable is scoped to experiments and development playgrounds. Keep billing in Likeable limited to build-hour packs and extra playground slots. Production hosting, custom domains, always-on runtimes, and customer DNS work belong in Fibe.
 
 ## Development With Live Reload
 
