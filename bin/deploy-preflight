@@ -15,6 +15,23 @@ trap cleanup EXIT
 
 cd "$ROOT"
 
+echo "==> Operational script checks"
+for script in bin/*; do
+  if [ -f "$script" ]; then
+    bash -n "$script"
+  fi
+done
+LIKEABLE_BASE_URL=http://localhost \
+  LIKEABLE_DRY_RUN=1 \
+  LIKEABLE_STRIPE_PRODUCTION_PROJECT_PRICE_ID=price_preflight \
+  LIKEABLE_GOOGLE_CLIENT_ID=google-client-preflight \
+  LIKEABLE_GOOGLE_CLIENT_SECRET=google-secret-preflight \
+  LIKEABLE_SMTP_HOST=smtp.example.test \
+  LIKEABLE_SMTP_PORT=587 \
+  LIKEABLE_SMTP_TLS_MODE=starttls \
+  LIKEABLE_SMTP_FROM_EMAIL=support@example.test \
+  bin/live-configure >/dev/null
+
 echo "==> TypeScript check"
 npm run lint
 
