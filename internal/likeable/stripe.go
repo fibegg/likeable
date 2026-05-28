@@ -336,6 +336,9 @@ func (s *Server) applyStripeCheckoutSession(ctx context.Context, cfg map[string]
 			Status:            "paid",
 		})
 	}
+	if stripeLegacyProductionProjectPurchase(session["metadata"]) {
+		return result, nil
+	}
 	packHours := stripePackHours(session["metadata"])
 	if packHours > 0 {
 		result.PurchaseKind = "hour_pack"
@@ -370,9 +373,6 @@ func (s *Server) applyStripeCheckoutSession(ctx context.Context, cfg map[string]
 				return result, err
 			}
 		}
-	}
-	if stripeProductionProjectID(session["metadata"]) != "" {
-		result.PurchaseKind = "production_project"
 	}
 	if subscriptionID != "" && subscriptionID != "<nil>" {
 		result.Applied = true
@@ -477,14 +477,18 @@ func stripeProjectQuotaDays(metadata any, fallback int) int {
 	return n
 }
 
-func stripeProductionProjectID(metadata any) string {
+func stripeLegacyProductionProjectPurchase(metadata any) bool {
 	if m, ok := metadata.(map[string]any); ok {
+		kind := strings.ToLower(strings.TrimSpace(fmt.Sprint(m["purchase_kind"])))
+		if kind == "production_project" || kind == "production-project" || kind == "production" {
+			return true
+		}
 		raw := strings.TrimSpace(fmt.Sprint(m["project_id"]))
 		if raw != "" && raw != "<nil>" {
-			return raw
+			return true
 		}
 	}
-	return ""
+	return false
 }
 
 func expectedStripeHourPackPrice(cfg map[string]string, pack int) string {

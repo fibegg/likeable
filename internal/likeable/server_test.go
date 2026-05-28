@@ -7315,6 +7315,8 @@ func TestStripeWebhookIgnoresLegacyProductionProjectPurchase(t *testing.T) {
 		"data": map[string]any{"object": map[string]any{
 			"id":                  "cs_production_project",
 			"client_reference_id": user.ID,
+			"customer":            "cus_production_project",
+			"subscription":        "sub_production_project",
 			"amount_total":        2900,
 			"currency":            "usd",
 			"payment_status":      "paid",
@@ -7349,6 +7351,9 @@ func TestStripeWebhookIgnoresLegacyProductionProjectPurchase(t *testing.T) {
 	}
 	if len(payments) != 1 || payments[0].ProviderPaymentID != "cs_production_project" {
 		t.Fatalf("payments=%+v, want legacy payment recorded without grant", payments)
+	}
+	if sub, err := store.SubscriptionForUser(t.Context(), user.ID); !errors.Is(err, sql.ErrNoRows) || sub != nil {
+		t.Fatalf("subscription=%+v err=%v, want no subscription for legacy production purchase", sub, err)
 	}
 	notices, err := store.NoticesForUser(t.Context(), user.ID, 10)
 	if err != nil {
