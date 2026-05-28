@@ -84,6 +84,21 @@ For an environment without dev auth, pass an existing admin session cookie with 
 
 `bin/live-readiness` exits non-zero when readiness or billing has blockers. Set `LIKEABLE_ALLOW_BLOCKERS=1` to print the full diagnostic payload while a test environment is intentionally incomplete.
 
+To apply launch-only live config without printing secret values:
+
+```bash
+LIKEABLE_BASE_URL=https://likeable.example.com \
+LIKEABLE_ADMIN_EMAIL=admin@example.com \
+LIKEABLE_STRIPE_PRODUCTION_PROJECT_PRICE_ID=price_... \
+LIKEABLE_GOOGLE_CLIENT_ID=... \
+LIKEABLE_GOOGLE_CLIENT_SECRET=... \
+LIKEABLE_SMTP_HOST=smtp.example.com \
+LIKEABLE_SMTP_FROM_EMAIL=support@example.com \
+bin/live-configure
+```
+
+Optional SMTP env keys are `LIKEABLE_SMTP_PORT`, `LIKEABLE_SMTP_USERNAME`, `LIKEABLE_SMTP_PASSWORD`, `LIKEABLE_SMTP_FROM_NAME`, and `LIKEABLE_SMTP_TLS_MODE`. Use `LIKEABLE_DRY_RUN=1` to print the config keys that would be applied without changing the live environment.
+
 ## Test Deployment Runbook
 
 Use this flow for the Vyakymenko Likeable test environment or any equivalent test VPS.
