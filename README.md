@@ -72,6 +72,18 @@ bin/deploy-preflight
 
 It runs the TypeScript check, frontend build, Go tests, production Docker image build, and a container smoke against `/healthz` and the admin billing health API. Override the image tag or smoke port with `LIKEABLE_IMAGE_TAG` and `LIKEABLE_PREFLIGHT_PORT`.
 
+After deploying a live test environment, run the remote readiness smoke:
+
+```bash
+LIKEABLE_BASE_URL=https://likeable.example.com \
+LIKEABLE_ADMIN_EMAIL=admin@example.com \
+bin/live-readiness
+```
+
+For an environment without dev auth, pass an existing admin session cookie with `LIKEABLE_SESSION_COOKIE` instead of `LIKEABLE_ADMIN_EMAIL`.
+
+`bin/live-readiness` exits non-zero when readiness or billing has blockers. Set `LIKEABLE_ALLOW_BLOCKERS=1` to print the full diagnostic payload while a test environment is intentionally incomplete.
+
 ## Test Deployment Runbook
 
 Use this flow for the Vyakymenko Likeable test environment or any equivalent test VPS.

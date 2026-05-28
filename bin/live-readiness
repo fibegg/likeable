@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+BASE_URL="${LIKEABLE_BASE_URL:-}"
+ADMIN_EMAIL="${LIKEABLE_ADMIN_EMAIL:-}"
+SESSION_COOKIE="${LIKEABLE_SESSION_COOKIE:-}"
+ALLOW_BLOCKERS="${LIKEABLE_ALLOW_BLOCKERS:-0}"
+
+if [ -z "$BASE_URL" ]; then
+  echo "missing required env: LIKEABLE_BASE_URL" >&2
+  exit 2
+fi
+
+BASE_URL="${BASE_URL%/}"
+cookie_jar="$(mktemp)"
+health_file="$(mktemp)"
+readiness_file="$(mktemp)"
+billing_file="$(mktemp)"
+cleanup() {
+  rm -f "$cookie_jar" "$health_file" "$readiness_file" "$billing_file"
+}
+trap cleanup EXIT
+
+echo "==> Health: $BASE_URL/healthz"
+curl -fsS "$BASE_URL/healthz" >"$health_file"
+node -e 'const fs=require("fs"); const h=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if (!h.ok) process.exit(1); console.log(JSON.stringify(h.checks || {}));' "$health_file"
+
+if [ -n "$SESSION_COOKIE" ]; then
+  auth_args=(-H "Cookie: likeable_session=$SESSION_COOKIE")
+else
+  if [ -z "$ADMIN_EMAIL" ]; then
+    echo "missing required env: LIKEABLE_ADMIN_EMAIL when LIKEABLE_SESSION_COOKIE is not set" >&2
+    exit 2
+  fi
+  echo "==> Admin auth: dev login"
+  curl -fsS -c "$cookie_jar" "$BASE_URL/api/dev/login?email=$ADMIN_EMAIL" >/dev/null
+  auth_args=(-b "$cookie_jar")
+fi
+
+echo "==> Admin page"
+curl -fsS "${auth_args[@]}" "$BASE_URL/admin" | grep -q '<div id="root">'
+echo "ok"
+
+echo "==> Launch readiness"
+curl -fsS "${auth_args[@]}" "$BASE_URL/api/admin/readiness" >"$readiness_file"
+node -e '
+const fs=require("fs");
+const r=JSON.parse(fs.readFileSync(process.argv[1],"utf8")).readiness;
+const failed=(r.checks || []).filter((check)=>!check.ok);
+console.log(JSON.stringify({ready:r.ready, blockers:r.blockerCount, warnings:r.warningCount, failed:failed.map((check)=>({key:check.key,severity:check.severity,detail:check.detail || ""}))}, null, 2));
+if (!r.ready) process.exit(3);
+' "$readiness_file" || readiness_status=$?
+readiness_status="${readiness_status:-0}"
+if [ "$readiness_status" != "0" ] && [ "$ALLOW_BLOCKERS" != "1" ]; then
+  exit "$readiness_status"
+fi
+
+echo "==> Billing health"
+curl -fsS "${auth_args[@]}" "$BASE_URL/api/admin/billing/health" >"$billing_file"
+node -e '
+const fs=require("fs");
+const h=JSON.parse(fs.readFileSync(process.argv[1],"utf8")).health;
+console.log(JSON.stringify({issues:h.issues || [], products:h.products || {}, prices:h.prices || {}}, null, 2));
+if ((h.issues || []).length > 0) process.exit(4);
+' "$billing_file" || billing_status=$?
+billing_status="${billing_status:-0}"
+if [ "$billing_status" != "0" ] && [ "$ALLOW_BLOCKERS" != "1" ]; then
+  exit "$billing_status"
+fi
+
+if [ "$readiness_status" = "0" ] && [ "$billing_status" = "0" ]; then
+  echo "==> OK: live readiness is clear"
+else
+  echo "==> Completed with accepted live blockers"
+fi
