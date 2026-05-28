@@ -5747,15 +5747,27 @@ func TestAdminReadinessReportsLaunchBlockers(t *testing.T) {
 	}
 	if check := readinessCheck(t, body.Readiness, "stripe_production_project_price"); check.OK || check.Severity != "blocker" {
 		t.Fatalf("production price check=%+v, want blocking failure", check)
+	} else if !strings.Contains(check.Detail, "stripe_production_project_price_id") {
+		t.Fatalf("production price detail=%q, want config key", check.Detail)
 	}
 	if check := readinessCheck(t, body.Readiness, "fibe_active_pool"); check.OK || check.Severity != "blocker" {
 		t.Fatalf("active pool check=%+v, want blocking failure", check)
+	} else if !strings.Contains(check.Detail, "fibe_agent_server_pool") {
+		t.Fatalf("active pool detail=%q, want config key", check.Detail)
 	}
 	if check := readinessCheck(t, body.Readiness, "fibe_active_pool_health"); check.OK || !strings.Contains(check.Detail, "no active") {
 		t.Fatalf("active pool health check=%+v, want no active detail", check)
 	}
+	if check := readinessCheck(t, body.Readiness, "google_oauth"); check.OK || !strings.Contains(check.Detail, "google_client_id") || !strings.Contains(check.Detail, "google_client_secret") {
+		t.Fatalf("google oauth check=%+v, want actionable config keys", check)
+	}
+	if check := readinessCheck(t, body.Readiness, "smtp_delivery"); check.OK || !strings.Contains(check.Detail, "smtp_host") || !strings.Contains(check.Detail, "smtp_from_email") {
+		t.Fatalf("smtp delivery check=%+v, want actionable config keys", check)
+	}
 	if check := readinessCheck(t, body.Readiness, "signup_enabled"); check.OK || check.Severity != "warning" {
 		t.Fatalf("signup check=%+v, want warning failure", check)
+	} else if !strings.Contains(check.Detail, "signup_mode") {
+		t.Fatalf("signup detail=%q, want config key", check.Detail)
 	}
 }
 

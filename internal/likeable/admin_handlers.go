@@ -258,11 +258,14 @@ func (s *Server) adminReadiness(cfg map[string]string, pool []AgentPoolOption, p
 	stripeCfg := stripeConfigFromMap(cfg)
 	priceStatus := stripePriceStatus(stripeCfg)
 	checks := []AdminReadinessCheck{}
-	addAdminReadinessCheck(&checks, "stripe_secret", "blocker", strings.TrimSpace(stripeCfg["secret"]) != "", "")
-	addAdminReadinessCheck(&checks, "stripe_webhook", "blocker", strings.TrimSpace(stripeCfg["webhook"]) != "", "")
-	addAdminReadinessCheck(&checks, "stripe_hour_prices", "blocker", priceStatus["oneHour"] || priceStatus["tenHours"] || priceStatus["hundredHours"], "")
-	addAdminReadinessCheck(&checks, "stripe_project_quota_price", "blocker", priceStatus["projectQuota"], "")
-	addAdminReadinessCheck(&checks, "stripe_production_project_price", "blocker", priceStatus["productionProject"], "")
+	stripeSecretOK := strings.TrimSpace(stripeCfg["secret"]) != ""
+	stripeWebhookOK := strings.TrimSpace(stripeCfg["webhook"]) != ""
+	stripeHourPricesOK := priceStatus["oneHour"] || priceStatus["tenHours"] || priceStatus["hundredHours"]
+	addAdminReadinessCheck(&checks, "stripe_secret", "blocker", stripeSecretOK, missingReadinessDetail(stripeSecretOK, "set stripe_secret_key"))
+	addAdminReadinessCheck(&checks, "stripe_webhook", "blocker", stripeWebhookOK, missingReadinessDetail(stripeWebhookOK, "set stripe_webhook_secret"))
+	addAdminReadinessCheck(&checks, "stripe_hour_prices", "blocker", stripeHourPricesOK, missingReadinessDetail(stripeHourPricesOK, "set at least one hour-pack price id"))
+	addAdminReadinessCheck(&checks, "stripe_project_quota_price", "blocker", priceStatus["projectQuota"], missingReadinessDetail(priceStatus["projectQuota"], "set stripe_project_quota_price_id"))
+	addAdminReadinessCheck(&checks, "stripe_production_project_price", "blocker", priceStatus["productionProject"], missingReadinessDetail(priceStatus["productionProject"], "set stripe_production_project_price_id"))
 	greenfieldReady, greenfieldDetail := greenfieldTemplateReadiness(cfg)
 	addAdminReadinessCheck(&checks, "fibe_template_version", "blocker", greenfieldReady, greenfieldDetail)
 	activePoolCount := 0
@@ -271,16 +274,20 @@ func (s *Server) adminReadiness(cfg map[string]string, pool []AgentPoolOption, p
 			activePoolCount++
 		}
 	}
-	addAdminReadinessCheck(&checks, "fibe_active_pool", "blocker", activePoolCount > 0, "")
+	hasActivePool := activePoolCount > 0
+	addAdminReadinessCheck(&checks, "fibe_active_pool", "blocker", hasActivePool, missingReadinessDetail(hasActivePool, "configure at least one active fibe_agent_server_pool row"))
 	healthyActivePool, activePoolDetail := activePoolReadiness(poolHealth, activePoolCount)
 	addAdminReadinessCheck(&checks, "fibe_active_pool_health", "blocker", healthyActivePool, activePoolDetail)
-	addAdminReadinessCheck(&checks, "google_oauth", "blocker", strings.TrimSpace(cfg["google_client_id"]) != "" && strings.TrimSpace(cfg["google_client_secret"]) != "", "")
-	addAdminReadinessCheck(&checks, "smtp_delivery", "warning", strings.TrimSpace(cfg["smtp_host"]) != "" && strings.TrimSpace(cfg["smtp_from_email"]) != "", "")
+	googleOAuthOK := strings.TrimSpace(cfg["google_client_id"]) != "" && strings.TrimSpace(cfg["google_client_secret"]) != ""
+	smtpDeliveryOK := strings.TrimSpace(cfg["smtp_host"]) != "" && strings.TrimSpace(cfg["smtp_from_email"]) != ""
+	addAdminReadinessCheck(&checks, "google_oauth", "blocker", googleOAuthOK, missingReadinessDetail(googleOAuthOK, "set google_client_id and google_client_secret"))
+	addAdminReadinessCheck(&checks, "smtp_delivery", "warning", smtpDeliveryOK, missingReadinessDetail(smtpDeliveryOK, "set smtp_host and smtp_from_email"))
 	signupMode := strings.TrimSpace(cfg["signup_mode"])
 	if signupMode == "" {
 		signupMode = "forbidden"
 	}
-	addAdminReadinessCheck(&checks, "signup_enabled", "warning", signupMode != "forbidden", signupMode)
+	signupEnabled := signupMode != "forbidden"
+	addAdminReadinessCheck(&checks, "signup_enabled", "warning", signupEnabled, missingReadinessDetail(signupEnabled, "set signup_mode to all or allowlist"))
 
 	readiness := AdminReadiness{
 		CheckedAt: time.Now().UTC().Format(time.RFC3339Nano),
@@ -308,6 +315,13 @@ func addAdminReadinessCheck(checks *[]AdminReadinessCheck, key, severity string,
 		Severity: severity,
 		Detail:   strings.TrimSpace(detail),
 	})
+}
+
+func missingReadinessDetail(ok bool, detail string) string {
+	if ok {
+		return ""
+	}
+	return detail
 }
 
 func greenfieldTemplateReadiness(cfg map[string]string) (bool, string) {
