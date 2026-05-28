@@ -150,6 +150,7 @@ export function ProfilePanel({ me, onClose, onOpenTutorial, onRefreshAccount }: 
   const projectQuota = me.projectQuota;
   const availableHourPacks = me.billingProducts?.hourPacks ?? [];
   const projectQuotaPurchasable = Boolean(me.billingProducts?.projectQuota);
+  const projectQuotaDays = me.billingProducts?.projectQuotaDays ?? 30;
   const quotaResetLabel = quota ? formatResetCountdown(quota.resetsAt, Date.now(), resetCountdownLabels(t)) : t('duration.fiveHours');
   const quotaWindowHours = quota?.windowHours ?? 5;
   const remainingHours = formatBillingDuration(quota?.remainingMs ?? 0, resetCountdownLabels(t));
@@ -203,6 +204,16 @@ export function ProfilePanel({ me, onClose, onOpenTutorial, onRefreshAccount }: 
             <BookOpen size={16} /> {t('profile.tutorialOpen')}
           </button>
         </div>
+        <div className="profileCard profileActionCard profileScopeCard">
+          <div>
+            <span className="profileLabel">{t('profile.scope')}</span>
+            <strong>{t('profile.scopeTitle')}</strong>
+            <em>{t('profile.scopeBody')}</em>
+          </div>
+          <a className="ghostButton" href="https://next.fibe.live" target="_blank" rel="noopener noreferrer">
+            <ExternalLink size={16} /> {t('profile.openFibe')}
+          </a>
+        </div>
         <div className="profileCard profileActionCard profileHoursCard">
           <div>
             <span className="profileLabel">{t('profile.hours')}</span>
@@ -236,7 +247,7 @@ export function ProfilePanel({ me, onClose, onOpenTutorial, onRefreshAccount }: 
               </span>
             )}
             {projectQuota && <div className="profileMeter compact" aria-hidden="true"><span style={{ width: `${projectSlotPercent}%` }} /></div>}
-            <em>{projectSlotsFull ? t('profile.projectSlotFullDetail') : t('profile.projectSlotDetail', { paid: projectQuota?.paidSlots ?? 0, reset: projectQuota?.nextExpiresAt ? ` · ${t('common.nextReset', { date: formatShortDate(projectQuota.nextExpiresAt, locale) })}` : '' })}</em>
+            <em>{projectSlotsFull ? t('profile.projectSlotFullDetail') : t('profile.projectSlotDetail', { paid: projectQuota?.paidSlots ?? 0, days: projectQuotaDays, reset: projectQuota?.nextExpiresAt ? ` · ${t('common.nextReset', { date: formatShortDate(projectQuota.nextExpiresAt, locale) })}` : '' })}</em>
           </div>
           {projectQuotaPurchasable && (
             <button className="primaryButton" disabled={busyPack != null} onClick={() => void checkoutProjectSlot()}>

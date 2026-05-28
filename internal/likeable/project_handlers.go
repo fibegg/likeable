@@ -30,6 +30,7 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		projects = s.refreshProjectListResources(r.Context(), user, projects)
+		s.decorateProjectsComputedFields(r.Context(), projects)
 		s.recoverProjectsAsync(user.ID, user.Email, projects)
 		projectQuota := s.projectQuota(r.Context(), user)
 		writeJSON(w, http.StatusOK, map[string]any{"projects": projects, "projectCap": projectQuota["limit"], "projectQuota": projectQuota})
@@ -64,6 +65,20 @@ func (s *Server) refreshProjectListResources(ctx context.Context, user *User, pr
 		}
 	}
 	return out
+}
+
+func (s *Server) decorateProjectComputedFields(ctx context.Context, project *Project) {
+	if project == nil {
+		return
+	}
+	project.RefreshComputedFieldsWithIdleStopAfter(s.playgroundIdleStopAfter(ctx))
+}
+
+func (s *Server) decorateProjectsComputedFields(ctx context.Context, projects []Project) {
+	idleStopAfter := s.playgroundIdleStopAfter(ctx)
+	for i := range projects {
+		projects[i].RefreshComputedFieldsWithIdleStopAfter(idleStopAfter)
+	}
 }
 
 func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request, user *User) {
@@ -127,6 +142,7 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request, use
 	}
 	s.notifyProjectQuotaIfNeeded(r.Context(), user)
 	created, _ := s.store.ProjectForUser(r.Context(), user.ID, project.ID)
+	s.decorateProjectComputedFields(r.Context(), created)
 	writeJSON(w, http.StatusCreated, map[string]any{"project": created})
 }
 
@@ -147,6 +163,7 @@ func (s *Server) handleProjectRoute(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
 			s.recoverProjectAsync(user.ID, user.Email, project)
+			s.decorateProjectComputedFields(r.Context(), project)
 			writeJSON(w, http.StatusOK, map[string]any{"project": project})
 		case http.MethodPatch:
 			s.handleProjectUpdate(w, r, user, project)
@@ -174,6 +191,16 @@ func (s *Server) handleProjectRoute(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not found")
 	case "playground":
 		s.handleProjectPlaygroundAction(w, r, user, project)
+	case "domain":
+		if len(parts) == 2 {
+			s.handleProjectDomain(w, r, user, project)
+			return
+		}
+		if len(parts) == 3 && parts[2] == "verify" {
+			s.handleProjectDomainVerify(w, r, user, project)
+			return
+		}
+		writeError(w, http.StatusNotFound, "not found")
 	case "attachments":
 		if len(parts) != 3 {
 			writeError(w, http.StatusNotFound, "not found")
@@ -229,12 +256,14 @@ func (s *Server) handleProjectUpdate(w http.ResponseWriter, r *http.Request, use
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.decorateProjectComputedFields(r.Context(), updated)
 	writeJSON(w, http.StatusOK, map[string]any{"project": updated})
 }
 
 func (s *Server) handleProjectDelete(w http.ResponseWriter, r *http.Request, user *User, project *Project) {
 	if project.Status == "deleting" {
 		s.deleteProjectResourcesAsync(user.ID, user.Email, project)
+		s.decorateProjectComputedFields(r.Context(), project)
 		writeJSON(w, http.StatusAccepted, map[string]any{"project": project})
 		return
 	}
@@ -245,6 +274,7 @@ func (s *Server) handleProjectDelete(w http.ResponseWriter, r *http.Request, use
 	project.Status = "deleting"
 	s.notifyProjectDeletionScheduled(r.Context(), user, project)
 	s.deleteProjectResourcesAsync(user.ID, user.Email, project)
+	s.decorateProjectComputedFields(r.Context(), project)
 	writeJSON(w, http.StatusAccepted, map[string]any{"project": project})
 }
 
@@ -289,7 +319,8 @@ func (s *Server) handleProjectPlaygroundAction(w http.ResponseWriter, r *http.Re
 		writeError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
-	updated, err := s.controlProjectPlayground(r.Context(), user, project, strings.ToLower(strings.TrimSpace(body.Action)))
+	action := strings.ToLower(strings.TrimSpace(body.Action))
+	updated, err := s.controlProjectPlayground(r.Context(), user, project, action)
 	if err != nil {
 		if errors.Is(err, errProjectExportOnly) || errors.Is(err, errProjectRetiring) {
 			writeError(w, http.StatusConflict, developmentBlockedMessage(err))
@@ -308,6 +339,7 @@ func (s *Server) handleProjectPlaygroundAction(w http.ResponseWriter, r *http.Re
 		return
 	}
 	s.clearPlatformBackoff()
+	s.decorateProjectComputedFields(r.Context(), updated)
 	writeJSON(w, http.StatusAccepted, map[string]any{"project": updated})
 }
 
@@ -334,6 +366,15 @@ func (s *Server) controlProjectPlayground(ctx context.Context, user *User, proje
 	nextStatus := "launching"
 	switch action {
 	case "start":
+		if strings.TrimSpace(project.PreviewURL) != "" {
+			updated, ready, _, _, err := s.promoteProjectFromReachablePreview(actionCtx, user.ID, project)
+			if err == nil && ready && updated != nil {
+				if err := s.store.TouchProjectPlaygroundUsage(ctx, updated.ID, user.ID); err != nil {
+					return nil, err
+				}
+				return s.store.ProjectForUser(ctx, user.ID, updated.ID)
+			}
+		}
 		err = fibeClient.StartPlayground(actionCtx, playgroundID)
 	case "stop":
 		nextStatus = "stopped"
@@ -365,6 +406,14 @@ func (s *Server) controlProjectPlayground(ctx context.Context, user *User, proje
 	return s.store.ProjectForUser(ctx, user.ID, project.ID)
 }
 
+func (s *Server) handleProjectDomain(w http.ResponseWriter, r *http.Request, user *User, project *Project) {
+	writeError(w, http.StatusGone, "custom domains are managed in Fibe")
+}
+
+func (s *Server) handleProjectDomainVerify(w http.ResponseWriter, r *http.Request, user *User, project *Project) {
+	writeError(w, http.StatusGone, "custom domains are managed in Fibe")
+}
+
 func (s *Server) handleProjectFeed(w http.ResponseWriter, r *http.Request, user *User, project *Project) {
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -379,6 +428,7 @@ func (s *Server) handleProjectFeed(w http.ResponseWriter, r *http.Request, user 
 			log.Printf("load project notification timings for project %s: %v", project.ID, timingErr)
 			timings = map[string]ProjectNotificationTiming{}
 		}
+		s.decorateProjectComputedFields(r.Context(), project)
 		writeJSON(w, http.StatusOK, map[string]any{"project": project, "localMessages": local, "messages": []any{}, "activity": []any{}, "live": nil, "notificationTimings": timings, "warning": "This project is archived. Export it or create a new project."})
 		return
 	}
@@ -392,6 +442,7 @@ func (s *Server) handleProjectFeed(w http.ResponseWriter, r *http.Request, user 
 		}
 		cancel()
 	}
+	s.decorateProjectComputedFields(r.Context(), project)
 	snapshot, err := s.loadProjectFeedSnapshot(r.Context(), user, project, true)
 	if err != nil {
 		log.Printf("load project feed for project %s: %v", project.ID, err)
@@ -419,6 +470,7 @@ func (s *Server) handleProjectPreviewStatus(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	readinessRefreshed := false
+	resourceStatusRefreshed := false
 	if projectNeedsReadinessRecovery(project) && user != nil {
 		ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 		updated, err := s.refreshProjectReadiness(ctx, user, project)
@@ -437,11 +489,32 @@ func (s *Server) handleProjectPreviewStatus(w http.ResponseWriter, r *http.Reque
 		cancel()
 		if err == nil && updated != nil {
 			project = updated
+			resourceStatusRefreshed = true
 		} else if err != nil {
 			log.Printf("preview status project resource refresh %s: %v", project.ID, err)
 		}
 	}
 	if project.Status == "stopped" {
+		if !resourceStatusRefreshed && strings.TrimSpace(project.PreviewURL) != "" {
+			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+			updated, ready, status, maintenance, err := s.promoteProjectFromReachablePreview(ctx, project.UserID, project)
+			cancel()
+			if err == nil && updated != nil {
+				project = updated
+			} else if err != nil {
+				log.Printf("stopped preview status probe for project %s failed: %v", project.ID, err)
+			}
+			if ready || maintenance {
+				writeJSON(w, http.StatusOK, map[string]any{
+					"ready":       ready,
+					"maintenance": maintenance,
+					"status":      publicPreviewProbeStatus(status),
+					"checkedAt":   nowString(),
+					"project":     project,
+				})
+				return
+			}
+		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"ready":     false,
 			"status":    "stopped",

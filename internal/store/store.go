@@ -80,6 +80,7 @@ func (s *Store) migrate(ctx context.Context) error {
 			selected_service_name TEXT NOT NULL DEFAULT '',
 			status TEXT NOT NULL DEFAULT 'creating',
 			error_message TEXT NOT NULL DEFAULT '',
+			internal_error_message TEXT NOT NULL DEFAULT '',
 			provisioning_lock_until TEXT NOT NULL DEFAULT '',
 			cleanup_last_error TEXT NOT NULL DEFAULT '',
 			cleanup_lock_until TEXT NOT NULL DEFAULT '',
@@ -232,6 +233,27 @@ func (s *Store) migrate(ctx context.Context) error {
 			UNIQUE(payment_id)
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_project_quota_user_expires ON project_quota_ledger(user_id, expires_at DESC)`,
+		`CREATE TABLE IF NOT EXISTS project_production_grants (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+			payment_id TEXT NOT NULL DEFAULT '',
+			expires_at TEXT NOT NULL,
+			created_at TEXT NOT NULL,
+			UNIQUE(payment_id)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_project_production_project_expires ON project_production_grants(project_id, expires_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_project_production_user_expires ON project_production_grants(user_id, expires_at DESC)`,
+		`CREATE TABLE IF NOT EXISTS project_domains (
+			project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			domain TEXT NOT NULL UNIQUE,
+			target TEXT NOT NULL DEFAULT '',
+			status TEXT NOT NULL DEFAULT 'pending_dns',
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_project_domains_user_updated ON project_domains(user_id, updated_at DESC)`,
 		`CREATE TABLE IF NOT EXISTS export_jobs (
 			id TEXT PRIMARY KEY,
 			project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -278,6 +300,9 @@ func (s *Store) migrate(ctx context.Context) error {
 		return err
 	}
 	if err := s.ensureColumn(ctx, "projects", "error_message", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := s.ensureColumn(ctx, "projects", "internal_error_message", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
 	if err := s.ensureColumn(ctx, "projects", "selected_service_name", "TEXT NOT NULL DEFAULT ''"); err != nil {

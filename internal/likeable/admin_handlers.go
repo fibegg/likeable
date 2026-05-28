@@ -16,6 +16,21 @@ import (
 
 const adminMaxHourGrant = 100
 
+type AdminReadinessCheck struct {
+	Key      string `json:"key"`
+	OK       bool   `json:"ok"`
+	Severity string `json:"severity"`
+	Detail   string `json:"detail,omitempty"`
+}
+
+type AdminReadiness struct {
+	CheckedAt    string                `json:"checkedAt"`
+	Ready        bool                  `json:"ready"`
+	BlockerCount int                   `json:"blockerCount"`
+	WarningCount int                   `json:"warningCount"`
+	Checks       []AdminReadinessCheck `json:"checks"`
+}
+
 var secretConfigKeys = map[string]bool{
 	"fibe_api_key":          true,
 	"stripe_secret_key":     true,
@@ -45,7 +60,7 @@ func (s *Server) handleAdminConfig(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"config": publicAdminConfig(cfg), "adminEmail": s.config.AdminEmail, "agentPoolStats": stats, "agentPool": pool})
+		writeJSON(w, http.StatusOK, map[string]any{"config": publicAdminConfig(cfg), "adminEmail": s.config.AdminEmail, "agentPoolStats": stats, "agentPool": pool, "agentPoolHealth": s.adminAgentPoolHealth(r.Context(), cfg, pool)})
 	case http.MethodPut:
 		var body map[string]string
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -149,6 +164,213 @@ func (s *Server) handleAdminRecovery(w http.ResponseWriter, r *http.Request) {
 		"pendingAccountDeletionCount": len(accountRows),
 		"sweepIntervalSeconds":        int(projectDeletionSweepInterval.Seconds()),
 	})
+}
+
+func (s *Server) handleAdminReadiness(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	cfg, err := s.store.ConfigMap(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	pool, err := adminAgentPoolOptionsFromConfig(cfg)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	poolHealth := s.adminAgentPoolHealth(r.Context(), cfg, activeAdminPoolOptions(pool))
+	writeJSON(w, http.StatusOK, map[string]any{"readiness": s.adminReadiness(cfg, pool, poolHealth)})
+}
+
+func (s *Server) handleAdminBillingHealth(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	cfg, err := s.store.ConfigMap(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	stripeCfg := stripeConfigFromMap(cfg)
+	payments, err := s.store.RecentPayments(r.Context(), 10)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	priceStatus := stripePriceStatus(stripeCfg)
+	issues := stripeBillingIssues(stripeCfg, priceStatus)
+	products := billingProductsFromConfig(stripeCfg)
+	products["projectQuotaDays"] = s.projectQuotaDays(r.Context())
+	writeJSON(w, http.StatusOK, map[string]any{
+		"health": map[string]any{
+			"checkedAt": time.Now().UTC().Format(time.RFC3339Nano),
+			"configured": map[string]bool{
+				"publishableKey": strings.TrimSpace(cfg["stripe_publishable_key"]) != "",
+				"secretKey":      strings.TrimSpace(stripeCfg["secret"]) != "",
+				"webhookSecret":  strings.TrimSpace(stripeCfg["webhook"]) != "",
+			},
+			"products":       products,
+			"prices":         priceStatus,
+			"free":           map[string]any{"minutes": s.freeBuildLimitMinutes(r.Context()), "windowHours": s.freeHourWindowHours(r.Context())},
+			"issues":         issues,
+			"recentPayments": payments,
+		},
+	})
+}
+
+func stripePriceStatus(stripeCfg map[string]string) map[string]bool {
+	return map[string]bool{
+		"oneHour":      strings.TrimSpace(stripeCfg["price_1_hour"]) != "",
+		"tenHours":     strings.TrimSpace(stripeCfg["price_10_hours"]) != "",
+		"hundredHours": strings.TrimSpace(stripeCfg["price_100_hours"]) != "",
+		"projectQuota": strings.TrimSpace(stripeCfg["project_quota_price"]) != "",
+	}
+}
+
+func stripeBillingIssues(stripeCfg map[string]string, priceStatus map[string]bool) []string {
+	issues := []string{}
+	if strings.TrimSpace(stripeCfg["secret"]) == "" {
+		issues = append(issues, "stripe_secret_missing")
+	}
+	if strings.TrimSpace(stripeCfg["webhook"]) == "" {
+		issues = append(issues, "stripe_webhook_missing")
+	}
+	if !priceStatus["oneHour"] && !priceStatus["tenHours"] && !priceStatus["hundredHours"] {
+		issues = append(issues, "stripe_hour_prices_missing")
+	}
+	if !priceStatus["projectQuota"] {
+		issues = append(issues, "stripe_project_quota_price_missing")
+	}
+	return issues
+}
+
+func (s *Server) adminReadiness(cfg map[string]string, pool []AgentPoolOption, poolHealth []AgentPoolHealth) AdminReadiness {
+	stripeCfg := stripeConfigFromMap(cfg)
+	priceStatus := stripePriceStatus(stripeCfg)
+	checks := []AdminReadinessCheck{}
+	stripeSecretOK := strings.TrimSpace(stripeCfg["secret"]) != ""
+	stripeWebhookOK := strings.TrimSpace(stripeCfg["webhook"]) != ""
+	stripeHourPricesOK := priceStatus["oneHour"] || priceStatus["tenHours"] || priceStatus["hundredHours"]
+	addAdminReadinessCheck(&checks, "stripe_secret", "blocker", stripeSecretOK, missingReadinessDetail(stripeSecretOK, "set stripe_secret_key"))
+	addAdminReadinessCheck(&checks, "stripe_webhook", "blocker", stripeWebhookOK, missingReadinessDetail(stripeWebhookOK, "set stripe_webhook_secret"))
+	addAdminReadinessCheck(&checks, "stripe_hour_prices", "blocker", stripeHourPricesOK, missingReadinessDetail(stripeHourPricesOK, "set at least one hour-pack price id"))
+	addAdminReadinessCheck(&checks, "stripe_project_quota_price", "blocker", priceStatus["projectQuota"], missingReadinessDetail(priceStatus["projectQuota"], "set stripe_project_quota_price_id"))
+	greenfieldReady, greenfieldDetail := greenfieldTemplateReadiness(cfg)
+	addAdminReadinessCheck(&checks, "fibe_template_version", "blocker", greenfieldReady, greenfieldDetail)
+	activePoolCount := 0
+	for _, option := range pool {
+		if strings.TrimSpace(option.Status) == fibe.AssignmentStatusActive {
+			activePoolCount++
+		}
+	}
+	hasActivePool := activePoolCount > 0
+	addAdminReadinessCheck(&checks, "fibe_active_pool", "blocker", hasActivePool, missingReadinessDetail(hasActivePool, "configure at least one active fibe_agent_server_pool row"))
+	healthyActivePool, activePoolDetail := activePoolReadiness(poolHealth, activePoolCount)
+	addAdminReadinessCheck(&checks, "fibe_active_pool_health", "blocker", healthyActivePool, activePoolDetail)
+	googleOAuthOK := strings.TrimSpace(cfg["google_client_id"]) != "" && strings.TrimSpace(cfg["google_client_secret"]) != ""
+	smtpDeliveryOK := strings.TrimSpace(cfg["smtp_host"]) != "" && strings.TrimSpace(cfg["smtp_from_email"]) != ""
+	addAdminReadinessCheck(&checks, "google_oauth", "blocker", googleOAuthOK, missingReadinessDetail(googleOAuthOK, "set google_client_id and google_client_secret"))
+	addAdminReadinessCheck(&checks, "smtp_delivery", "warning", smtpDeliveryOK, missingReadinessDetail(smtpDeliveryOK, "set smtp_host and smtp_from_email"))
+	signupMode := strings.TrimSpace(cfg["signup_mode"])
+	if signupMode == "" {
+		signupMode = "forbidden"
+	}
+	signupEnabled := signupMode != "forbidden"
+	addAdminReadinessCheck(&checks, "signup_enabled", "warning", signupEnabled, missingReadinessDetail(signupEnabled, "set signup_mode to all or allowlist"))
+
+	readiness := AdminReadiness{
+		CheckedAt: time.Now().UTC().Format(time.RFC3339Nano),
+		Checks:    checks,
+		Ready:     true,
+	}
+	for _, check := range checks {
+		if check.OK {
+			continue
+		}
+		if check.Severity == "warning" {
+			readiness.WarningCount++
+			continue
+		}
+		readiness.BlockerCount++
+		readiness.Ready = false
+	}
+	return readiness
+}
+
+func addAdminReadinessCheck(checks *[]AdminReadinessCheck, key, severity string, ok bool, detail string) {
+	*checks = append(*checks, AdminReadinessCheck{
+		Key:      key,
+		OK:       ok,
+		Severity: severity,
+		Detail:   strings.TrimSpace(detail),
+	})
+}
+
+func missingReadinessDetail(ok bool, detail string) string {
+	if ok {
+		return ""
+	}
+	return detail
+}
+
+func greenfieldTemplateReadiness(cfg map[string]string) (bool, string) {
+	if strings.TrimSpace(cfg["fibe_template_version_id"]) != "" {
+		return true, "template version id"
+	}
+	body, err := fibe.GreenfieldTemplateBody()
+	if err != nil {
+		return false, err.Error()
+	}
+	if strings.TrimSpace(body) != "" {
+		return true, "bundled template body"
+	}
+	return false, "no template version id or bundled template body"
+}
+
+func activeAdminPoolOptions(pool []AgentPoolOption) []AgentPoolOption {
+	active := []AgentPoolOption{}
+	for _, option := range pool {
+		if strings.TrimSpace(option.Status) == fibe.AssignmentStatusActive {
+			active = append(active, option)
+		}
+	}
+	return active
+}
+
+func activePoolReadiness(poolHealth []AgentPoolHealth, activePoolCount int) (bool, string) {
+	if activePoolCount == 0 {
+		return false, "no active agent/server pairs configured"
+	}
+	failures := []string{}
+	for _, health := range poolHealth {
+		if strings.TrimSpace(health.Status) != fibe.AssignmentStatusActive {
+			continue
+		}
+		pair := readinessPoolPairLabel(health.Label, health.AgentID, health.ServerID)
+		if health.OK {
+			return true, pair
+		}
+		if len(health.Problems) > 0 {
+			failures = append(failures, pair+": "+strings.Join(health.Problems, "; "))
+		} else {
+			failures = append(failures, pair)
+		}
+	}
+	if len(failures) == 0 {
+		return false, "active agent/server pairs did not return health"
+	}
+	return false, strings.Join(failures, " | ")
+}
+
+func readinessPoolPairLabel(label, agentID, serverID string) string {
+	if strings.TrimSpace(label) != "" {
+		return strings.TrimSpace(label)
+	}
+	return strings.TrimSpace(agentID) + "/" + strings.TrimSpace(serverID)
 }
 
 type adminRecoveryProject struct {
@@ -289,6 +511,12 @@ func (s *Server) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 		s.handleAdminUserGrantHours(w, r, userID)
 	case len(parts) == 3 && parts[1] == "projects" && r.Method == http.MethodDelete:
 		s.handleAdminUserProjectDelete(w, r, userID, parts[2])
+	case len(parts) == 4 && parts[1] == "projects" && parts[3] == "diagnostics" && r.Method == http.MethodGet:
+		s.handleAdminUserProjectDiagnostics(w, r, userID, parts[2])
+	case len(parts) == 4 && parts[1] == "projects" && parts[3] == "production" && r.Method == http.MethodPost:
+		s.handleAdminUserProjectProductionGrant(w, r, userID, parts[2])
+	case len(parts) == 5 && parts[1] == "projects" && parts[3] == "production" && parts[4] == "start" && r.Method == http.MethodPost:
+		s.handleAdminUserProjectProductionStart(w, r, userID, parts[2])
 	case len(parts) == 4 && parts[1] == "projects" && parts[3] == "assignment" && r.Method == http.MethodPatch:
 		s.handleAdminUserProjectAssignment(w, r, userID, parts[2])
 	default:
@@ -498,6 +726,27 @@ func (s *Server) handleAdminUserProjectDelete(w http.ResponseWriter, r *http.Req
 	writeJSON(w, http.StatusAccepted, map[string]any{"project": project})
 }
 
+func (s *Server) handleAdminUserProjectDiagnostics(w http.ResponseWriter, r *http.Request, userID, projectID string) {
+	diagnostics, err := s.store.AdminProjectDiagnostics(r.Context(), userID, projectID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "project not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"diagnostics": diagnostics})
+}
+
+func (s *Server) handleAdminUserProjectProductionGrant(w http.ResponseWriter, r *http.Request, userID, projectID string) {
+	writeError(w, http.StatusGone, "production hosting is handled in Fibe")
+}
+
+func (s *Server) handleAdminUserProjectProductionStart(w http.ResponseWriter, r *http.Request, userID, projectID string) {
+	writeError(w, http.StatusGone, "production hosting is handled in Fibe")
+}
+
 func (s *Server) handleAdminUserProjectAssignment(w http.ResponseWriter, r *http.Request, userID, projectID string) {
 	var body struct {
 		AgentID       string `json:"agent_id"`
@@ -624,6 +873,42 @@ func adminAgentPoolOptionsFromConfig(cfg map[string]string) ([]AgentPoolOption, 
 	return options, nil
 }
 
+func (s *Server) adminAgentPoolHealth(ctx context.Context, cfg map[string]string, pool []AgentPoolOption) []AgentPoolHealth {
+	if len(pool) == 0 {
+		return []AgentPoolHealth{}
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	out := make([]AgentPoolHealth, 0, len(pool))
+	for _, option := range pool {
+		health := AgentPoolHealth{
+			Label:    strings.TrimSpace(option.Label),
+			AgentID:  strings.TrimSpace(option.AgentID),
+			ServerID: strings.TrimSpace(option.ServerID),
+			Status:   fibe.AssignmentStatus(fibe.Assignment{Status: option.Status}),
+		}
+		client, err := s.fibeClientFromConfig(cfg, fibe.Assignment{AgentID: health.AgentID, MarqueeID: health.ServerID})
+		if err != nil {
+			health.Problems = []string{err.Error()}
+			out = append(out, health)
+			continue
+		}
+		checked := client.AssignmentHealth(ctx)
+		health.AgentStatus = checked.AgentStatus
+		health.AgentAuthenticated = checked.AgentAuthenticated
+		health.ServerStatus = checked.MarqueeStatus
+		health.ServerBillingRuntimeActive = checked.MarqueeBillingRuntimeActive
+		health.ServerChatLaunchable = checked.MarqueeChatLaunchable
+		health.Problems = checked.Problems
+		health.OK = checked.OK
+		out = append(out, health)
+		if ctx.Err() != nil {
+			break
+		}
+	}
+	return out
+}
+
 func decorateAdminDetailAssignmentStatuses(detail *AdminUserDetail, pool []AgentPoolOption) {
 	if detail == nil {
 		return
@@ -691,9 +976,21 @@ func firstNonEmptyString(values ...string) string {
 
 func publicAdminConfig(cfg map[string]string) map[string]any {
 	out := map[string]any{}
-	for _, key := range []string{"fibe_base_url", "fibe_agent_server_pool", "fibe_template_version_id", "free_hours", "free_hour_window_hours", "prompt_improve_charge_minutes", "project_cap", "signup_mode", "signup_allowed_emails", "stripe_publishable_key", "stripe_price_id_1_hour", "stripe_price_id_10_hours", "stripe_price_id_100_hours", "stripe_project_quota_price_id", "github_client_id", "github_username", "google_client_id", "smtp_host", "smtp_port", "smtp_username", "smtp_from_email", "smtp_from_name", "smtp_tls_mode"} {
+	for _, key := range []string{"fibe_base_url", "fibe_agent_server_pool", "fibe_template_version_id", "free_minutes", "free_hour_window_hours", "playground_idle_stop_hours", "prompt_improve_charge_minutes", "project_cap", "project_quota_days", "signup_mode", "signup_allowed_emails", "stripe_publishable_key", "stripe_price_id_1_hour", "stripe_price_id_10_hours", "stripe_price_id_100_hours", "stripe_project_quota_price_id", "github_client_id", "github_username", "google_client_id", "smtp_host", "smtp_port", "smtp_username", "smtp_from_email", "smtp_from_name", "smtp_tls_mode"} {
 		value := cfg[key]
 		set := strings.TrimSpace(cfg[key]) != ""
+		if key == "free_minutes" && strings.TrimSpace(value) == "" {
+			if legacyHours := strings.TrimSpace(cfg["free_hours"]); legacyHours != "" {
+				if n, err := strconv.Atoi(legacyHours); err == nil && n >= 0 {
+					minutes := n * 60
+					if minutes > maxFreeBuildMinutes {
+						minutes = maxFreeBuildMinutes
+					}
+					value = strconv.Itoa(minutes)
+					set = true
+				}
+			}
+		}
 		if key == "fibe_agent_server_pool" && strings.TrimSpace(value) == "" {
 			value = cfg["fibe_agent_marquee_pool"]
 			set = strings.TrimSpace(value) != ""
@@ -714,14 +1011,18 @@ func publicAdminConfig(cfg map[string]string) map[string]any {
 
 func publicConfigDefault(key string) string {
 	switch key {
-	case "free_hours":
-		return "5"
+	case "free_minutes":
+		return strconv.Itoa(defaultFreeBuildMinutes)
 	case "free_hour_window_hours":
 		return strconv.Itoa(defaultFreeHourWindowHours)
+	case "playground_idle_stop_hours":
+		return strconv.Itoa(defaultPlaygroundIdleStopHours)
 	case "prompt_improve_charge_minutes":
 		return "0"
 	case "project_cap":
 		return "3"
+	case "project_quota_days":
+		return strconv.Itoa(defaultProjectQuotaDays)
 	case "signup_mode":
 		return "forbidden"
 	case "fibe_agent_server_pool":
@@ -758,6 +1059,17 @@ func normalizeAdminConfigValues(values map[string]string) (map[string]string, er
 			}
 		case "smtp_tls_mode":
 			out[key] = normalizeSMTPTLSMode(value)
+		case "free_minutes":
+			trimmed := strings.TrimSpace(value)
+			if trimmed == "" {
+				out[key] = ""
+				continue
+			}
+			n, err := strconv.Atoi(trimmed)
+			if err != nil || n < 0 || n > maxFreeBuildMinutes {
+				return nil, errors.New("free_minutes must be between 0 and 1440")
+			}
+			out[key] = strconv.Itoa(n)
 		case "free_hour_window_hours":
 			trimmed := strings.TrimSpace(value)
 			if trimmed == "" {
@@ -769,6 +1081,17 @@ func normalizeAdminConfigValues(values map[string]string) (map[string]string, er
 				return nil, errors.New("free_hour_window_hours must be between 1 and 24")
 			}
 			out[key] = strconv.Itoa(n)
+		case "playground_idle_stop_hours":
+			trimmed := strings.TrimSpace(value)
+			if trimmed == "" {
+				out[key] = ""
+				continue
+			}
+			n, err := strconv.Atoi(trimmed)
+			if err != nil || n <= 0 || n > maxPlaygroundIdleStopHours {
+				return nil, errors.New("playground_idle_stop_hours must be between 1 and 168")
+			}
+			out[key] = strconv.Itoa(n)
 		case "prompt_improve_charge_minutes":
 			trimmed := strings.TrimSpace(value)
 			if trimmed == "" {
@@ -778,6 +1101,17 @@ func normalizeAdminConfigValues(values map[string]string) (map[string]string, er
 			n, err := strconv.Atoi(trimmed)
 			if err != nil || n < 0 || n > maxPromptImproveChargeMin {
 				return nil, errors.New("prompt_improve_charge_minutes must be between 0 and 60")
+			}
+			out[key] = strconv.Itoa(n)
+		case "project_quota_days":
+			trimmed := strings.TrimSpace(value)
+			if trimmed == "" {
+				out[key] = ""
+				continue
+			}
+			n, err := strconv.Atoi(trimmed)
+			if err != nil || n <= 0 || n > maxProjectQuotaDays {
+				return nil, errors.New("project_quota_days must be between 1 and 365")
 			}
 			out[key] = strconv.Itoa(n)
 		default:

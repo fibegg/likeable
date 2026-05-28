@@ -4,7 +4,7 @@ export type ProjectService = { id: string; name: string; url: string; type?: str
 export type Project = { id: string; title: string; previewUrl?: string; selectedServiceName?: string; repositories?: ProjectRepository[]; services?: ProjectService[]; status: string; errorMessage?: string; playgroundLastUsedAt?: string; playgroundIdleStopAt?: string; createdAt: string; updatedAt: string };
 export type HourQuota = { usedMs: number; limitMs: number; remainingMs: number; paidRemainingMs?: number; lifetimeUsedMs?: number; resetsAt?: string; windowHours?: number };
 export type ProjectQuota = { used: number; limit: number; remaining: number; baseLimit: number; paidSlots: number; nextExpiresAt?: string };
-export type BillingProducts = { hourPacks: number[]; projectQuota: boolean };
+export type BillingProducts = { hourPacks: number[]; projectQuota: boolean; projectQuotaDays?: number };
 export type UserNotice = { id: string; userId?: string; sender: 'admin' | 'system' | 'user'; severity: string; body: string; readAt?: string; dismissedAt?: string; unsentAt?: string; createdAt: string };
 export type ProjectArchive = { id: string; projectId: string; projectTitle: string; downloadUrl?: string; githubRepoUrl?: string; status: string; error?: string; expiresAt: string; createdAt: string };
 export type Me = { user: User | null; isAdmin?: boolean; githubConnected?: boolean; githubNeedsReconnect?: boolean; hourQuota?: HourQuota; projectQuota?: ProjectQuota; billingProducts?: BillingProducts; notices?: UserNotice[]; auth?: { googleConfigured: boolean; devAuth: boolean; devEmail?: string } };
@@ -29,7 +29,8 @@ export type AdminConfigEntry = { value: string; secret: boolean; set: boolean };
 export type AgentPoolStatus = 'active' | 'draining' | 'retiring' | 'retired';
 export type AgentAssignmentSummary = { agentId: string; serverId: string; status?: AgentPoolStatus | string; projectCount?: number };
 export type AgentPoolOption = { label?: string; agentId: string; serverId: string; status: AgentPoolStatus | string; capacity?: number };
-export type AdminConfigResponse = { config: Record<string, AdminConfigEntry>; adminEmail: string; agentPoolStats?: AgentPoolStat[]; agentPool?: AgentPoolOption[] };
+export type AgentPoolHealth = { label?: string; agentId: string; serverId: string; status: AgentPoolStatus | string; agentStatus?: string; agentAuthenticated?: boolean; serverStatus?: string; serverBillingRuntimeActive?: boolean; serverChatLaunchable?: boolean; ok: boolean; problems?: string[] };
+export type AdminConfigResponse = { config: Record<string, AdminConfigEntry>; adminEmail: string; agentPoolStats?: AgentPoolStat[]; agentPool?: AgentPoolOption[]; agentPoolHealth?: AgentPoolHealth[] };
 export type AgentPoolStat = { agentId: string; serverId: string; projectCount: number; activeProjectCount?: number; archivedCount: number; readyArchiveCount: number };
 export type PoolRow = { id: string; label: string; agentId: string; serverId: string; status: AgentPoolStatus; capacity: string };
 export type AdminRecoveryProject = { id: string; userId: string; title: string; status: string; cleanupLastError?: string; playgroundId?: string; playspecId?: string; propId?: string; updatedAt: string };
@@ -64,6 +65,25 @@ export type AdminUserSummary = {
 export type AdminProjectSummary = { project: Project; workMs: number; assignment?: AgentAssignmentSummary };
 export type AdminUserDetail = { summary: AdminUserSummary; projects: AdminProjectSummary[]; notices: UserNotice[]; agentPool?: AgentPoolOption[] };
 export type AdminUsersResponse = { users: AdminUserSummary[]; agentPool?: AgentPoolOption[]; pagination: { page: number; perPage: number; total: number } };
+export type AdminBillingPayment = { id: string; userId: string; userEmail: string; providerPaymentId: string; amountCents: number; currency: string; status: string; createdAt: string };
+export type AdminProjectInternal = { userId: string; conversationId?: string; agentId?: string; serverId?: string; playgroundId?: string; playgroundName?: string; playspecId?: string; propId?: string; repoUrl?: string; provisioningLockUntil?: string; internalErrorMessage?: string; cleanupLastError?: string };
+export type AdminProjectWorkSession = { projectId: string; userId: string; sessionKey: string; startedAt: string; completedAt?: string; elapsedMs: number; freeBilledMs: number; paidBilledMs: number; billedAt?: string; createdAt: string; updatedAt: string };
+export type AdminHourCreditLedgerEntry = { id: string; userId: string; deltaMs: number; reason: string; paymentId?: string; workSessionKey?: string; createdAt: string };
+export type AdminProjectDiagnostics = { project: Project; internal: AdminProjectInternal; workSessions: AdminProjectWorkSession[]; hourLedger: AdminHourCreditLedgerEntry[]; payments: AdminBillingPayment[] };
+export type AdminProjectDiagnosticsResponse = { diagnostics: AdminProjectDiagnostics };
+export type AdminBillingHealth = {
+  checkedAt: string;
+  configured: { publishableKey: boolean; secretKey: boolean; webhookSecret: boolean };
+  products: BillingProducts;
+  prices: { oneHour: boolean; tenHours: boolean; hundredHours: boolean; projectQuota: boolean };
+  free: { minutes: number; windowHours: number };
+  issues: string[];
+  recentPayments: AdminBillingPayment[];
+};
+export type AdminBillingHealthResponse = { health: AdminBillingHealth };
+export type AdminReadinessCheck = { key: string; ok: boolean; severity: 'blocker' | 'warning' | string; detail?: string };
+export type AdminReadiness = { checkedAt: string; ready: boolean; blockerCount: number; warningCount: number; checks: AdminReadinessCheck[] };
+export type AdminReadinessResponse = { readiness: AdminReadiness };
 export type AppDialogConfig = {
   title: string;
   body: string;

@@ -286,12 +286,17 @@ func (s *Server) provisionProject(ctx context.Context, userID, userEmail string,
 }
 
 func (s *Server) recordProjectProvisionFailure(ctx context.Context, userID string, project *Project, err error, retriesRemaining bool) {
+	if project == nil {
+		log.Printf("project provisioning failed without project retry=%t: %v", retriesRemaining, err)
+		return
+	}
+	log.Printf("project provisioning failed project=%s retry=%t: %v", project.ID, retriesRemaining, err)
 	if retriesRemaining && retryProjectProvisionLater(project, err) {
 		status := "creating"
 		if projectHasProvisionedResources(project) {
 			status = "launching"
 		}
-		_ = s.store.UpdateProjectStatus(ctx, project.ID, userID, status)
+		_ = s.store.UpdateProjectProvisioningRetryError(ctx, project.ID, userID, status, err)
 		return
 	}
 	_ = s.store.UpdateProjectErrorFromError(ctx, project.ID, userID, err)

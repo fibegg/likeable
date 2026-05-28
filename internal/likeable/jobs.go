@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fibegg/likeable/internal/domain"
 	projecttext "github.com/fibegg/likeable/internal/project"
 	"github.com/hibiken/asynq"
 )
@@ -29,20 +28,21 @@ const projectDeletionSweepInterval = 5 * time.Minute
 const projectDeletionSweepUniqueTTL = 4 * time.Minute
 const maxConcurrentProjectCleanup = 1
 const defaultJobWorkerConcurrency = 32
-const idleProjectStopAfter = domain.PlaygroundIdleStopAfter
 
 const (
-	taskProvisionProject            = "likeable:project:provision"
-	taskRecoverProject              = "likeable:project:recover"
-	taskDeleteProjectResources      = "likeable:project:delete_resources"
-	taskDeleteAccount               = "likeable:account:delete"
-	taskProjectDeletionSweep        = "likeable:project:deletion_sweep"
-	taskArchiveDeleteProject        = "likeable:project:archive_delete"
-	taskStopIdleProjectsSweep       = "likeable:project:stop_idle_sweep"
-	taskStopIdleProject             = "likeable:project:stop_idle"
-	taskMonitorProjectNotifications = "likeable:project:monitor_notifications"
-	taskSendEmail                   = "likeable:email:send"
-	taskProjectQuotaSweep           = "likeable:project_quota:sweep"
+	taskProvisionProject             = "likeable:project:provision"
+	taskRecoverProject               = "likeable:project:recover"
+	taskDeleteProjectResources       = "likeable:project:delete_resources"
+	taskDeleteAccount                = "likeable:account:delete"
+	taskProjectDeletionSweep         = "likeable:project:deletion_sweep"
+	taskArchiveDeleteProject         = "likeable:project:archive_delete"
+	taskStopIdleProjectsSweep        = "likeable:project:stop_idle_sweep"
+	taskStopIdleProject              = "likeable:project:stop_idle"
+	taskStartProductionProjectsSweep = "likeable:project:start_production_sweep"
+	taskMonitorProjectNotifications  = "likeable:project:monitor_notifications"
+	taskSendEmail                    = "likeable:email:send"
+	taskProjectQuotaSweep            = "likeable:project_quota:sweep"
+	taskProjectDomainVerifySweep     = "likeable:project_domain:verify_sweep"
 )
 
 var errProjectCleanupConcurrencyLimit = errors.New("project cleanup concurrency limit reached")
@@ -85,6 +85,8 @@ func newJobSystem(redisOpt asynq.RedisClientOpt, s *Server) *JobSystem {
 	mux.HandleFunc(taskMonitorProjectNotifications, s.handleMonitorProjectNotificationsTask)
 	mux.HandleFunc(taskSendEmail, s.handleSendEmailTask)
 	mux.HandleFunc(taskProjectQuotaSweep, s.handleProjectQuotaSweepTask)
+	mux.HandleFunc(taskProjectDomainVerifySweep, s.handleProjectDomainVerifySweepTask)
+	mux.HandleFunc(taskStartProductionProjectsSweep, s.handleStartProductionProjectsSweepTask)
 	server := asynq.NewServer(redisOpt, asynq.Config{
 		Concurrency:     jobWorkerConcurrency(),
 		ShutdownTimeout: 20 * time.Second,
@@ -613,8 +615,17 @@ func (s *Server) handleProjectQuotaSweepTask(ctx context.Context, _ *asynq.Task)
 	return s.cleanupExpiredArchives(ctx)
 }
 
+func (s *Server) handleProjectDomainVerifySweepTask(ctx context.Context, _ *asynq.Task) error {
+	return nil
+}
+
+func (s *Server) handleStartProductionProjectsSweepTask(ctx context.Context, _ *asynq.Task) error {
+	return nil
+}
+
 func (s *Server) handleStopIdleProjectsSweepTask(ctx context.Context, _ *asynq.Task) error {
-	cutoff := time.Now().UTC().Add(-idleProjectStopAfter)
+	idleStopAfter := s.playgroundIdleStopAfter(ctx)
+	cutoff := time.Now().UTC().Add(-idleStopAfter)
 	projects, err := s.store.IdleProjectsForPlaygroundStop(ctx, cutoff, 100)
 	if err != nil {
 		return err
@@ -628,7 +639,7 @@ func (s *Server) handleStopIdleProjectsSweepTask(ctx context.Context, _ *asynq.T
 			}
 			return err
 		}
-		if err := s.enqueueProjectJob(ctx, taskStopIdleProject, projectJobPayload{UserID: user.ID, UserEmail: user.Email, ProjectID: project.ID, Reason: "idle for 8 hours"}, asynq.Queue("low"), asynq.MaxRetry(6), asynq.Timeout(2*time.Minute), asynq.Unique(30*time.Minute)); err != nil {
+		if err := s.enqueueProjectJob(ctx, taskStopIdleProject, projectJobPayload{UserID: user.ID, UserEmail: user.Email, ProjectID: project.ID, Reason: "idle for " + idleStopAfter.String()}, asynq.Queue("low"), asynq.MaxRetry(6), asynq.Timeout(2*time.Minute), asynq.Unique(30*time.Minute)); err != nil {
 			return err
 		}
 	}
@@ -647,7 +658,8 @@ func (s *Server) handleStopIdleProjectTask(ctx context.Context, task *asynq.Task
 		}
 		return err
 	}
-	idle, skipReason, err := s.store.ProjectIdleForPlaygroundStop(ctx, project.ID, time.Now().UTC().Add(-idleProjectStopAfter))
+	idleStopAfter := s.playgroundIdleStopAfter(ctx)
+	idle, skipReason, err := s.store.ProjectIdleForPlaygroundStop(ctx, project.ID, time.Now().UTC().Add(-idleStopAfter))
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil
@@ -668,7 +680,7 @@ func (s *Server) handleStopIdleProjectTask(ctx context.Context, task *asynq.Task
 		}
 		return err
 	}
-	log.Printf("stop idle playground for project %s: no explicit playground activity for %s", project.ID, idleProjectStopAfter)
+	log.Printf("stop idle playground for project %s: no explicit playground activity for %s", project.ID, idleStopAfter)
 	_, err = s.controlProjectPlayground(ctx, user, project, "stop")
 	return err
 }

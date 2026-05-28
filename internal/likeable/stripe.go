@@ -45,7 +45,9 @@ func (s *Server) billingProducts(ctx context.Context) map[string]any {
 	if err != nil {
 		return emptyBillingProducts()
 	}
-	return billingProductsFromConfig(stripeConfigFromMap(cfg))
+	products := billingProductsFromConfig(stripeConfigFromMap(cfg))
+	products["projectQuotaDays"] = s.projectQuotaDays(ctx)
+	return products
 }
 
 func billingProductsFromConfig(cfg map[string]string) map[string]any {
@@ -63,15 +65,17 @@ func billingProductsFromConfig(cfg map[string]string) map[string]any {
 		hourPacks = append(hourPacks, 100)
 	}
 	return map[string]any{
-		"hourPacks":    hourPacks,
-		"projectQuota": strings.TrimSpace(cfg["project_quota_price"]) != "",
+		"hourPacks":        hourPacks,
+		"projectQuota":     strings.TrimSpace(cfg["project_quota_price"]) != "",
+		"projectQuotaDays": defaultProjectQuotaDays,
 	}
 }
 
 func emptyBillingProducts() map[string]any {
 	return map[string]any{
-		"hourPacks":    []int{},
-		"projectQuota": false,
+		"hourPacks":        []int{},
+		"projectQuota":     false,
+		"projectQuotaDays": defaultProjectQuotaDays,
 	}
 }
 
@@ -81,21 +85,26 @@ func (s *Server) handleBillingCheckout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user := userFromContext(r.Context())
-	cfg, err := s.stripeConfig(r)
-	if err != nil {
-		writeError(w, http.StatusServiceUnavailable, err.Error())
-		return
-	}
 	var body struct {
-		Pack    int    `json:"pack"`
-		Product string `json:"product"`
-		Slots   int    `json:"slots"`
+		Pack      int    `json:"pack"`
+		Product   string `json:"product"`
+		Slots     int    `json:"slots"`
+		ProjectID string `json:"projectId"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil && err != io.EOF {
 		writeError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
 	product := normalizeStripeProduct(body.Product)
+	if product == "production_project" {
+		writeError(w, http.StatusGone, "production hosting is handled in Fibe")
+		return
+	}
+	cfg, err := s.stripeConfig(r)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
 	pack := 0
 	slots := 0
 	priceID := ""
@@ -118,7 +127,7 @@ func (s *Server) handleBillingCheckout(w http.ResponseWriter, r *http.Request) {
 	form.Set("metadata[purchase_kind]", product)
 	if product == "project_quota" {
 		form.Set("metadata[project_slots]", strconv.Itoa(slots))
-		form.Set("metadata[project_quota_days]", "30")
+		form.Set("metadata[project_quota_days]", strconv.Itoa(s.projectQuotaDays(r.Context())))
 	} else {
 		form.Set("metadata[pack_hours]", strconv.Itoa(pack))
 	}
@@ -190,6 +199,8 @@ func (s *Server) handleBillingRefresh(w http.ResponseWriter, r *http.Request) {
 
 func normalizeStripeProduct(product string) string {
 	switch strings.ToLower(strings.TrimSpace(product)) {
+	case "production", "production_project", "production-project":
+		return "production_project"
 	case "project", "projects", "project_quota", "project-quota":
 		return "project_quota"
 	default:
@@ -325,6 +336,9 @@ func (s *Server) applyStripeCheckoutSession(ctx context.Context, cfg map[string]
 			Status:            "paid",
 		})
 	}
+	if stripeLegacyProductionProjectPurchase(session["metadata"]) {
+		return result, nil
+	}
 	packHours := stripePackHours(session["metadata"])
 	if packHours > 0 {
 		result.PurchaseKind = "hour_pack"
@@ -350,7 +364,8 @@ func (s *Server) applyStripeCheckoutSession(ctx context.Context, cfg map[string]
 		}
 		result.Applied = true
 		if sessionID != "" && sessionID != "<nil>" {
-			expiresAt := time.Now().UTC().Add(30 * 24 * time.Hour)
+			quotaDays := stripeProjectQuotaDays(session["metadata"], s.projectQuotaDays(ctx))
+			expiresAt := time.Now().UTC().Add(time.Duration(quotaDays) * 24 * time.Hour)
 			if granted, err := s.store.GrantProjectQuota(ctx, userID, sessionID, projectSlots, expiresAt); err == nil && granted {
 				result.Granted = true
 				s.notifyProjectQuotaPurchased(ctx, userID, projectSlots, expiresAt)
@@ -439,6 +454,41 @@ func stripeProjectSlots(metadata any) int {
 	default:
 		return 0
 	}
+}
+
+func stripeProjectQuotaDays(metadata any, fallback int) int {
+	if fallback <= 0 || fallback > maxProjectQuotaDays {
+		fallback = defaultProjectQuotaDays
+	}
+	raw := ""
+	if m, ok := metadata.(map[string]any); ok {
+		raw = fmt.Sprint(m["project_quota_days"])
+	}
+	if raw == "" || raw == "<nil>" {
+		return fallback
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		return fallback
+	}
+	if n > maxProjectQuotaDays {
+		return maxProjectQuotaDays
+	}
+	return n
+}
+
+func stripeLegacyProductionProjectPurchase(metadata any) bool {
+	if m, ok := metadata.(map[string]any); ok {
+		kind := strings.ToLower(strings.TrimSpace(fmt.Sprint(m["purchase_kind"])))
+		if kind == "production_project" || kind == "production-project" || kind == "production" {
+			return true
+		}
+		raw := strings.TrimSpace(fmt.Sprint(m["project_id"]))
+		if raw != "" && raw != "<nil>" {
+			return true
+		}
+	}
+	return false
 }
 
 func expectedStripeHourPackPrice(cfg map[string]string, pack int) string {

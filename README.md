@@ -27,7 +27,7 @@ After the first admin login, open Admin and configure:
 - GitHub OAuth for repository export.
 - Stripe prices and webhook secret.
 - SMTP delivery.
-- Signup mode, free daily messages, and project cap.
+- Signup mode, free build minutes/window, playground idle-stop hours, project cap, and paid playground slot duration.
 
 Signup defaults to forbidden until the admin changes it.
 
@@ -63,6 +63,126 @@ To run the fully containerized app instead of the live-reload development server
 ```bash
 docker compose --profile app up --build
 ```
+
+Before deploying a test build, run the deploy preflight:
+
+```bash
+bin/deploy-preflight
+```
+
+It runs the TypeScript check, frontend build, Go tests, production Docker image build, and a container smoke against `/healthz` and the admin billing health API. Override the image tag or smoke port with `LIKEABLE_IMAGE_TAG` and `LIKEABLE_PREFLIGHT_PORT`.
+
+After deploying a live test environment, run the remote readiness smoke:
+
+```bash
+LIKEABLE_BASE_URL=https://likeable.example.com \
+LIKEABLE_ADMIN_EMAIL=admin@example.com \
+bin/live-readiness
+```
+
+For an environment without dev auth, pass an existing admin session cookie with `LIKEABLE_SESSION_COOKIE` instead of `LIKEABLE_ADMIN_EMAIL`.
+
+`bin/live-readiness` exits non-zero when readiness or billing has blockers. Set `LIKEABLE_ALLOW_BLOCKERS=1` to print the full diagnostic payload while a test environment is intentionally incomplete.
+
+To apply launch-only live config without printing secret values:
+
+```bash
+LIKEABLE_BASE_URL=https://likeable.example.com \
+LIKEABLE_ADMIN_EMAIL=admin@example.com \
+LIKEABLE_PLAYGROUND_IDLE_STOP_HOURS=8 \
+LIKEABLE_GOOGLE_CLIENT_ID=... \
+LIKEABLE_GOOGLE_CLIENT_SECRET=... \
+LIKEABLE_SMTP_HOST=smtp.example.com \
+LIKEABLE_SMTP_FROM_EMAIL=support@example.com \
+bin/live-configure
+```
+
+Optional SMTP env keys are `LIKEABLE_SMTP_PORT`, `LIKEABLE_SMTP_USERNAME`, `LIKEABLE_SMTP_PASSWORD`, `LIKEABLE_SMTP_FROM_NAME`, and `LIKEABLE_SMTP_TLS_MODE`. Use `LIKEABLE_DRY_RUN=1` to print the config keys that would be applied without changing the live environment.
+
+`bin/live-configure` validates common operator mistakes before it writes config: playground idle-stop hours must be between 1 and 168, Google client ID/secret must be supplied together, SMTP port must be numeric, and SMTP TLS mode must be one of `auto`, `tls`, `starttls`, or `none`.
+
+## Test Deployment Runbook
+
+Use this flow for the Vyakymenko Likeable test environment or any equivalent test VPS.
+
+The automated path is:
+
+```bash
+LIKEABLE_DEPLOY_HOST=user@server.example.com \
+LIKEABLE_IMAGE_TAG=registry.example.com/likeable:test \
+LIKEABLE_BASE_URL=https://likeable.example.com \
+LIKEABLE_ADMIN_EMAIL=admin@example.com \
+bin/deploy-vps
+```
+
+`bin/deploy-vps` runs the local preflight, pushes the image, updates Redis and the app container over SSH, then waits for `/healthz`. Set `LIKEABLE_RUN_PREFLIGHT=0` or `LIKEABLE_PUSH_IMAGE=0` only when the image was already tested or already pushed.
+
+The manual path is:
+
+1. Run the local preflight and tag the exact image you want to deploy:
+
+```bash
+LIKEABLE_IMAGE_TAG=registry.example.com/likeable:test bin/deploy-preflight
+docker push registry.example.com/likeable:test
+```
+
+2. Run Redis and the app container with a persistent database volume:
+
+```bash
+docker network create likeable-net || true
+docker run -d --name likeable-redis \
+  --restart unless-stopped \
+  --network likeable-net \
+  -v likeable_redis:/data \
+  redis:7.4-alpine redis-server --appendonly yes --save 60 1
+
+docker run -d --name likeable \
+  --restart unless-stopped \
+  --network likeable-net \
+  -p 8080:8080 \
+  -v likeable_data:/data \
+  -e ADDR=:8080 \
+  -e DATABASE_PATH=/data/likeable.db \
+  -e BASE_URL=https://likeable.example.com \
+  -e ADMIN_EMAIL=admin@example.com \
+  -e REDIS_URL=redis://likeable-redis:6379/0 \
+  registry.example.com/likeable:test
+```
+
+Put TLS and the public hostname in front of port `8080` with your reverse proxy. For a single small test host, the default `LIKEABLE_ROLE=all` is fine. On a busier host, run one `LIKEABLE_ROLE=web` container behind HTTP and one `LIKEABLE_ROLE=worker` container against the same database and Redis.
+
+3. Bootstrap admin access.
+
+For a private smoke only, temporarily set `LIKEABLE_DEV_AUTH=1` and sign in with `ADMIN_EMAIL`. For a public test URL, set `LIKEABLE_BOOTSTRAP_TOKEN` once, POST Google OAuth config to `/api/bootstrap/config`, then remove the token and restart before inviting users.
+
+4. Configure Admin.
+
+Set Fibe, Google OAuth, GitHub export, SMTP, signup mode, free minutes/window, playground idle-stop hours, project cap, paid project-slot duration, and Stripe:
+
+- `stripe_secret_key`
+- `stripe_webhook_secret`
+- `stripe_price_id_1_hour`, `stripe_price_id_10_hours`, `stripe_price_id_100_hours`
+- `stripe_project_quota_price_id`
+
+Stripe webhook URL: `${BASE_URL}/api/stripe/webhook`.
+
+Checkout uses backend-created Stripe Checkout Sessions and does not require `stripe_publishable_key`. It also uses Stripe dynamic payment methods by not sending `payment_method_types`. Enable Link in the Stripe Dashboard payment method settings; the app will not override that Dashboard configuration.
+
+5. Smoke the user flows.
+
+- Admin launch readiness is `ready`, or every remaining failed check is an explicitly accepted rollout warning.
+- Admin billing health has no blocking issues.
+- A new user can sign in, create a project, and send a first message.
+- Sending a message to a stopped project wakes the playground and then sends the prompt.
+- Idle playgrounds pause after the configured inactive window; users can start them again when they return.
+- Hour-pack checkout grants build minutes.
+- Project-slot checkout increases the project cap for the configured number of days.
+- Likeable does not sell production hosting or custom domains. For always-on production hosting and domain setup, continue the project in Fibe.
+- Admin diagnostics for a user project shows conversation, agent, playground, server, repositories, payments, hour ledger, and work sessions.
+
+### Production Handoff
+
+Likeable is scoped to experiments and development playgrounds. Keep billing in Likeable limited to build-hour packs and extra playground slots. Production hosting, custom domains, always-on runtimes, and customer DNS work belong in Fibe.
 
 ## Development With Live Reload
 

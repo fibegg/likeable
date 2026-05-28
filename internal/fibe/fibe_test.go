@@ -119,6 +119,11 @@ func TestIsRetryableProvisioningError(t *testing.T) {
 			want: false,
 		},
 		{
+			name: "runtime billing required",
+			err:  &PlatformError{Code: "INTERNAL_ERROR", Status: 402, Message: "unexpected status 402"},
+			want: false,
+		},
+		{
 			name: "plain error",
 			err:  errors.New("greenfield failed"),
 			want: false,
@@ -147,6 +152,13 @@ func TestPlatformErrorPublicProjectErrorKindDoesNotClassifyMirrorLagAsConfigurat
 	err := &PlatformError{Code: "REMOTE_REQUEST_FAILED", Status: 422, Message: "fibe: SYSTEM_TEMPLATE_MIRROR_UNAVAILABLE (503): System template source mirror is not available for https://github.com/fibegg/app"}
 	if got := err.PublicProjectErrorKind(); got != "" {
 		t.Fatalf("PublicProjectErrorKind(%v)=%q, want empty", err, got)
+	}
+}
+
+func TestPlatformErrorPublicProjectErrorKindClassifiesRuntimeBilling(t *testing.T) {
+	err := &PlatformError{Code: "INTERNAL_ERROR", Status: 402, Message: "unexpected status 402"}
+	if got := err.PublicProjectErrorKind(); got != "runtime_billing" {
+		t.Fatalf("PublicProjectErrorKind(%v)=%q, want runtime_billing", err, got)
 	}
 }
 
@@ -209,6 +221,24 @@ func TestIsPlaygroundMissingError(t *testing.T) {
 	}
 }
 
+func TestIsRuntimeBillingRequiredError(t *testing.T) {
+	for _, err := range []error{
+		&PlatformError{Code: "INTERNAL_ERROR", Status: 402, Message: "unexpected status 402"},
+		&PlatformError{Code: "MARQUEE_NOT_FUNDED", Status: 422, Message: "This Marquee is not funded. Fund it to continue."},
+		errors.New("fibe: INTERNAL_ERROR (402): unexpected status 402"),
+	} {
+		if !IsRuntimeBillingRequiredError(err) {
+			t.Fatalf("IsRuntimeBillingRequiredError(%v)=false, want true", err)
+		}
+	}
+	if IsRuntimeBillingRequiredError(&PlatformError{Code: "INTERNAL_ERROR", Status: 422, Message: "unexpected status 422"}) {
+		t.Fatal("generic internal 422 must not look like runtime billing")
+	}
+	if IsRuntimeBillingRequiredError(errors.New("payment settings page is unavailable")) {
+		t.Fatal("generic payment text must not look like runtime billing")
+	}
+}
+
 func TestIsAgentRuntimeUnavailableError(t *testing.T) {
 	for _, err := range []error{
 		&PlatformError{Code: "UNPROCESSABLE_ENTITY", Status: 422, Message: "No running AgentChat for Agent#1"},
@@ -263,6 +293,44 @@ func TestStartAgentChatUsesConfiguredMarquee(t *testing.T) {
 	}
 }
 
+func TestAssignmentHealthChecksAgentAndMarquee(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method + " " + r.URL.Path {
+		case http.MethodGet + " /api/agents/agent-1":
+			writeJSONResponse(t, w, map[string]any{"id": 1, "status": "authenticated", "authenticated": true})
+		case http.MethodGet + " /api/marquees/32":
+			writeJSONResponse(t, w, map[string]any{"id": 32, "status": "active", "billing_runtime_active": true, "chat_launchable": true})
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	health := newTestClient(t, server, "agent-1", "32").AssignmentHealth(t.Context())
+	if !health.OK || !health.AgentAuthenticated || health.AgentStatus != "authenticated" || health.MarqueeStatus != "active" || !health.MarqueeBillingRuntimeActive || !health.MarqueeChatLaunchable {
+		t.Fatalf("health=%+v, want healthy assignment", health)
+	}
+}
+
+func TestAssignmentHealthReportsUnfundedMarquee(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method + " " + r.URL.Path {
+		case http.MethodGet + " /api/agents/agent-1":
+			writeJSONResponse(t, w, map[string]any{"id": 1, "status": "authenticated", "authenticated": true})
+		case http.MethodGet + " /api/marquees/30":
+			writeJSONResponse(t, w, map[string]any{"id": 30, "status": "active", "billing_runtime_active": false, "chat_launchable": false})
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	health := newTestClient(t, server, "agent-1", "30").AssignmentHealth(t.Context())
+	if health.OK || !containsString(health.Problems, "server runtime is not funded") || !containsString(health.Problems, "server chat runtime is not launchable") {
+		t.Fatalf("health=%+v, want unfunded runtime problems", health)
+	}
+}
+
 func TestControlPlaygroundLifecycleUsesSDKActions(t *testing.T) {
 	var actions []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -287,9 +355,50 @@ func TestControlPlaygroundLifecycleUsesSDKActions(t *testing.T) {
 	if err := client.RestartPlayground(t.Context(), "123"); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"start", "stop", "hard_restart"}
+	if err := client.RolloutPlayground(t.Context(), "123"); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"start", "stop", "hard_restart", "rollout"}
 	if strings.Join(actions, ",") != strings.Join(want, ",") {
 		t.Fatalf("actions=%v, want %v", actions, want)
+	}
+}
+
+func TestUpdatePlaygroundServiceCustomHostsPatchesServices(t *testing.T) {
+	var gotAuth string
+	var gotBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch || r.URL.Path != "/api/playgrounds/playground-123" {
+			t.Fatalf("request=%s %s, want PATCH /api/playgrounds/playground-123", r.Method, r.URL.Path)
+		}
+		gotAuth = r.Header.Get("Authorization")
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Fatal(err)
+		}
+		writeJSONResponse(t, w, map[string]any{"id": 123, "status": "running"})
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server, "agent", "marquee")
+	err := client.UpdatePlaygroundServiceCustomHosts(t.Context(), "playground-123", map[string][]string{
+		"app": []string{"App.Customer.Example.", "app.customer.example"},
+		"api": []string{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotAuth != "Bearer test" {
+		t.Fatalf("Authorization=%q, want bearer token", gotAuth)
+	}
+	playground := gotBody["playground"].(map[string]any)
+	services := playground["services"].(map[string]any)
+	app := services["app"].(map[string]any)
+	api := services["api"].(map[string]any)
+	if hosts := app["custom_hosts"].([]any); len(hosts) != 1 || hosts[0] != "app.customer.example" {
+		t.Fatalf("app custom_hosts=%#v, want normalized unique host", app["custom_hosts"])
+	}
+	if hosts := api["custom_hosts"].([]any); len(hosts) != 0 {
+		t.Fatalf("api custom_hosts=%#v, want empty clear list", api["custom_hosts"])
 	}
 }
 

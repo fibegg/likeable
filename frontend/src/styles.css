@@ -3165,6 +3165,17 @@ html.draggingCollapsedChat * {
   100% { opacity: .12; transform: scaleX(.36); }
 }
 
+@keyframes canvasSkeletonSweep {
+  0% { opacity: .08; transform: translateX(-115%); }
+  42% { opacity: .75; }
+  100% { opacity: .08; transform: translateX(115%); }
+}
+
+@keyframes canvasSkeletonWash {
+  0%, 100% { opacity: .42; transform: translateX(-18%); }
+  50% { opacity: .78; transform: translateX(18%); }
+}
+
 @keyframes miniSlideIn {
   from {
     opacity: 0;
@@ -3199,6 +3210,9 @@ html.draggingCollapsedChat * {
   .minimizedChatBar.working,
   .canvasSignalField.loading span,
   .loaderTelemetry span,
+  .canvasSkeletonScene::before,
+  .canvasSkeletonTabs span::after,
+  .canvasSkeletonBlock::after,
   .composer.improving::before,
   .composer.improving::after {
     animation: none;
@@ -3891,6 +3905,57 @@ html.draggingCollapsedChat * {
   border-radius: 8px;
   padding: 8px;
 }
+.adminProjectBlock {
+  display: grid;
+  gap: 8px;
+}
+.adminProjectDiagnostics {
+  display: grid;
+  gap: 10px;
+  border: 1px solid rgba(132, 147, 154, .18);
+  border-radius: 8px;
+  background: rgba(7, 14, 17, .44);
+  padding: 10px;
+}
+.diagnosticsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+}
+.diagnosticsGrid span,
+.diagnosticsLists > div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+.diagnosticsGrid em,
+.diagnosticsLists em {
+  color: var(--muted);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+.diagnosticsGrid code,
+.diagnosticsLists code {
+  overflow: hidden;
+  border: 1px solid rgba(132, 147, 154, .16);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 11px;
+  padding: 5px 6px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.diagnosticsLists {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+.diagnosticsLists strong {
+  color: var(--text);
+  font-size: 12px;
+}
 .adminProjectAssignment {
   min-width: 0;
   display: grid;
@@ -4111,11 +4176,18 @@ html.draggingCollapsedChat * {
   color: rgba(216, 228, 231, .5);
   font-size: 11px;
   line-height: 1.25;
+  display: grid;
+  gap: 2px;
+  align-self: center;
+}
+.poolStatLine > span {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  align-self: center;
 }
+.poolHealth.ok { color: rgba(94, 212, 168, .76); }
+.poolHealth.warning { color: rgba(255, 196, 106, .82); }
 .poolRetireButton {
   min-height: 38px;
   white-space: nowrap;
@@ -8165,6 +8237,123 @@ body {
   opacity: .54;
 }
 
+.canvasSkeletonScene {
+  position: absolute;
+  inset: 18px 28px;
+  z-index: 0;
+  pointer-events: none;
+  opacity: .8;
+  filter: saturate(1.06);
+}
+
+.canvasSkeletonScene::before {
+  content: "";
+  position: absolute;
+  inset: -22px -18px;
+  background:
+    radial-gradient(circle at 18% 12%, rgba(94, 212, 168, .12), transparent 26%),
+    radial-gradient(circle at 80% 16%, rgba(232, 181, 111, .1), transparent 24%),
+    linear-gradient(100deg, transparent 0 38%, rgba(174, 245, 255, .08) 48%, transparent 58% 100%);
+  opacity: .72;
+  transform: translateX(-18%);
+  animation: canvasSkeletonWash 3.6s ease-in-out infinite;
+}
+
+.canvasSkeletonTabs {
+  position: absolute;
+  left: clamp(10px, 3vw, 54px);
+  top: 0;
+  display: flex;
+  gap: clamp(14px, 2vw, 28px);
+}
+
+.canvasSkeletonTabs span,
+.canvasSkeletonBlock {
+  position: absolute;
+  overflow: hidden;
+  border: 1px solid rgba(174, 245, 255, .055);
+  border-radius: 9px;
+  background:
+    linear-gradient(90deg, rgba(94, 212, 168, .055), transparent 22%),
+    linear-gradient(135deg, rgba(29, 42, 55, .9), rgba(20, 30, 42, .76));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .035),
+    0 18px 54px rgba(0, 0, 0, .2);
+}
+
+.canvasSkeletonTabs span {
+  position: relative;
+  width: clamp(74px, 8vw, 128px);
+  height: 26px;
+  border-radius: 7px;
+  opacity: .72;
+}
+
+.canvasSkeletonTabs span:nth-child(2) { width: clamp(86px, 9vw, 148px); }
+.canvasSkeletonTabs span:nth-child(3) { width: clamp(70px, 7vw, 116px); }
+
+.canvasSkeletonTabs span::after,
+.canvasSkeletonBlock::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 0 36%, rgba(255, 255, 255, .09) 48%, transparent 60% 100%);
+  transform: translateX(-110%);
+  animation: canvasSkeletonSweep 2.4s ease-in-out infinite;
+}
+
+.canvasSkeletonBlock.hero {
+  left: clamp(14px, 4vw, 78px);
+  top: clamp(38px, 5vh, 58px);
+  width: min(54vw, 760px);
+  height: min(29vh, 260px);
+  min-height: 176px;
+  border-top-left-radius: 14px;
+  background:
+    linear-gradient(90deg, rgba(232, 181, 111, .07), transparent 24%),
+    linear-gradient(135deg, rgba(27, 38, 49, .96), rgba(20, 30, 42, .82));
+}
+
+.canvasSkeletonBlock.side {
+  right: clamp(18px, 5vw, 108px);
+  top: clamp(28px, 4.2vh, 46px);
+  width: min(27vw, 390px);
+  height: min(20vh, 178px);
+}
+
+.canvasSkeletonBlock.railA {
+  left: clamp(14px, 4vw, 78px);
+  top: calc(clamp(38px, 5vh, 58px) + min(29vh, 260px) + 18px);
+  width: min(28vw, 420px);
+  height: min(20vh, 180px);
+}
+
+.canvasSkeletonBlock.main {
+  right: clamp(40px, 7vw, 148px);
+  top: calc(clamp(38px, 5vh, 58px) + min(29vh, 260px) + 18px);
+  width: min(54vw, 760px);
+  height: min(26vh, 250px);
+  min-height: 180px;
+  background:
+    linear-gradient(90deg, rgba(94, 212, 168, .07), transparent 26%),
+    linear-gradient(135deg, rgba(30, 42, 54, .94), rgba(20, 30, 42, .82));
+}
+
+.canvasSkeletonBlock.railB {
+  left: clamp(14px, 4vw, 78px);
+  bottom: clamp(86px, 13vh, 140px);
+  width: min(28vw, 420px);
+  height: min(19vh, 178px);
+}
+
+.canvasSkeletonBlock.footer {
+  right: clamp(42px, 7vw, 150px);
+  bottom: clamp(78px, 12vh, 130px);
+  width: min(36vw, 560px);
+  height: min(12vh, 112px);
+  opacity: .56;
+}
+
 .loaderRing {
   width: 84px;
   height: 84px;
@@ -8329,6 +8518,70 @@ body {
     transform: scale(.78);
   }
 
+  .canvasSkeletonScene {
+    inset: 14px 14px;
+    opacity: .66;
+  }
+
+  .canvasSkeletonTabs {
+    left: 12px;
+    gap: 10px;
+  }
+
+  .canvasSkeletonTabs span {
+    width: clamp(56px, 14vw, 92px);
+    height: 22px;
+  }
+
+  .canvasSkeletonTabs span:nth-child(2),
+  .canvasSkeletonTabs span:nth-child(3) {
+    width: clamp(62px, 15vw, 102px);
+  }
+
+  .canvasSkeletonBlock.hero {
+    left: 14px;
+    top: 44px;
+    width: min(64vw, 520px);
+    height: 22vh;
+    min-height: 138px;
+  }
+
+  .canvasSkeletonBlock.side {
+    right: 14px;
+    top: 44px;
+    width: 28vw;
+    height: 17vh;
+  }
+
+  .canvasSkeletonBlock.railA {
+    left: 14px;
+    top: calc(44px + max(22vh, 138px) + 14px);
+    width: 34vw;
+    height: 17vh;
+  }
+
+  .canvasSkeletonBlock.main {
+    right: 14px;
+    top: calc(44px + max(22vh, 138px) + 14px);
+    width: 56vw;
+    height: 20vh;
+    min-height: 132px;
+  }
+
+  .canvasSkeletonBlock.railB {
+    left: 14px;
+    bottom: 86px;
+    width: 38vw;
+    height: 15vh;
+  }
+
+  .canvasSkeletonBlock.footer {
+    right: 14px;
+    bottom: 84px;
+    width: 42vw;
+    height: 10vh;
+  }
+
   .emptyCopy {
     width: min(620px, calc(100vw - 28px));
     padding: 0 12px;
@@ -8348,6 +8601,65 @@ body {
   .loaderTelemetry {
     top: calc(50% + 58px);
     width: min(220px, 68vw);
+  }
+
+  .canvasSkeletonScene {
+    inset: 10px;
+    opacity: .56;
+  }
+
+  .canvasSkeletonTabs {
+    left: 8px;
+    gap: 7px;
+  }
+
+  .canvasSkeletonTabs span {
+    width: 54px;
+    height: 18px;
+  }
+
+  .canvasSkeletonTabs span:nth-child(2) {
+    width: 66px;
+  }
+
+  .canvasSkeletonTabs span:nth-child(3) {
+    display: none;
+  }
+
+  .canvasSkeletonBlock.hero {
+    left: 8px;
+    top: 36px;
+    width: calc(100% - 16px);
+    height: 22vh;
+    min-height: 128px;
+  }
+
+  .canvasSkeletonBlock.side,
+  .canvasSkeletonBlock.footer {
+    display: none;
+  }
+
+  .canvasSkeletonBlock.railA {
+    left: 8px;
+    top: calc(36px + max(22vh, 128px) + 12px);
+    width: calc(46% - 10px);
+    height: 15vh;
+  }
+
+  .canvasSkeletonBlock.main {
+    right: 8px;
+    top: calc(36px + max(22vh, 128px) + 12px);
+    width: calc(54% - 10px);
+    height: 19vh;
+    min-height: 120px;
+  }
+
+  .canvasSkeletonBlock.railB {
+    left: 8px;
+    right: 8px;
+    bottom: 72px;
+    width: auto;
+    height: 12vh;
   }
 
   .emptyCopy h1,
@@ -8438,6 +8750,7 @@ body {
 
 .profileHoursCard,
 .profileSlotsCard,
+.profileScopeCard,
 .profileDangerCard {
   grid-column: 1 / -1;
 }
@@ -8449,6 +8762,21 @@ body {
   align-items: end;
   gap: 14px;
   min-height: 132px;
+}
+
+.profileScopeCard {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-height: 104px;
+  align-items: center;
+  border-color: rgba(94, 212, 168, .18);
+  background:
+    linear-gradient(135deg, rgba(94, 212, 168, .075), rgba(232, 181, 111, .035) 48%, transparent),
+    rgba(7, 17, 18, .76);
+}
+
+.profileScopeCard::before {
+  background: linear-gradient(180deg, rgba(94, 212, 168, .7), rgba(232, 181, 111, .28));
 }
 
 .profileDangerCard {
@@ -8716,12 +9044,14 @@ body {
   .profileActionCard,
   .profileHoursCard,
   .profileSlotsCard,
+  .profileScopeCard,
   .profileDangerCard {
     grid-column: 1;
   }
 
   .profileHoursCard,
-  .profileSlotsCard {
+  .profileSlotsCard,
+  .profileScopeCard {
     grid-template-columns: 1fr;
   }
 

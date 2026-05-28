@@ -1,0 +1,132 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+required() {
+  local name="$1"
+  local value="${!name:-}"
+  if [ -z "$value" ]; then
+    echo "missing required env: $name" >&2
+    exit 2
+  fi
+}
+
+required LIKEABLE_DEPLOY_HOST
+required LIKEABLE_IMAGE_TAG
+required LIKEABLE_BASE_URL
+required LIKEABLE_ADMIN_EMAIL
+
+HTTP_PORT="${LIKEABLE_HTTP_PORT:-8080}"
+APP_NAME="${LIKEABLE_APP_NAME:-likeable}"
+REDIS_NAME="${LIKEABLE_REDIS_NAME:-likeable-redis}"
+NETWORK_NAME="${LIKEABLE_NETWORK_NAME:-likeable-net}"
+RUN_PREFLIGHT="${LIKEABLE_RUN_PREFLIGHT:-1}"
+PUSH_IMAGE="${LIKEABLE_PUSH_IMAGE:-1}"
+BOOTSTRAP_TOKEN="${LIKEABLE_BOOTSTRAP_TOKEN:-}"
+DEV_AUTH="${LIKEABLE_DEV_AUTH:-}"
+
+if [ "$RUN_PREFLIGHT" != "0" ]; then
+  echo "==> Local deploy preflight"
+  LIKEABLE_IMAGE_TAG="$LIKEABLE_IMAGE_TAG" "$ROOT/bin/deploy-preflight"
+fi
+
+if [ "$PUSH_IMAGE" != "0" ]; then
+  echo "==> Push image: $LIKEABLE_IMAGE_TAG"
+  docker push "$LIKEABLE_IMAGE_TAG"
+fi
+
+echo "==> Remote deploy: $LIKEABLE_DEPLOY_HOST"
+ssh "$LIKEABLE_DEPLOY_HOST" bash -s -- \
+  "$LIKEABLE_IMAGE_TAG" \
+  "$LIKEABLE_BASE_URL" \
+  "$LIKEABLE_ADMIN_EMAIL" \
+  "$HTTP_PORT" \
+  "$APP_NAME" \
+  "$REDIS_NAME" \
+  "$NETWORK_NAME" \
+  "$BOOTSTRAP_TOKEN" \
+  "$DEV_AUTH" <<'REMOTE'
+set -euo pipefail
+
+IMAGE_TAG="$1"
+BASE_URL="$2"
+ADMIN_EMAIL="$3"
+HTTP_PORT="$4"
+APP_NAME="$5"
+REDIS_NAME="$6"
+NETWORK_NAME="$7"
+BOOTSTRAP_TOKEN="$8"
+DEV_AUTH="$9"
+
+container_exists() {
+  docker ps -a --format '{{.Names}}' | grep -Fx "$1" >/dev/null 2>&1
+}
+
+echo "==> Ensure Docker network"
+docker network create "$NETWORK_NAME" >/dev/null 2>&1 || true
+
+echo "==> Ensure Redis"
+if container_exists "$REDIS_NAME"; then
+  docker start "$REDIS_NAME" >/dev/null 2>&1 || true
+  docker network connect "$NETWORK_NAME" "$REDIS_NAME" >/dev/null 2>&1 || true
+else
+  docker run -d \
+    --name "$REDIS_NAME" \
+    --restart unless-stopped \
+    --network "$NETWORK_NAME" \
+    -v "${REDIS_NAME}_data:/data" \
+    redis:7.4-alpine redis-server --appendonly yes --save 60 1 >/dev/null
+fi
+
+echo "==> Pull app image"
+docker pull "$IMAGE_TAG"
+
+echo "==> Replace app container"
+docker rm -f "$APP_NAME" >/dev/null 2>&1 || true
+
+env_args=()
+if [ -n "$BOOTSTRAP_TOKEN" ]; then
+  env_args+=(-e "LIKEABLE_BOOTSTRAP_TOKEN=$BOOTSTRAP_TOKEN")
+fi
+if [ "$DEV_AUTH" = "1" ]; then
+  env_args+=(-e "LIKEABLE_DEV_AUTH=1")
+fi
+
+docker run -d \
+  --name "$APP_NAME" \
+  --restart unless-stopped \
+  --network "$NETWORK_NAME" \
+  -p "$HTTP_PORT:8080" \
+  -v "${APP_NAME}_data:/data" \
+  -e ADDR=:8080 \
+  -e DATABASE_PATH=/data/likeable.db \
+  -e "BASE_URL=$BASE_URL" \
+  -e "ADMIN_EMAIL=$ADMIN_EMAIL" \
+  -e "REDIS_URL=redis://$REDIS_NAME:6379/0" \
+  -e HOME=/tmp \
+  "${env_args[@]}" \
+  --tmpfs /tmp:size=256m,mode=1777 \
+  --read-only \
+  --security-opt no-new-privileges:true \
+  --cap-drop ALL \
+  --health-cmd 'curl -fsS http://127.0.0.1:8080/healthz || exit 1' \
+  --health-interval 30s \
+  --health-timeout 5s \
+  --health-start-period 10s \
+  --health-retries 3 \
+  "$IMAGE_TAG" >/dev/null
+
+echo "==> Wait for health"
+for _ in $(seq 1 60); do
+  if docker exec "$APP_NAME" curl -fsS http://127.0.0.1:8080/healthz >/dev/null 2>&1; then
+    echo "==> OK: $APP_NAME is healthy on port $HTTP_PORT"
+    exit 0
+  fi
+  sleep 1
+done
+
+docker logs --tail 80 "$APP_NAME" >&2 || true
+echo "app did not become healthy" >&2
+exit 1
+REMOTE

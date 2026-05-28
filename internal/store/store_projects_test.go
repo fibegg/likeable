@@ -4,8 +4,11 @@ import (
 	"database/sql"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/fibegg/likeable/internal/fibe"
 )
 
 func TestTryAcquireProjectProvisioningLeasesProject(t *testing.T) {
@@ -290,6 +293,84 @@ func TestIdleProjectsForPlaygroundStopUsesDedicatedUsageTimestamp(t *testing.T) 
 	}
 }
 
+func TestIdleProjectsForPlaygroundStopIncludesLegacyProductionProjects(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	user, err := store.UpsertUser(t.Context(), "idle-production@example.com", "Idle Production", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().UTC().Add(-9 * time.Hour).Format(time.RFC3339Nano)
+	activeProject := &Project{ID: "active-production-idle", UserID: user.ID, Title: "Active", ConversationID: "conv-active", PlaygroundID: "pg-active", Status: "ready", PlaygroundLastUsedAt: old}
+	expiredProject := &Project{ID: "expired-production-idle", UserID: user.ID, Title: "Expired", ConversationID: "conv-expired", PlaygroundID: "pg-expired", Status: "ready", PlaygroundLastUsedAt: old}
+	for _, project := range []*Project{activeProject, expiredProject} {
+		if err := store.CreateProject(t.Context(), project); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if granted, err := store.GrantProjectProduction(t.Context(), user.ID, activeProject.ID, "cs_active_production_idle", time.Now().UTC().Add(30*24*time.Hour)); err != nil || !granted {
+		t.Fatalf("active production grant=%v err=%v, want granted", granted, err)
+	}
+	if granted, err := store.GrantProjectProduction(t.Context(), user.ID, expiredProject.ID, "cs_expired_production_idle", time.Now().UTC().Add(-time.Hour)); err != nil || !granted {
+		t.Fatalf("expired production grant=%v err=%v, want granted", granted, err)
+	}
+
+	projects, err := store.IdleProjectsForPlaygroundStop(t.Context(), time.Now().UTC().Add(-8*time.Hour), 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, project := range projects {
+		got[project.ID] = true
+	}
+	if len(projects) != 2 || !got[activeProject.ID] || !got[expiredProject.ID] {
+		t.Fatalf("idle projects=%+v, want active and expired legacy production projects", projects)
+	}
+	idle, reason, err := store.ProjectIdleForPlaygroundStop(t.Context(), activeProject.ID, time.Now().UTC().Add(-8*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !idle || reason != "" {
+		t.Fatalf("active production idle=%v reason=%q, want eligible idle project", idle, reason)
+	}
+	idle, reason, err = store.ProjectIdleForPlaygroundStop(t.Context(), expiredProject.ID, time.Now().UTC().Add(-8*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !idle || reason != "" {
+		t.Fatalf("expired production idle=%v reason=%q, want eligible idle project", idle, reason)
+	}
+}
+
+func TestGrantProjectProductionIgnoresInactiveProjects(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	user, err := store.UpsertUser(t.Context(), "production-inactive@example.com", "Inactive", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	archived := &Project{ID: "archived-production-grant", UserID: user.ID, Title: "Archived", ConversationID: "conv-archived", Status: "archived"}
+	deleting := &Project{ID: "deleting-production-grant", UserID: user.ID, Title: "Deleting", ConversationID: "conv-deleting", Status: "deleting"}
+	for _, project := range []*Project{archived, deleting} {
+		if err := store.CreateProject(t.Context(), project); err != nil {
+			t.Fatal(err)
+		}
+		granted, err := store.GrantProjectProduction(t.Context(), user.ID, project.ID, "cs_"+project.ID, time.Now().UTC().Add(30*24*time.Hour))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if granted {
+			t.Fatalf("production grant for %s was applied, want ignored for status %s", project.ID, project.Status)
+		}
+	}
+}
+
 func TestBackfillProjectPlaygroundUsageProtectsReadyProjectsOnStartup(t *testing.T) {
 	store, err := Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {
@@ -367,5 +448,54 @@ func TestPublicProjectErrorMessageExplainsLinkedFibePlaygroundError(t *testing.T
 	want := "The linked Fibe playground is in an error state. Check it in Fibe, then restart the project playground from the project menu."
 	if got != want {
 		t.Fatalf("message=%q, want %q", got, want)
+	}
+}
+
+func TestPublicProjectErrorMessageExplainsRuntimeBilling(t *testing.T) {
+	got := publicProjectErrorMessageFromError(&fibe.PlatformError{Code: "INTERNAL_ERROR", Status: 402, Message: "unexpected status 402"})
+	want := "The workspace runtime is not funded. Ask an admin to fund the linked Fibe workspace, then retry starting the project."
+	if got != want {
+		t.Fatalf("message=%q, want %q", got, want)
+	}
+}
+
+func TestAdminProjectDiagnosticsExposeInternalProjectError(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	user, err := store.UpsertUser(t.Context(), "project-internal-error@example.com", "Internal Error", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{
+		ID:             "project-internal-error",
+		UserID:         user.ID,
+		Title:          "Internal Error",
+		ConversationID: "conv-internal-error",
+		Status:         "creating",
+	}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+	rawErr := &fibe.PlatformError{Code: "INTERNAL_ERROR", Status: 422, Message: "unexpected status 422"}
+	if err := store.UpdateProjectErrorFromError(t.Context(), project.ID, user.ID, rawErr); err != nil {
+		t.Fatal(err)
+	}
+
+	stored, err := store.ProjectForUser(t.Context(), user.ID, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(stored.ErrorMessage, "unexpected status 422") {
+		t.Fatalf("public error_message=%q should stay sanitized", stored.ErrorMessage)
+	}
+	diagnostics, err := store.AdminProjectDiagnostics(t.Context(), user.ID, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(diagnostics.Internal.InternalErrorMessage, "unexpected status 422") {
+		t.Fatalf("internal_error_message=%q, want raw platform cause", diagnostics.Internal.InternalErrorMessage)
 	}
 }

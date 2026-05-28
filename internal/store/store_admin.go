@@ -367,3 +367,59 @@ func (s *Store) AdminProjectsForUser(ctx context.Context, userID string) ([]Admi
 	}
 	return out, nil
 }
+
+func (s *Store) AdminProjectDiagnostics(ctx context.Context, userID, projectID string) (*AdminProjectDiagnostics, error) {
+	project, err := s.ProjectForUser(ctx, userID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	workSessions, err := s.ProjectWorkSessions(ctx, userID, projectID, 20)
+	if err != nil {
+		return nil, err
+	}
+	hourLedger, err := s.UserHourCreditLedger(ctx, userID, 30)
+	if err != nil {
+		return nil, err
+	}
+	payments, err := s.UserPayments(ctx, userID, 20)
+	if err != nil {
+		return nil, err
+	}
+	internalErrorMessage, err := s.projectInternalErrorMessage(ctx, userID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	return &AdminProjectDiagnostics{
+		Project: *project,
+		Internal: AdminProjectInternal{
+			UserID:                project.UserID,
+			ConversationID:        project.ConversationID,
+			AgentID:               project.AgentID,
+			ServerID:              project.MarqueeID,
+			PlaygroundID:          project.PlaygroundID,
+			PlaygroundName:        project.PlaygroundName,
+			PlayspecID:            project.PlayspecID,
+			PropID:                project.PropID,
+			RepoURL:               project.RepoURL,
+			ProvisioningLockUntil: project.ProvisioningLockUntil,
+			InternalErrorMessage:  internalErrorMessage,
+			CleanupLastError:      project.CleanupLastError,
+		},
+		WorkSessions: workSessions,
+		HourLedger:   hourLedger,
+		Payments:     payments,
+	}, nil
+}
+
+func (s *Store) projectInternalErrorMessage(ctx context.Context, userID, projectID string) (string, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT internal_error_message
+		FROM projects
+		WHERE id = ? AND user_id = ?
+	`, projectID, userID)
+	var message string
+	if err := row.Scan(&message); err != nil {
+		return "", err
+	}
+	return message, nil
+}

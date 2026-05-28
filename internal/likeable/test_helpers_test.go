@@ -275,6 +275,8 @@ func (rt *fakeFibeTransport) roundTripWithBody(req *http.Request, bodyBytes []by
 		return rt.roundTripAlreadyStopped(req, methodPath, bodyBytes), nil
 	case "missing-playground":
 		return rt.roundTripMissingPlayground(req, methodPath, bodyBytes), nil
+	case "runtime-billing-required":
+		return rt.roundTripRuntimeBillingRequired(req, methodPath, bodyBytes), nil
 	case "hydration-fail":
 		if req.Method == http.MethodDelete && strings.Contains(req.URL.Path, "playground-bad") {
 			return fakeJSONResponse(req, http.StatusBadRequest, map[string]any{"error": map[string]any{"code": "BAD_REQUEST", "message": "delete failed after debug failed"}}), nil
@@ -455,6 +457,14 @@ func (rt *fakeFibeTransport) roundTripMissingPlayground(req *http.Request, metho
 	if strings.HasSuffix(req.URL.Path, "/operations") {
 		rt.log("playgrounds stop " + resourceIDFromPath(req.URL.Path, "playgrounds"))
 		return fakeJSONResponse(req, http.StatusNotFound, map[string]any{"error": map[string]any{"code": "INTERNAL_ERROR", "message": "unexpected status 404"}})
+	}
+	return rt.roundTripDefault(req, methodPath, body)
+}
+
+func (rt *fakeFibeTransport) roundTripRuntimeBillingRequired(req *http.Request, methodPath string, body []byte) *http.Response {
+	if strings.HasSuffix(req.URL.Path, "/operations") && actionTypeFromBody(body) == "start" {
+		rt.log("playgrounds start " + resourceIDFromPath(req.URL.Path, "playgrounds"))
+		return fakeJSONResponse(req, http.StatusPaymentRequired, map[string]any{"error": map[string]any{"code": "INTERNAL_ERROR", "message": "unexpected status 402"}})
 	}
 	return rt.roundTripDefault(req, methodPath, body)
 }

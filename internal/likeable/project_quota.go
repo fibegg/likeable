@@ -8,11 +8,18 @@ import (
 )
 
 const (
-	defaultFreeHourWindowHours = 5
-	maxFreeHourWindowHours     = 24
-	maxPromptImproveChargeMin  = 60
-	freeHourWindow             = time.Duration(defaultFreeHourWindowHours) * time.Hour
-	msPerHour                  = int64(time.Hour / time.Millisecond)
+	defaultFreeBuildMinutes        = 30
+	maxFreeBuildMinutes            = 24 * 60
+	defaultFreeHourWindowHours     = 5
+	maxFreeHourWindowHours         = 24
+	defaultPlaygroundIdleStopHours = 8
+	maxPlaygroundIdleStopHours     = 168
+	defaultProjectQuotaDays        = 30
+	maxProjectQuotaDays            = 365
+	maxPromptImproveChargeMin      = 60
+	freeHourWindow                 = time.Duration(defaultFreeHourWindowHours) * time.Hour
+	msPerHour                      = int64(time.Hour / time.Millisecond)
+	msPerMinute                    = int64(time.Minute / time.Millisecond)
 )
 
 func (s *Server) canSendMessage(ctx context.Context, user *User) bool {
@@ -105,21 +112,37 @@ func fixedUTCHourWindow(now time.Time, interval time.Duration) (time.Time, time.
 	return start, end
 }
 
-func (s *Server) freeHourLimit(ctx context.Context) int {
+func (s *Server) freeBuildLimitMinutes(ctx context.Context) int {
 	cfg, _ := s.store.ConfigMap(ctx)
-	raw := strings.TrimSpace(cfg["free_hours"])
+	raw := strings.TrimSpace(cfg["free_minutes"])
 	if raw == "" {
-		raw = "5"
+		legacyHours := strings.TrimSpace(cfg["free_hours"])
+		if legacyHours != "" {
+			n, err := strconv.Atoi(legacyHours)
+			if err == nil && n >= 0 {
+				minutes := n * 60
+				if minutes > maxFreeBuildMinutes {
+					return maxFreeBuildMinutes
+				}
+				return minutes
+			}
+		}
+	}
+	if raw == "" {
+		raw = strconv.Itoa(defaultFreeBuildMinutes)
 	}
 	n, err := strconv.Atoi(raw)
 	if err != nil || n < 0 {
-		return 5
+		return defaultFreeBuildMinutes
+	}
+	if n > maxFreeBuildMinutes {
+		return maxFreeBuildMinutes
 	}
 	return n
 }
 
 func (s *Server) freeHourLimitMs(ctx context.Context) int64 {
-	return int64(s.freeHourLimit(ctx)) * msPerHour
+	return int64(s.freeBuildLimitMinutes(ctx)) * msPerMinute
 }
 
 func (s *Server) freeHourWindowHours(ctx context.Context) int {
@@ -135,6 +158,26 @@ func (s *Server) freeHourWindowHours(ctx context.Context) int {
 	return n
 }
 
+func (s *Server) playgroundIdleStopHours(ctx context.Context) int {
+	cfg, _ := s.store.ConfigMap(ctx)
+	raw := strings.TrimSpace(cfg["playground_idle_stop_hours"])
+	if raw == "" {
+		return defaultPlaygroundIdleStopHours
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		return defaultPlaygroundIdleStopHours
+	}
+	if n > maxPlaygroundIdleStopHours {
+		return maxPlaygroundIdleStopHours
+	}
+	return n
+}
+
+func (s *Server) playgroundIdleStopAfter(ctx context.Context) time.Duration {
+	return time.Duration(s.playgroundIdleStopHours(ctx)) * time.Hour
+}
+
 func (s *Server) promptImproveChargeMinutes(ctx context.Context) int {
 	cfg, _ := s.store.ConfigMap(ctx)
 	raw := strings.TrimSpace(cfg["prompt_improve_charge_minutes"])
@@ -147,6 +190,22 @@ func (s *Server) promptImproveChargeMinutes(ctx context.Context) int {
 	}
 	if n > maxPromptImproveChargeMin {
 		return maxPromptImproveChargeMin
+	}
+	return n
+}
+
+func (s *Server) projectQuotaDays(ctx context.Context) int {
+	cfg, _ := s.store.ConfigMap(ctx)
+	raw := strings.TrimSpace(cfg["project_quota_days"])
+	if raw == "" {
+		return defaultProjectQuotaDays
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		return defaultProjectQuotaDays
+	}
+	if n > maxProjectQuotaDays {
+		return maxProjectQuotaDays
 	}
 	return n
 }

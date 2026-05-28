@@ -160,6 +160,13 @@ func TestRecordProjectProvisionFailureKeepsTransientPreGreenfieldFailureCreating
 	if stored.ErrorMessage != "" {
 		t.Fatalf("error_message=%q, want empty", stored.ErrorMessage)
 	}
+	diagnostics, err := store.AdminProjectDiagnostics(t.Context(), user.ID, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(diagnostics.Internal.InternalErrorMessage, "unexpected status 422") {
+		t.Fatalf("internal_error_message=%q, want provisioning retry cause", diagnostics.Internal.InternalErrorMessage)
+	}
 }
 
 func TestProjectNeedsProvisioningRecoveryWaitsForFreshOrLockedProject(t *testing.T) {

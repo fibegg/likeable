@@ -583,8 +583,9 @@ func TestMeIncludesOnlyConfiguredBillingProducts(t *testing.T) {
 		t.Fatal(err)
 	}
 	readProducts := func() struct {
-		HourPacks    []int `json:"hourPacks"`
-		ProjectQuota bool  `json:"projectQuota"`
+		HourPacks        []int `json:"hourPacks"`
+		ProjectQuota     bool  `json:"projectQuota"`
+		ProjectQuotaDays int   `json:"projectQuotaDays"`
 	} {
 		t.Helper()
 		req := httptest.NewRequest(http.MethodGet, "/api/me", nil)
@@ -596,8 +597,9 @@ func TestMeIncludesOnlyConfiguredBillingProducts(t *testing.T) {
 		}
 		var body struct {
 			BillingProducts struct {
-				HourPacks    []int `json:"hourPacks"`
-				ProjectQuota bool  `json:"projectQuota"`
+				HourPacks        []int `json:"hourPacks"`
+				ProjectQuota     bool  `json:"projectQuota"`
+				ProjectQuotaDays int   `json:"projectQuotaDays"`
 			} `json:"billingProducts"`
 		}
 		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
@@ -615,11 +617,12 @@ func TestMeIncludesOnlyConfiguredBillingProducts(t *testing.T) {
 		"stripe_price_id_1_hour":        "price_1h",
 		"stripe_price_id_100_hours":     "price_100h",
 		"stripe_project_quota_price_id": "price_project_slot",
+		"project_quota_days":            "21",
 	}, secretConfigKeys); err != nil {
 		t.Fatal(err)
 	}
 	products = readProducts()
-	if !reflect.DeepEqual(products.HourPacks, []int{1, 100}) || !products.ProjectQuota {
+	if !reflect.DeepEqual(products.HourPacks, []int{1, 100}) || !products.ProjectQuota || products.ProjectQuotaDays != 21 {
 		t.Fatalf("billing products=%+v, want configured packs and project quota", products)
 	}
 }
@@ -1282,6 +1285,62 @@ func TestProjectPreviewStatusPromotesReachablePreviewWithoutPlatformConfig(t *te
 	}
 	if !body.Ready || body.Status != "200 OK" {
 		t.Fatalf("body=%+v, want ready preview", body)
+	}
+	updated, err := store.ProjectForUser(t.Context(), user.ID, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Status != "ready" {
+		t.Fatalf("status=%q, want ready", updated.Status)
+	}
+}
+
+func TestProjectPreviewStatusPromotesStoppedReachablePreview(t *testing.T) {
+	previewServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte("<!doctype html><title>already running</title>"))
+	}))
+	defer previewServer.Close()
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: previewServer.Client()}
+	user, _ := store.UpsertUser(t.Context(), "stopped-preview@example.com", "Stopped Preview", "")
+	if err := store.CreateSession(t.Context(), user.ID, "stopped-preview-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{
+		ID:             "project-stopped-preview-ready",
+		UserID:         user.ID,
+		Title:          "Stopped Preview",
+		ConversationID: "conv-stopped-preview",
+		PlaygroundID:   "playground-stopped-preview",
+		PreviewURL:     previewServer.URL,
+		Status:         "stopped",
+	}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/projects/project-stopped-preview-ready/preview-status", nil)
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "stopped-preview-token"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("preview-status returned %d: %s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Ready  bool   `json:"ready"`
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.Ready || body.Status != "200 OK" {
+		t.Fatalf("body=%+v, want reachable stopped preview promoted", body)
 	}
 	updated, err := store.ProjectForUser(t.Context(), user.ID, project.ID)
 	if err != nil {
@@ -3766,6 +3825,359 @@ func TestProjectPlaygroundLifecycleActions(t *testing.T) {
 	}
 }
 
+func TestProjectPlaygroundStartPromotesReachableStoppedPreview(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	_, logPath, _ := fakeFibeCLI(t)
+	previewServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte("<!doctype html><title>already running</title>"))
+	}))
+	defer previewServer.Close()
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url": "server.test:3000",
+		"fibe_api_key":  "test-key",
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{
+		store:  store,
+		config: RuntimeConfig{BaseURL: "http://example.test"},
+		http:   fakeFibeHTTPClient(previewServer.Client(), fakeFibeTransportConfig{Mode: "default", LogPath: logPath}),
+	}
+	user, err := store.UpsertUser(t.Context(), "project-start-preview@example.com", "Project Start Preview", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateSession(t.Context(), user.ID, "project-start-preview-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{
+		ID:             "project-start-preview",
+		UserID:         user.ID,
+		Title:          "Start Preview",
+		ConversationID: "conv-start-preview",
+		AgentID:        "agent-1",
+		MarqueeID:      "server-1",
+		PlaygroundID:   "playground-start-preview",
+		PreviewURL:     previewServer.URL,
+		Status:         "stopped",
+	}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/projects/project-start-preview/playground", strings.NewReader(`{"action":"start"}`))
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "project-start-preview-token"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("start returned %d, want 202; body=%s", rec.Code, rec.Body.String())
+	}
+	stored, err := store.ProjectForUser(t.Context(), user.ID, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != "ready" || stored.PlaygroundLastUsedAt == "" {
+		t.Fatalf("project=%+v, want ready with touched usage", stored)
+	}
+	if log, err := os.ReadFile(logPath); err == nil && strings.Contains(string(log), "playgrounds start playground-start-preview") {
+		t.Fatalf("unexpected Fibe start for reachable preview; log=%s", log)
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		t.Fatal(err)
+	}
+}
+
+func TestLegacyProductionProjectPlaygroundCanBeStopped(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	cliPath, logPath, _ := fakeFibeCLI(t)
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url": "server.test:3000",
+		"fibe_api_key":  "test-key",
+		"fibe_cli_path": cliPath,
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	user, err := store.UpsertUser(t.Context(), "production-stop@example.com", "Production Stop", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateSession(t.Context(), user.ID, "production-stop-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{ID: "project-production-stop", UserID: user.ID, Title: "Production", ConversationID: "conv-production-stop", AgentID: "agent-1", PlaygroundID: "playground-production-stop", Status: "ready"}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+	if granted, err := store.GrantProjectProduction(t.Context(), user.ID, project.ID, "cs_production_stop", time.Now().UTC().Add(30*24*time.Hour)); err != nil || !granted {
+		t.Fatalf("production grant=%v err=%v, want granted", granted, err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/projects/project-production-stop/playground", strings.NewReader(`{"action":"stop"}`))
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "production-stop-token"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("stop returned %d, want 202; body=%s", rec.Code, rec.Body.String())
+	}
+	stored, err := store.ProjectForUser(t.Context(), user.ID, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != "stopped" || stored.ProductionExpiresAt == "" {
+		t.Fatalf("project=%+v, want stopped legacy production project", stored)
+	}
+	if log, err := os.ReadFile(logPath); err == nil && !strings.Contains(string(log), "playgrounds stop playground-production-stop") {
+		t.Fatalf("missing stop command for legacy production project; log=%s", string(log))
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		t.Fatal(err)
+	}
+}
+
+func TestLegacyProductionProjectPlaygroundStartRuntimeBillingIsGenericFailure(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url": "server.test:3000",
+		"fibe_api_key":  "test-key",
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	logPath := filepath.Join(t.TempDir(), "fibe.log")
+	server := &Server{
+		store:  store,
+		config: RuntimeConfig{BaseURL: "http://example.test"},
+		http:   fakeFibeHTTPClient(http.DefaultClient, fakeFibeTransportConfig{Mode: "runtime-billing-required", LogPath: logPath}),
+	}
+	user, err := store.UpsertUser(t.Context(), "production-start-billing@example.com", "Production Start Billing", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateSession(t.Context(), user.ID, "production-start-billing-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{
+		ID:             "project-production-start-billing",
+		UserID:         user.ID,
+		Title:          "Production Billing",
+		ConversationID: "conv-production-start-billing",
+		AgentID:        "agent-1",
+		MarqueeID:      "server-1",
+		PlaygroundID:   "playground-production-start-billing",
+		Status:         "stopped",
+	}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+	if granted, err := store.GrantProjectProduction(t.Context(), user.ID, project.ID, "cs_production_start_billing", time.Now().UTC().Add(30*24*time.Hour)); err != nil || !granted {
+		t.Fatalf("production grant=%v err=%v, want granted", granted, err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/projects/project-production-start-billing/playground", strings.NewReader(`{"action":"start"}`))
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "production-start-billing-token"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("start returned %d, want 502; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "could not update the playground") {
+		t.Fatalf("body=%s, want generic playground update failure", rec.Body.String())
+	}
+	stored, err := store.ProjectForUser(t.Context(), user.ID, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != "stopped" {
+		t.Fatalf("status=%q, want stopped after blocked start", stored.Status)
+	}
+	notices, err := store.NoticesForUser(t.Context(), user.ID, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(notices) != 0 {
+		t.Fatalf("notices=%+v, want no production runtime warning", notices)
+	}
+	if log := readFile(t, logPath); strings.Count(log, "playgrounds start playground-production-start-billing") != 1 {
+		t.Fatalf("log=%s, want one start attempt", log)
+	}
+}
+
+func TestProductionProjectStartSweepIsDisabled(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	cliPath, logPath, _ := fakeFibeCLI(t)
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url": "server.test:3000",
+		"fibe_api_key":  "test-key",
+		"fibe_cli_path": cliPath,
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	user, err := store.UpsertUser(t.Context(), "production-sweep@example.com", "Production Sweep", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	production := &Project{ID: "project-production-sweep", UserID: user.ID, Title: "Production Sweep", ConversationID: "conv-production-sweep", AgentID: "agent-1", PlaygroundID: "playground-production-sweep", Status: "stopped"}
+	ordinary := &Project{ID: "project-ordinary-sweep", UserID: user.ID, Title: "Ordinary Sweep", ConversationID: "conv-ordinary-sweep", AgentID: "agent-1", PlaygroundID: "playground-ordinary-sweep", Status: "stopped"}
+	for _, project := range []*Project{production, ordinary} {
+		if err := store.CreateProject(t.Context(), project); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if granted, err := store.GrantProjectProduction(t.Context(), user.ID, production.ID, "cs_production_sweep", time.Now().UTC().Add(30*24*time.Hour)); err != nil || !granted {
+		t.Fatalf("production grant=%v err=%v, want granted", granted, err)
+	}
+
+	if err := server.handleStartProductionProjectsSweepTask(t.Context(), asynq.NewTask(taskStartProductionProjectsSweep, nil)); err != nil {
+		t.Fatalf("production start sweep returned error: %v", err)
+	}
+
+	storedProduction, err := store.ProjectForUser(t.Context(), user.ID, production.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if storedProduction.Status != "stopped" || storedProduction.ProductionExpiresAt == "" {
+		t.Fatalf("production project=%+v, want unchanged stopped legacy production project", storedProduction)
+	}
+	storedOrdinary, err := store.ProjectForUser(t.Context(), user.ID, ordinary.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if storedOrdinary.Status != "stopped" {
+		t.Fatalf("ordinary project status=%q, want stopped", storedOrdinary.Status)
+	}
+	if log, err := os.ReadFile(logPath); err == nil && strings.Contains(string(log), "playgrounds start") {
+		t.Fatalf("unexpected start command from disabled production sweep; log=%s", string(log))
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		t.Fatal(err)
+	}
+}
+
+func TestProductionProjectStartSweepDoesNotPromoteReachableStoppedPreview(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	_, logPath, _ := fakeFibeCLI(t)
+	previewServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte("<!doctype html><title>already running</title>"))
+	}))
+	defer previewServer.Close()
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url": "server.test:3000",
+		"fibe_api_key":  "test-key",
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{
+		store:  store,
+		config: RuntimeConfig{BaseURL: "http://example.test"},
+		http:   fakeFibeHTTPClient(previewServer.Client(), fakeFibeTransportConfig{Mode: "default", LogPath: logPath}),
+	}
+	user, err := store.UpsertUser(t.Context(), "production-sweep-preview@example.com", "Production Sweep Preview", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{
+		ID:             "project-production-sweep-preview",
+		UserID:         user.ID,
+		Title:          "Production Sweep Preview",
+		ConversationID: "conv-production-sweep-preview",
+		AgentID:        "agent-1",
+		MarqueeID:      "server-1",
+		PlaygroundID:   "playground-production-sweep-preview",
+		PreviewURL:     previewServer.URL,
+		Status:         "stopped",
+	}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+	if granted, err := store.GrantProjectProduction(t.Context(), user.ID, project.ID, "cs_production_sweep_preview", time.Now().UTC().Add(30*24*time.Hour)); err != nil || !granted {
+		t.Fatalf("production grant=%v err=%v, want granted", granted, err)
+	}
+
+	if err := server.handleStartProductionProjectsSweepTask(t.Context(), asynq.NewTask(taskStartProductionProjectsSweep, nil)); err != nil {
+		t.Fatalf("production start sweep returned error: %v", err)
+	}
+
+	stored, err := store.ProjectForUser(t.Context(), user.ID, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != "stopped" || stored.ProductionExpiresAt == "" {
+		t.Fatalf("project=%+v, want unchanged stopped legacy production project", stored)
+	}
+	if log, err := os.ReadFile(logPath); err == nil && strings.Contains(string(log), "playgrounds start playground-production-sweep-preview") {
+		t.Fatalf("unexpected Fibe start for reachable production preview; log=%s", log)
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		t.Fatal(err)
+	}
+}
+
+func TestProjectCustomDomainEndpointsAreDisabled(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	user, err := store.UpsertUser(t.Context(), "domain-user@example.com", "Domain User", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateSession(t.Context(), user.ID, "domain-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{ID: "project-domain-locked", UserID: user.ID, Title: "Domain", ConversationID: "conv-domain-locked", Status: "ready", PreviewURL: "https://target.example.test"}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		name   string
+		method string
+		path   string
+		body   string
+	}{
+		{name: "save", method: http.MethodPut, path: "/api/projects/project-domain-locked/domain", body: `{"domain":"app.example.com"}`},
+		{name: "delete", method: http.MethodDelete, path: "/api/projects/project-domain-locked/domain"},
+		{name: "verify", method: http.MethodPost, path: "/api/projects/project-domain-locked/domain/verify"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+			req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "domain-token"})
+			rec := httptest.NewRecorder()
+			server.routes().ServeHTTP(rec, req)
+			if rec.Code != http.StatusGone {
+				t.Fatalf("domain endpoint returned %d, want 410; body=%s", rec.Code, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), "Fibe") {
+				t.Fatalf("body=%s, want Fibe handoff message", rec.Body.String())
+			}
+		})
+	}
+}
+
 func TestProjectPassiveActionsDoNotTouchPlaygroundUsage(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {
@@ -3962,11 +4374,11 @@ func TestIdleProjectStopTaskStopsPlayground(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	project := &Project{ID: "project-idle", UserID: user.ID, Title: "Idle", ConversationID: "conv-idle", AgentID: "agent-1", PlaygroundID: "playground-idle", Status: "ready", PlaygroundLastUsedAt: time.Now().UTC().Add(-idleProjectStopAfter - time.Minute).Format(time.RFC3339Nano)}
+	project := &Project{ID: "project-idle", UserID: user.ID, Title: "Idle", ConversationID: "conv-idle", AgentID: "agent-1", PlaygroundID: "playground-idle", Status: "ready", PlaygroundLastUsedAt: time.Now().UTC().Add(-defaultPlaygroundIdleStopHours*time.Hour - time.Minute).Format(time.RFC3339Nano)}
 	if err := store.CreateProject(t.Context(), project); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.AddMessageAt(t.Context(), project.ID, "user", "old", time.Now().UTC().Add(-idleProjectStopAfter-time.Minute).Format(time.RFC3339Nano)); err != nil {
+	if _, err := store.AddMessageAt(t.Context(), project.ID, "user", "old", time.Now().UTC().Add(-defaultPlaygroundIdleStopHours*time.Hour-time.Minute).Format(time.RFC3339Nano)); err != nil {
 		t.Fatal(err)
 	}
 	payload, _ := json.Marshal(projectJobPayload{UserID: user.ID, UserEmail: user.Email, ProjectID: project.ID})
@@ -4009,7 +4421,7 @@ func TestIdleProjectStopTaskSkipsAfterRecentUsageReset(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	project := &Project{ID: "project-idle-reset", UserID: user.ID, Title: "Idle", ConversationID: "conv-idle-reset", AgentID: "agent-1", PlaygroundID: "playground-idle-reset", Status: "ready", PlaygroundLastUsedAt: time.Now().UTC().Add(-idleProjectStopAfter - time.Minute).Format(time.RFC3339Nano)}
+	project := &Project{ID: "project-idle-reset", UserID: user.ID, Title: "Idle", ConversationID: "conv-idle-reset", AgentID: "agent-1", PlaygroundID: "playground-idle-reset", Status: "ready", PlaygroundLastUsedAt: time.Now().UTC().Add(-defaultPlaygroundIdleStopHours*time.Hour - time.Minute).Format(time.RFC3339Nano)}
 	if err := store.CreateProject(t.Context(), project); err != nil {
 		t.Fatal(err)
 	}
@@ -4034,6 +4446,54 @@ func TestIdleProjectStopTaskSkipsAfterRecentUsageReset(t *testing.T) {
 	}
 }
 
+func TestIdleProjectStopTaskStopsLegacyProductionProject(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	cliPath, logPath, _ := fakeFibeCLI(t)
+	if err := os.WriteFile(logPath, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url": "server.test:3000",
+		"fibe_api_key":  "test-key",
+		"fibe_cli_path": cliPath,
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+	user, err := store.UpsertUser(t.Context(), "idle-production@example.com", "Idle Production", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{ID: "project-idle-production", UserID: user.ID, Title: "Production", ConversationID: "conv-idle-production", AgentID: "agent-1", PlaygroundID: "playground-idle-production", Status: "ready", PlaygroundLastUsedAt: time.Now().UTC().Add(-defaultPlaygroundIdleStopHours*time.Hour - time.Minute).Format(time.RFC3339Nano)}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+	expiresAt := time.Now().UTC().Add(30 * 24 * time.Hour)
+	if granted, err := store.GrantProjectProduction(t.Context(), user.ID, project.ID, "cs_production_idle", expiresAt); err != nil || !granted {
+		t.Fatalf("production grant=%v err=%v, want granted", granted, err)
+	}
+	payload, _ := json.Marshal(projectJobPayload{UserID: user.ID, UserEmail: user.Email, ProjectID: project.ID})
+
+	if err := server.handleStopIdleProjectTask(t.Context(), asynq.NewTask(taskStopIdleProject, payload)); err != nil {
+		t.Fatal(err)
+	}
+
+	stored, err := store.ProjectForUser(t.Context(), user.ID, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != "stopped" || stored.ProductionExpiresAt == "" {
+		t.Fatalf("project=%+v, want stopped legacy production project", stored)
+	}
+	if log := readFile(t, logPath); !strings.Contains(log, "playgrounds stop playground-idle-production") {
+		t.Fatalf("missing stop command for legacy production project; log=%s", log)
+	}
+}
+
 func TestIdleProjectStopTaskTreatsAlreadyStoppedAsSuccess(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {
@@ -4053,11 +4513,11 @@ func TestIdleProjectStopTaskTreatsAlreadyStoppedAsSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	project := &Project{ID: "project-idle-already-stopped", UserID: user.ID, Title: "Idle", ConversationID: "conv-idle-already-stopped", AgentID: "agent-1", PlaygroundID: "playground-idle", Status: "ready", PlaygroundLastUsedAt: time.Now().UTC().Add(-idleProjectStopAfter - time.Minute).Format(time.RFC3339Nano)}
+	project := &Project{ID: "project-idle-already-stopped", UserID: user.ID, Title: "Idle", ConversationID: "conv-idle-already-stopped", AgentID: "agent-1", PlaygroundID: "playground-idle", Status: "ready", PlaygroundLastUsedAt: time.Now().UTC().Add(-defaultPlaygroundIdleStopHours*time.Hour - time.Minute).Format(time.RFC3339Nano)}
 	if err := store.CreateProject(t.Context(), project); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.AddMessageAt(t.Context(), project.ID, "user", "old", time.Now().UTC().Add(-idleProjectStopAfter-time.Minute).Format(time.RFC3339Nano)); err != nil {
+	if _, err := store.AddMessageAt(t.Context(), project.ID, "user", "old", time.Now().UTC().Add(-defaultPlaygroundIdleStopHours*time.Hour-time.Minute).Format(time.RFC3339Nano)); err != nil {
 		t.Fatal(err)
 	}
 	payload, _ := json.Marshal(projectJobPayload{UserID: user.ID, UserEmail: user.Email, ProjectID: project.ID})
@@ -4097,11 +4557,11 @@ func TestIdleProjectStopTaskTreatsMissingPlaygroundAsStopped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	project := &Project{ID: "project-idle-missing", UserID: user.ID, Title: "Idle", ConversationID: "conv-idle-missing", AgentID: "agent-1", PlaygroundID: "playground-missing", Status: "ready", PlaygroundLastUsedAt: time.Now().UTC().Add(-idleProjectStopAfter - time.Minute).Format(time.RFC3339Nano)}
+	project := &Project{ID: "project-idle-missing", UserID: user.ID, Title: "Idle", ConversationID: "conv-idle-missing", AgentID: "agent-1", PlaygroundID: "playground-missing", Status: "ready", PlaygroundLastUsedAt: time.Now().UTC().Add(-defaultPlaygroundIdleStopHours*time.Hour - time.Minute).Format(time.RFC3339Nano)}
 	if err := store.CreateProject(t.Context(), project); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.AddMessageAt(t.Context(), project.ID, "user", "old", time.Now().UTC().Add(-idleProjectStopAfter-time.Minute).Format(time.RFC3339Nano)); err != nil {
+	if _, err := store.AddMessageAt(t.Context(), project.ID, "user", "old", time.Now().UTC().Add(-defaultPlaygroundIdleStopHours*time.Hour-time.Minute).Format(time.RFC3339Nano)); err != nil {
 		t.Fatal(err)
 	}
 	payload, _ := json.Marshal(projectJobPayload{UserID: user.ID, UserEmail: user.Email, ProjectID: project.ID})
@@ -4505,6 +4965,17 @@ func stringSliceContains(values []string, target string) bool {
 	return false
 }
 
+func readinessCheck(t *testing.T, readiness AdminReadiness, key string) AdminReadinessCheck {
+	t.Helper()
+	for _, check := range readiness.Checks {
+		if check.Key == key {
+			return check
+		}
+	}
+	t.Fatalf("readiness checks=%+v, want key %q", readiness.Checks, key)
+	return AdminReadinessCheck{}
+}
+
 func TestSignupPolicyDefaultsClosedButAllowsAdminExistingAndAllowlist(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {
@@ -4684,6 +5155,191 @@ func TestNormalizeAdminConfigRejectsInvalidPoolStatus(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "invalid status") {
 		t.Fatalf("err=%v, want invalid status error", err)
+	}
+}
+
+func TestAdminConfigIncludesAgentPoolHealth(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	fibeServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method + " " + r.URL.Path {
+		case http.MethodGet + " /api/agents/agent-1":
+			writeJSONResponse(t, w, map[string]any{"id": 1, "status": "authenticated", "authenticated": true})
+		case http.MethodGet + " /api/marquees/server-1":
+			writeJSONResponse(t, w, map[string]any{"id": 1, "status": "active", "billing_runtime_active": false, "chat_launchable": false})
+		default:
+			t.Fatalf("unexpected Fibe request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer fibeServer.Close()
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test", AdminEmail: "admin@example.com"}, http: fibeServer.Client()}
+	admin, err := store.UpsertUser(t.Context(), "admin@example.com", "Admin", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateSession(t.Context(), admin.ID, "admin-config-health-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"fibe_base_url":          fibeServer.URL,
+		"fibe_api_key":           "test-key",
+		"fibe_agent_server_pool": `[{"label":"Main","agent_id":"agent-1","server_id":"server-1","status":"active"}]`,
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/config", nil)
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "admin-config-health-token"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("admin config returned %d: %s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		AgentPoolHealth []AgentPoolHealth `json:"agentPoolHealth"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.AgentPoolHealth) != 1 || body.AgentPoolHealth[0].OK || body.AgentPoolHealth[0].AgentID != "agent-1" || body.AgentPoolHealth[0].ServerID != "server-1" {
+		t.Fatalf("agentPoolHealth=%+v, want one unhealthy configured pair", body.AgentPoolHealth)
+	}
+	if !stringSliceContains(body.AgentPoolHealth[0].Problems, "server runtime is not funded") {
+		t.Fatalf("problems=%+v, want runtime funding problem", body.AgentPoolHealth[0].Problems)
+	}
+}
+
+func TestAdminReadinessReportsLaunchBlockers(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test", AdminEmail: "admin@example.com"}, http: http.DefaultClient}
+	admin, err := store.UpsertUser(t.Context(), "admin@example.com", "Admin", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateSession(t.Context(), admin.ID, "admin-readiness-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/readiness", nil)
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "admin-readiness-token"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("admin readiness returned %d: %s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Readiness AdminReadiness `json:"readiness"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Readiness.Ready || body.Readiness.BlockerCount == 0 {
+		t.Fatalf("readiness=%+v, want launch blockers", body.Readiness)
+	}
+	for _, check := range body.Readiness.Checks {
+		if check.Key == "stripe_production_project_price" {
+			t.Fatalf("readiness checks=%+v, want no Likeable production-project price check", body.Readiness.Checks)
+		}
+	}
+	if check := readinessCheck(t, body.Readiness, "fibe_active_pool"); check.OK || check.Severity != "blocker" {
+		t.Fatalf("active pool check=%+v, want blocking failure", check)
+	} else if !strings.Contains(check.Detail, "fibe_agent_server_pool") {
+		t.Fatalf("active pool detail=%q, want config key", check.Detail)
+	}
+	if check := readinessCheck(t, body.Readiness, "fibe_active_pool_health"); check.OK || !strings.Contains(check.Detail, "no active") {
+		t.Fatalf("active pool health check=%+v, want no active detail", check)
+	}
+	if check := readinessCheck(t, body.Readiness, "google_oauth"); check.OK || !strings.Contains(check.Detail, "google_client_id") || !strings.Contains(check.Detail, "google_client_secret") {
+		t.Fatalf("google oauth check=%+v, want actionable config keys", check)
+	}
+	if check := readinessCheck(t, body.Readiness, "smtp_delivery"); check.OK || !strings.Contains(check.Detail, "smtp_host") || !strings.Contains(check.Detail, "smtp_from_email") {
+		t.Fatalf("smtp delivery check=%+v, want actionable config keys", check)
+	}
+	if check := readinessCheck(t, body.Readiness, "signup_enabled"); check.OK || check.Severity != "warning" {
+		t.Fatalf("signup check=%+v, want warning failure", check)
+	} else if !strings.Contains(check.Detail, "signup_mode") {
+		t.Fatalf("signup detail=%q, want config key", check.Detail)
+	}
+}
+
+func TestAdminReadinessPassesWithProductionConfig(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	templatePath := filepath.Join(t.TempDir(), "greenfield.yml")
+	if err := os.WriteFile(templatePath, []byte("services:\n  app:\n    image: test\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LIKEABLE_GREENFIELD_TEMPLATE_BODY_PATH", templatePath)
+	fibeServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method + " " + r.URL.Path {
+		case http.MethodGet + " /api/agents/agent-ready":
+			writeJSONResponse(t, w, map[string]any{"id": 1, "status": "authenticated", "authenticated": true})
+		case http.MethodGet + " /api/marquees/server-ready":
+			writeJSONResponse(t, w, map[string]any{"id": 1, "status": "active", "billing_runtime_active": true, "chat_launchable": true})
+		default:
+			t.Fatalf("unexpected Fibe request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer fibeServer.Close()
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test", AdminEmail: "admin@example.com"}, http: fibeServer.Client()}
+	admin, err := store.UpsertUser(t.Context(), "admin@example.com", "Admin", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateSession(t.Context(), admin.ID, "admin-readiness-ready-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"stripe_secret_key":                  "sk_test_ready",
+		"stripe_webhook_secret":              "whsec_ready",
+		"stripe_price_id_10_hours":           "price_hours",
+		"stripe_project_quota_price_id":      "price_project_quota",
+		"stripe_production_project_price_id": "price_production_project",
+		"fibe_base_url":                      fibeServer.URL,
+		"fibe_api_key":                       "test-key",
+		"fibe_agent_server_pool":             `[{"label":"Main","agent_id":"agent-ready","server_id":"server-ready","status":"active"}]`,
+		"google_client_id":                   "google-client",
+		"google_client_secret":               "google-secret",
+		"smtp_host":                          "smtp.example.test",
+		"smtp_from_email":                    "support@example.test",
+		"signup_mode":                        "allowlist",
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/readiness", nil)
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "admin-readiness-ready-token"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("admin readiness returned %d: %s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Readiness AdminReadiness `json:"readiness"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.Readiness.Ready || body.Readiness.BlockerCount != 0 || body.Readiness.WarningCount != 0 {
+		t.Fatalf("readiness=%+v, want ready with no blockers or warnings", body.Readiness)
+	}
+	if check := readinessCheck(t, body.Readiness, "fibe_active_pool_health"); !check.OK || check.Detail != "Main" {
+		t.Fatalf("active pool health check=%+v, want healthy Main detail", check)
+	}
+	if check := readinessCheck(t, body.Readiness, "fibe_template_version"); !check.OK || check.Detail != "bundled template body" {
+		t.Fatalf("greenfield template check=%+v, want bundled template body", check)
 	}
 }
 
@@ -5605,6 +6261,519 @@ func TestFixedUTCFreeHoursAndPaidBalance(t *testing.T) {
 	}
 }
 
+func TestFreeBuildMinutesConfig(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+
+	if got := server.freeBuildLimitMinutes(t.Context()); got != defaultFreeBuildMinutes {
+		t.Fatalf("default free minutes=%d, want %d", got, defaultFreeBuildMinutes)
+	}
+	if got := server.freeHourLimitMs(t.Context()); got != int64(30*time.Minute/time.Millisecond) {
+		t.Fatalf("default free limit ms=%d, want 30m", got)
+	}
+
+	if err := store.UpsertConfig(t.Context(), map[string]string{"free_hours": "2"}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	if got := server.freeBuildLimitMinutes(t.Context()); got != 120 {
+		t.Fatalf("legacy free hours as minutes=%d, want 120", got)
+	}
+
+	if err := store.UpsertConfig(t.Context(), map[string]string{"free_minutes": "45"}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	if got := server.freeBuildLimitMinutes(t.Context()); got != 45 {
+		t.Fatalf("configured free minutes=%d, want 45", got)
+	}
+	if got := server.freeHourLimitMs(t.Context()); got != int64(45*time.Minute/time.Millisecond) {
+		t.Fatalf("configured free limit ms=%d, want 45m", got)
+	}
+}
+
+func TestProjectQuotaDaysConfig(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+
+	if got := server.projectQuotaDays(t.Context()); got != defaultProjectQuotaDays {
+		t.Fatalf("default project quota days=%d, want %d", got, defaultProjectQuotaDays)
+	}
+
+	if err := store.UpsertConfig(t.Context(), map[string]string{"project_quota_days": "14"}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	if got := server.projectQuotaDays(t.Context()); got != 14 {
+		t.Fatalf("configured project quota days=%d, want 14", got)
+	}
+
+	if err := store.UpsertConfig(t.Context(), map[string]string{"project_quota_days": "900"}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	if got := server.projectQuotaDays(t.Context()); got != maxProjectQuotaDays {
+		t.Fatalf("clamped project quota days=%d, want %d", got, maxProjectQuotaDays)
+	}
+
+	if err := store.UpsertConfig(t.Context(), map[string]string{"project_quota_days": "nope"}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	if got := server.projectQuotaDays(t.Context()); got != defaultProjectQuotaDays {
+		t.Fatalf("invalid project quota days=%d, want default %d", got, defaultProjectQuotaDays)
+	}
+}
+
+func TestPlaygroundIdleStopHoursConfig(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: http.DefaultClient}
+
+	if got := server.playgroundIdleStopHours(t.Context()); got != defaultPlaygroundIdleStopHours {
+		t.Fatalf("default idle stop hours=%d, want %d", got, defaultPlaygroundIdleStopHours)
+	}
+
+	if err := store.UpsertConfig(t.Context(), map[string]string{"playground_idle_stop_hours": "12"}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	if got := server.playgroundIdleStopHours(t.Context()); got != 12 {
+		t.Fatalf("configured idle stop hours=%d, want 12", got)
+	}
+
+	if err := store.UpsertConfig(t.Context(), map[string]string{"playground_idle_stop_hours": "900"}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	if got := server.playgroundIdleStopHours(t.Context()); got != maxPlaygroundIdleStopHours {
+		t.Fatalf("clamped idle stop hours=%d, want %d", got, maxPlaygroundIdleStopHours)
+	}
+}
+
+func TestPublicAdminConfigExposesLegacyFreeHoursAsMinutes(t *testing.T) {
+	cfg := publicAdminConfig(map[string]string{"free_hours": "2"})
+	entry, ok := cfg["free_minutes"].(map[string]any)
+	if !ok {
+		t.Fatalf("free_minutes entry=%T, want map", cfg["free_minutes"])
+	}
+	if entry["value"] != "120" || entry["set"] != true {
+		t.Fatalf("free_minutes entry=%+v, want legacy 2h exposed as 120 minutes and set", entry)
+	}
+}
+
+func TestAdminBillingHealthReportsStripeConfigAndRecentPayments(t *testing.T) {
+	appStore, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer appStore.Close()
+	server := &Server{store: appStore, config: RuntimeConfig{BaseURL: "http://example.test", AdminEmail: "admin@example.com"}, http: http.DefaultClient}
+	admin, err := appStore.UpsertUser(t.Context(), "admin@example.com", "Admin", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	customer, err := appStore.UpsertUser(t.Context(), "payer@example.com", "Payer", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := appStore.CreateSession(t.Context(), admin.ID, "admin-billing-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if err := appStore.UpsertConfig(t.Context(), map[string]string{
+		"stripe_publishable_key":        "pk_test_health",
+		"stripe_secret_key":             "sk_test_health",
+		"stripe_webhook_secret":         "whsec_health",
+		"stripe_price_id_1_hour":        "price_hour_1",
+		"stripe_project_quota_price_id": "price_project_quota",
+		"free_minutes":                  "30",
+		"free_hour_window_hours":        "5",
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	if err := appStore.UpsertPayment(t.Context(), store.Payment{
+		ID:                "payment-health",
+		UserID:            customer.ID,
+		ProviderPaymentID: "cs_health",
+		AmountCents:       1500,
+		Currency:          "usd",
+		Status:            "paid",
+		CreatedAt:         "2026-05-27T10:00:00Z",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/billing/health", nil)
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "admin-billing-token"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("billing health returned %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Health struct {
+			Configured struct {
+				PublishableKey bool `json:"publishableKey"`
+				SecretKey      bool `json:"secretKey"`
+				WebhookSecret  bool `json:"webhookSecret"`
+			} `json:"configured"`
+			Products struct {
+				HourPacks    []int `json:"hourPacks"`
+				ProjectQuota bool  `json:"projectQuota"`
+			} `json:"products"`
+			Free struct {
+				Minutes     int `json:"minutes"`
+				WindowHours int `json:"windowHours"`
+			} `json:"free"`
+			Issues         []string `json:"issues"`
+			RecentPayments []struct {
+				UserEmail         string `json:"userEmail"`
+				ProviderPaymentID string `json:"providerPaymentId"`
+				AmountCents       int64  `json:"amountCents"`
+				Status            string `json:"status"`
+			} `json:"recentPayments"`
+		} `json:"health"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if !resp.Health.Configured.PublishableKey || !resp.Health.Configured.SecretKey || !resp.Health.Configured.WebhookSecret {
+		t.Fatalf("configured=%+v, want all Stripe keys set", resp.Health.Configured)
+	}
+	if !reflect.DeepEqual(resp.Health.Products.HourPacks, []int{1}) || !resp.Health.Products.ProjectQuota {
+		t.Fatalf("products=%+v, want 1h pack and project quota", resp.Health.Products)
+	}
+	if resp.Health.Free.Minutes != 30 || resp.Health.Free.WindowHours != 5 {
+		t.Fatalf("free=%+v, want 30m/5h", resp.Health.Free)
+	}
+	if len(resp.Health.Issues) != 0 {
+		t.Fatalf("issues=%+v, want none", resp.Health.Issues)
+	}
+	if len(resp.Health.RecentPayments) != 1 || resp.Health.RecentPayments[0].UserEmail != "payer@example.com" || resp.Health.RecentPayments[0].ProviderPaymentID != "cs_health" {
+		t.Fatalf("recent payments=%+v, want payer payment", resp.Health.RecentPayments)
+	}
+}
+
+func TestAdminBillingHealthDoesNotRequirePublishableKey(t *testing.T) {
+	appStore, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer appStore.Close()
+	server := &Server{store: appStore, config: RuntimeConfig{BaseURL: "http://example.test", AdminEmail: "admin@example.com"}, http: http.DefaultClient}
+	admin, err := appStore.UpsertUser(t.Context(), "admin@example.com", "Admin", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := appStore.CreateSession(t.Context(), admin.ID, "admin-billing-no-pk-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if err := appStore.UpsertConfig(t.Context(), map[string]string{
+		"stripe_secret_key":             "sk_test_health",
+		"stripe_webhook_secret":         "whsec_health",
+		"stripe_price_id_1_hour":        "price_hour_1",
+		"stripe_project_quota_price_id": "price_project_quota",
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/billing/health", nil)
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "admin-billing-no-pk-token"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("billing health returned %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Health struct {
+			Configured struct {
+				PublishableKey bool `json:"publishableKey"`
+			} `json:"configured"`
+			Issues []string `json:"issues"`
+		} `json:"health"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Health.Configured.PublishableKey {
+		t.Fatalf("publishableKey configured=%v, want false", resp.Health.Configured.PublishableKey)
+	}
+	if len(resp.Health.Issues) != 0 {
+		t.Fatalf("issues=%+v, want none without publishable key", resp.Health.Issues)
+	}
+}
+
+func TestAdminBillingHealthReturnsEmptyRecentPayments(t *testing.T) {
+	appStore, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer appStore.Close()
+	server := &Server{store: appStore, config: RuntimeConfig{BaseURL: "http://example.test", AdminEmail: "admin@example.com"}, http: http.DefaultClient}
+	admin, err := appStore.UpsertUser(t.Context(), "admin@example.com", "Admin", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := appStore.CreateSession(t.Context(), admin.ID, "admin-empty-billing-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/billing/health", nil)
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "admin-empty-billing-token"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("billing health returned %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"recentPayments":[]`) {
+		t.Fatalf("billing health body=%s, want empty recentPayments array", rec.Body.String())
+	}
+}
+
+func TestAdminProjectDiagnosticsExposeSupportContext(t *testing.T) {
+	appStore, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer appStore.Close()
+	server := &Server{store: appStore, config: RuntimeConfig{BaseURL: "http://example.test", AdminEmail: "admin@example.com"}, http: http.DefaultClient}
+	admin, err := appStore.UpsertUser(t.Context(), "admin@example.com", "Admin", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	user, err := appStore.UpsertUser(t.Context(), "support@example.com", "Support", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := appStore.CreateSession(t.Context(), admin.ID, "admin-diagnostics-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{
+		ID:             "project-diagnostics",
+		UserID:         user.ID,
+		Title:          "Diagnostics",
+		ConversationID: "conv-diagnostics",
+		AgentID:        "agent-diag",
+		MarqueeID:      "server-diag",
+		PlaygroundID:   "playground-diag",
+		PlaygroundName: "lk-diag",
+		PlayspecID:     "playspec-diag",
+		PropID:         "prop-diag",
+		RepoURL:        "https://gitea.test/owner/repo.git",
+		PreviewURL:     "https://preview.test",
+		Status:         "ready",
+	}
+	if err := appStore.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+	if err := appStore.ReplaceProjectResources(t.Context(), project.ID, []store.ProjectRepository{{Role: "source", SourceRepoURL: "https://github.test/source/repo", Provider: "github"}}, []store.ProjectService{{Name: "app", URL: "https://app.test", Type: "dynamic", Visibility: "external"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := appStore.UpsertPayment(t.Context(), store.Payment{ID: "payment-diag", UserID: user.ID, ProviderPaymentID: "cs_diag", AmountCents: 2000, Currency: "usd", Status: "paid", CreatedAt: "2026-05-27T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := appStore.GrantHourCredits(t.Context(), user.ID, "cs_diag", 1); err != nil {
+		t.Fatal(err)
+	}
+	startedAt := time.Now().UTC().Add(-10 * time.Minute)
+	if err := appStore.StartProjectWorkSession(t.Context(), user.ID, project.ID, "turn-diag", startedAt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := appStore.CompleteAndBillProjectWorkSession(t.Context(), user.ID, project.ID, "turn-diag", startedAt.Add(10*time.Minute), 5, int64(30*time.Minute/time.Millisecond)); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/users/"+user.ID+"/projects/"+project.ID+"/diagnostics", nil)
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "admin-diagnostics-token"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("diagnostics returned %d: %s", rec.Code, rec.Body.String())
+	}
+	bodyBytes := rec.Body.Bytes()
+	for _, hidden := range []string{"productionExpiresAt", "productionRuntimeStatus", "customDomain", "customDomainStatus", "customDomainTarget"} {
+		if bytes.Contains(bodyBytes, []byte(hidden)) {
+			t.Fatalf("diagnostics response includes hidden legacy field %q: %s", hidden, string(bodyBytes))
+		}
+	}
+	var resp struct {
+		Diagnostics AdminProjectDiagnostics `json:"diagnostics"`
+	}
+	if err := json.Unmarshal(bodyBytes, &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Diagnostics.Internal.ConversationID != "conv-diagnostics" || resp.Diagnostics.Internal.PlaygroundID != "playground-diag" || resp.Diagnostics.Internal.RepoURL != "https://gitea.test/owner/repo.git" {
+		t.Fatalf("internal=%+v, want support ids", resp.Diagnostics.Internal)
+	}
+	if len(resp.Diagnostics.Project.Services) != 1 || resp.Diagnostics.Project.Services[0].URL != "https://app.test" {
+		t.Fatalf("services=%+v, want attached service", resp.Diagnostics.Project.Services)
+	}
+	if len(resp.Diagnostics.WorkSessions) != 1 || resp.Diagnostics.WorkSessions[0].SessionKey != "turn-diag" {
+		t.Fatalf("work sessions=%+v, want turn", resp.Diagnostics.WorkSessions)
+	}
+	if len(resp.Diagnostics.HourLedger) == 0 {
+		t.Fatalf("hour ledger empty")
+	}
+	if len(resp.Diagnostics.Payments) != 1 || resp.Diagnostics.Payments[0].ProviderPaymentID != "cs_diag" {
+		t.Fatalf("payments=%+v, want checkout payment", resp.Diagnostics.Payments)
+	}
+}
+
+func TestAdminProductionGrantIsDisabled(t *testing.T) {
+	appStore, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer appStore.Close()
+	server := &Server{store: appStore, config: RuntimeConfig{BaseURL: "http://example.test", AdminEmail: "admin@example.com"}, http: http.DefaultClient}
+	admin, err := appStore.UpsertUser(t.Context(), "admin@example.com", "Admin", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	user, err := appStore.UpsertUser(t.Context(), "manual-production@example.com", "Manual Production", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := appStore.CreateSession(t.Context(), admin.ID, "admin-production-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{
+		ID:                   "project-admin-production",
+		UserID:               user.ID,
+		Title:                "Admin Production",
+		ConversationID:       "conv-admin-production",
+		AgentID:              "agent-1",
+		PlaygroundID:         "playground-admin-production",
+		Status:               "stopped",
+		PlaygroundLastUsedAt: time.Now().UTC().Add(-9 * time.Hour).Format(time.RFC3339Nano),
+	}
+	if err := appStore.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/users/"+user.ID+"/projects/"+project.ID+"/production", strings.NewReader(`{}`))
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "admin-production-token"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusGone {
+		t.Fatalf("production grant returned %d, want 410; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "Fibe") {
+		t.Fatalf("body=%s, want Fibe handoff message", rec.Body.String())
+	}
+	stored, err := appStore.ProjectForUser(t.Context(), user.ID, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.ProductionExpiresAt != "" || stored.Status != "stopped" {
+		t.Fatalf("stored project=%+v, want no production grant", stored)
+	}
+	notices, err := appStore.NoticesForUser(t.Context(), user.ID, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(notices) != 0 {
+		t.Fatalf("notices=%+v, want none", notices)
+	}
+}
+
+func TestAdminProductionProjectStartRetryIsDisabled(t *testing.T) {
+	appStore, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer appStore.Close()
+	server := &Server{store: appStore, config: RuntimeConfig{BaseURL: "http://example.test", AdminEmail: "admin@example.com"}, http: http.DefaultClient}
+	admin, err := appStore.UpsertUser(t.Context(), "admin@example.com", "Admin", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	user, err := appStore.UpsertUser(t.Context(), "admin-production-start@example.com", "Admin Production Start", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := appStore.CreateSession(t.Context(), admin.ID, "admin-production-start-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{
+		ID:             "project-admin-production-start",
+		UserID:         user.ID,
+		Title:          "Admin Production Start",
+		ConversationID: "conv-admin-production-start",
+		AgentID:        "agent-1",
+		MarqueeID:      "server-1",
+		PlaygroundID:   "playground-admin-production-start",
+		Status:         "stopped",
+	}
+	if err := appStore.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+	if granted, err := appStore.GrantProjectProduction(t.Context(), user.ID, project.ID, "cs_admin_production_start", time.Now().UTC().Add(7*24*time.Hour)); err != nil || !granted {
+		t.Fatalf("production grant=%v err=%v, want granted", granted, err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/users/"+user.ID+"/projects/"+project.ID+"/production/start", strings.NewReader(`{}`))
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "admin-production-start-token"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusGone {
+		t.Fatalf("production start returned %d, want 410; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "Fibe") {
+		t.Fatalf("body=%s, want Fibe handoff message", rec.Body.String())
+	}
+}
+
+func TestAdminProductionGrantRejectsInactiveProject(t *testing.T) {
+	appStore, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer appStore.Close()
+	server := &Server{store: appStore, config: RuntimeConfig{BaseURL: "http://example.test", AdminEmail: "admin@example.com"}, http: http.DefaultClient}
+	admin, err := appStore.UpsertUser(t.Context(), "admin@example.com", "Admin", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	user, err := appStore.UpsertUser(t.Context(), "manual-inactive@example.com", "Manual Inactive", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := appStore.CreateSession(t.Context(), admin.ID, "admin-production-inactive-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{ID: "project-admin-production-archived", UserID: user.ID, Title: "Archived", ConversationID: "conv-admin-production-archived", Status: "archived"}
+	if err := appStore.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/users/"+user.ID+"/projects/"+project.ID+"/production", strings.NewReader(`{"days":7}`))
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "admin-production-inactive-token"})
+	rec := httptest.NewRecorder()
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusGone {
+		t.Fatalf("production grant returned %d, want 410; body=%s", rec.Code, rec.Body.String())
+	}
+	stored, err := appStore.ProjectForUser(t.Context(), user.ID, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.ProductionExpiresAt != "" {
+		t.Fatalf("stored project=%+v, want no production grant", stored)
+	}
+}
+
 func TestFixedUTCHourWindowAnchorsToMidnight(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -5741,6 +6910,7 @@ func TestProjectQuotaCheckoutBuildsStripeMetadata(t *testing.T) {
 	if err := store.UpsertConfig(t.Context(), map[string]string{
 		"stripe_secret_key":             "sk_test",
 		"stripe_project_quota_price_id": "price_project_slot",
+		"project_quota_days":            "14",
 	}, secretConfigKeys); err != nil {
 		t.Fatal(err)
 	}
@@ -5781,8 +6951,123 @@ func TestProjectQuotaCheckoutBuildsStripeMetadata(t *testing.T) {
 		form.Get("success_url") != "http://example.test/profile?billing=success&session_id={CHECKOUT_SESSION_ID}" ||
 		form.Get("metadata[purchase_kind]") != "project_quota" ||
 		form.Get("metadata[project_slots]") != "1" ||
-		form.Get("metadata[project_quota_days]") != "30" {
+		form.Get("metadata[project_quota_days]") != "14" {
 		t.Fatalf("stripe form=%v, want project quota metadata", form)
+	}
+	assertStripeCheckoutUsesDynamicPaymentMethods(t, form)
+}
+
+func TestProductionProjectCheckoutIsDisabledBeforeStripe(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"stripe_secret_key": "sk_test",
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	user, err := store.UpsertUser(t.Context(), "production-buyer@example.com", "Buyer", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateSession(t.Context(), user.ID, "production-buyer-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{ID: "project-production-checkout", UserID: user.ID, Title: "Production checkout", ConversationID: "conv-production-checkout", Status: "ready"}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+	stripeCalled := false
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		stripeCalled = true
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(`{"url":"https://checkout.stripe.test/session"}`)),
+		}, nil
+	})}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: client}
+	req := httptest.NewRequest(http.MethodPost, "/api/billing/checkout", strings.NewReader(`{"product":"production_project","projectId":"project-production-checkout"}`))
+	req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "production-buyer-token"})
+	rec := httptest.NewRecorder()
+
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusGone {
+		t.Fatalf("checkout returned %d, want 410; body=%s", rec.Code, rec.Body.String())
+	}
+	if stripeCalled {
+		t.Fatal("Stripe was called for disabled production checkout")
+	}
+}
+
+func TestProductionProjectCheckoutAlwaysReturnsGoneBeforeStripe(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"stripe_secret_key":                  "sk_test",
+		"stripe_production_project_price_id": "price_production_project",
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	user, err := store.UpsertUser(t.Context(), "production-guard@example.com", "Buyer", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := store.UpsertUser(t.Context(), "production-other@example.com", "Other", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateSession(t.Context(), user.ID, "production-guard-token", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	otherProject := &Project{ID: "project-production-other", UserID: other.ID, Title: "Other", ConversationID: "conv-production-other", Status: "ready"}
+	archivedProject := &Project{ID: "project-production-archived", UserID: user.ID, Title: "Archived", ConversationID: "conv-production-archived", Status: "archived"}
+	activeProject := &Project{ID: "project-production-active", UserID: user.ID, Title: "Active", ConversationID: "conv-production-active", Status: "ready"}
+	for _, project := range []*Project{otherProject, archivedProject, activeProject} {
+		if err := store.CreateProject(t.Context(), project); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if granted, err := store.GrantProjectProduction(t.Context(), user.ID, activeProject.ID, "cs_active_project", time.Now().UTC().Add(30*24*time.Hour)); err != nil || !granted {
+		t.Fatalf("active production grant=%v err=%v, want granted", granted, err)
+	}
+	stripeCalled := false
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		stripeCalled = true
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"url":"https://checkout.stripe.test/session"}`))}, nil
+	})}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: client}
+	for _, tc := range []struct {
+		name string
+		body string
+		code int
+	}{
+		{name: "missing project id", body: `{"product":"production_project"}`, code: http.StatusGone},
+		{name: "project owned by another user", body: `{"product":"production_project","projectId":"project-production-other"}`, code: http.StatusGone},
+		{name: "archived project", body: `{"product":"production_project","projectId":"project-production-archived"}`, code: http.StatusGone},
+		{name: "already active production", body: `{"product":"production_project","projectId":"project-production-active"}`, code: http.StatusGone},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stripeCalled = false
+			req := httptest.NewRequest(http.MethodPost, "/api/billing/checkout", strings.NewReader(tc.body))
+			req.AddCookie(&http.Cookie{Name: "likeable_session", Value: "production-guard-token"})
+			rec := httptest.NewRecorder()
+
+			server.routes().ServeHTTP(rec, req)
+
+			if rec.Code != tc.code {
+				t.Fatalf("checkout returned %d, want %d; body=%s", rec.Code, tc.code, rec.Body.String())
+			}
+			if stripeCalled {
+				t.Fatalf("Stripe was called for rejected checkout body=%s", tc.body)
+			}
+		})
 	}
 }
 
@@ -5836,6 +7121,16 @@ func TestHourPackCheckoutBuildsStripeMetadata(t *testing.T) {
 		form.Get("metadata[purchase_kind]") != "hour_pack" ||
 		form.Get("metadata[pack_hours]") != "10" {
 		t.Fatalf("stripe form=%v, want hour pack metadata", form)
+	}
+	assertStripeCheckoutUsesDynamicPaymentMethods(t, form)
+}
+
+func assertStripeCheckoutUsesDynamicPaymentMethods(t *testing.T, form url.Values) {
+	t.Helper()
+	for key := range form {
+		if strings.HasPrefix(key, "payment_method_types") {
+			t.Fatalf("stripe form=%v, want dynamic payment methods so Dashboard-enabled Link can appear", form)
+		}
 	}
 }
 
@@ -5951,8 +7246,9 @@ func TestStripeWebhookGrantsProjectQuota(t *testing.T) {
 			"payment_status":      "paid",
 			"status":              "complete",
 			"metadata": map[string]any{
-				"purchase_kind": "project_quota",
-				"project_slots": "1",
+				"purchase_kind":      "project_quota",
+				"project_slots":      "1",
+				"project_quota_days": "45",
 			},
 		}},
 	}
@@ -5973,12 +7269,98 @@ func TestStripeWebhookGrantsProjectQuota(t *testing.T) {
 	if slots != 1 || expiresAt == "" {
 		t.Fatalf("slots=%d expires=%q, want active paid project slot", slots, expiresAt)
 	}
+	expires, err := time.Parse(time.RFC3339Nano, expiresAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if expires.Before(time.Now().UTC().Add(44*24*time.Hour)) || expires.After(time.Now().UTC().Add(46*24*time.Hour)) {
+		t.Fatalf("expiresAt=%s, want roughly 45 days from now", expiresAt)
+	}
 	notices, err := store.NoticesForUser(t.Context(), user.ID, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(notices) == 0 || !strings.Contains(notices[0].Body, "Project quota purchased") {
 		t.Fatalf("notices=%+v, want project quota purchase notice", notices)
+	}
+}
+
+func TestStripeWebhookIgnoresLegacyProductionProjectPurchase(t *testing.T) {
+	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.UpsertConfig(t.Context(), map[string]string{
+		"stripe_secret_key":     "sk_test",
+		"stripe_webhook_secret": "whsec_test",
+	}, secretConfigKeys); err != nil {
+		t.Fatal(err)
+	}
+	user, err := store.UpsertUser(t.Context(), "production-webhook@example.com", "Buyer", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := &Project{ID: "project-production-webhook", UserID: user.ID, Title: "Production webhook", ConversationID: "conv-production-webhook", AgentID: "agent-1", PlaygroundID: "playground-production-webhook", Status: "stopped"}
+	if err := store.CreateProject(t.Context(), project); err != nil {
+		t.Fatal(err)
+	}
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		t.Fatalf("unexpected stripe request %s", req.URL.String())
+		return nil, nil
+	})}
+	server := &Server{store: store, config: RuntimeConfig{BaseURL: "http://example.test"}, http: client}
+	event := map[string]any{
+		"type": "checkout.session.completed",
+		"data": map[string]any{"object": map[string]any{
+			"id":                  "cs_production_project",
+			"client_reference_id": user.ID,
+			"customer":            "cus_production_project",
+			"subscription":        "sub_production_project",
+			"amount_total":        2900,
+			"currency":            "usd",
+			"payment_status":      "paid",
+			"status":              "complete",
+			"metadata": map[string]any{
+				"purchase_kind":           "production_project",
+				"project_id":              project.ID,
+				"production_project_days": "45",
+			},
+		}},
+	}
+	payload, _ := json.Marshal(event)
+	req := httptest.NewRequest(http.MethodPost, "/api/stripe/webhook", strings.NewReader(string(payload)))
+	req.Header.Set("Stripe-Signature", testStripeSignature("whsec_test", payload))
+	rec := httptest.NewRecorder()
+
+	server.routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("webhook returned %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	stored, err := store.ProjectForUser(t.Context(), user.ID, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.ProductionExpiresAt != "" || stored.Status != "stopped" {
+		t.Fatalf("project=%+v, want no production grant or start", stored)
+	}
+	payments, err := store.UserPayments(t.Context(), user.ID, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(payments) != 1 || payments[0].ProviderPaymentID != "cs_production_project" {
+		t.Fatalf("payments=%+v, want legacy payment recorded without grant", payments)
+	}
+	if sub, err := store.SubscriptionForUser(t.Context(), user.ID); !errors.Is(err, sql.ErrNoRows) || sub != nil {
+		t.Fatalf("subscription=%+v err=%v, want no subscription for legacy production purchase", sub, err)
+	}
+	notices, err := store.NoticesForUser(t.Context(), user.ID, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(notices) != 0 {
+		t.Fatalf("notices=%+v, want no production notice", notices)
 	}
 }
 

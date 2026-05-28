@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-const PlaygroundIdleStopAfter = 8 * time.Hour
+const DefaultPlaygroundIdleStopAfter = 8 * time.Hour
 
 type User struct {
 	ID           string `json:"id"`
@@ -39,12 +39,24 @@ type Project struct {
 	CleanupLastError      string              `json:"-"`
 	PlaygroundLastUsedAt  string              `json:"playgroundLastUsedAt,omitempty"`
 	PlaygroundIdleStopAt  string              `json:"playgroundIdleStopAt,omitempty"`
+	ProductionExpiresAt   string              `json:"-"`
+	CustomDomain          string              `json:"-"`
+	CustomDomainStatus    string              `json:"-"`
+	CustomDomainTarget    string              `json:"-"`
+	CustomDomainUpdatedAt string              `json:"-"`
 	CreatedAt             string              `json:"createdAt"`
 	UpdatedAt             string              `json:"updatedAt"`
 }
 
 func (p *Project) RefreshComputedFields() {
+	p.RefreshComputedFieldsWithIdleStopAfter(DefaultPlaygroundIdleStopAfter)
+}
+
+func (p *Project) RefreshComputedFieldsWithIdleStopAfter(idleStopAfter time.Duration) {
 	p.PlaygroundIdleStopAt = ""
+	if idleStopAfter <= 0 {
+		idleStopAfter = DefaultPlaygroundIdleStopAfter
+	}
 	if p.Status != "ready" || strings.TrimSpace(p.PlaygroundLastUsedAt) == "" {
 		return
 	}
@@ -52,7 +64,7 @@ func (p *Project) RefreshComputedFields() {
 	if err != nil {
 		return
 	}
-	p.PlaygroundIdleStopAt = lastUsedAt.UTC().Add(PlaygroundIdleStopAfter).Format(time.RFC3339Nano)
+	p.PlaygroundIdleStopAt = lastUsedAt.UTC().Add(idleStopAfter).Format(time.RFC3339Nano)
 }
 
 type ProjectRepository struct {
@@ -198,6 +210,20 @@ type AgentPoolOption struct {
 	Capacity int    `json:"capacity,omitempty"`
 }
 
+type AgentPoolHealth struct {
+	Label                      string   `json:"label,omitempty"`
+	AgentID                    string   `json:"agentId"`
+	ServerID                   string   `json:"serverId"`
+	Status                     string   `json:"status"`
+	AgentStatus                string   `json:"agentStatus,omitempty"`
+	AgentAuthenticated         bool     `json:"agentAuthenticated"`
+	ServerStatus               string   `json:"serverStatus,omitempty"`
+	ServerBillingRuntimeActive bool     `json:"serverBillingRuntimeActive"`
+	ServerChatLaunchable       bool     `json:"serverChatLaunchable"`
+	OK                         bool     `json:"ok"`
+	Problems                   []string `json:"problems,omitempty"`
+}
+
 type UserNotice struct {
 	ID          string `json:"id"`
 	UserID      string `json:"userId,omitempty"`
@@ -234,6 +260,50 @@ type AdminProjectSummary struct {
 	Project    Project                `json:"project"`
 	WorkMs     int64                  `json:"workMs"`
 	Assignment AgentAssignmentSummary `json:"assignment"`
+}
+
+type AdminBillingPayment struct {
+	ID                string `json:"id"`
+	UserID            string `json:"userId"`
+	UserEmail         string `json:"userEmail"`
+	ProviderPaymentID string `json:"providerPaymentId"`
+	AmountCents       int64  `json:"amountCents"`
+	Currency          string `json:"currency"`
+	Status            string `json:"status"`
+	CreatedAt         string `json:"createdAt"`
+}
+
+type AdminHourCreditLedgerEntry struct {
+	ID             string `json:"id"`
+	UserID         string `json:"userId"`
+	DeltaMs        int64  `json:"deltaMs"`
+	Reason         string `json:"reason"`
+	PaymentID      string `json:"paymentId,omitempty"`
+	WorkSessionKey string `json:"workSessionKey,omitempty"`
+	CreatedAt      string `json:"createdAt"`
+}
+
+type AdminProjectInternal struct {
+	UserID                string `json:"userId"`
+	ConversationID        string `json:"conversationId,omitempty"`
+	AgentID               string `json:"agentId,omitempty"`
+	ServerID              string `json:"serverId,omitempty"`
+	PlaygroundID          string `json:"playgroundId,omitempty"`
+	PlaygroundName        string `json:"playgroundName,omitempty"`
+	PlayspecID            string `json:"playspecId,omitempty"`
+	PropID                string `json:"propId,omitempty"`
+	RepoURL               string `json:"repoUrl,omitempty"`
+	ProvisioningLockUntil string `json:"provisioningLockUntil,omitempty"`
+	InternalErrorMessage  string `json:"internalErrorMessage,omitempty"`
+	CleanupLastError      string `json:"cleanupLastError,omitempty"`
+}
+
+type AdminProjectDiagnostics struct {
+	Project      Project                      `json:"project"`
+	Internal     AdminProjectInternal         `json:"internal"`
+	WorkSessions []ProjectWorkSession         `json:"workSessions"`
+	HourLedger   []AdminHourCreditLedgerEntry `json:"hourLedger"`
+	Payments     []AdminBillingPayment        `json:"payments"`
 }
 
 type AdminUserDetail struct {

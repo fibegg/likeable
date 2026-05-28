@@ -524,7 +524,7 @@ export function EmptyCanvas({ title, body }: { title?: string; body?: string } =
   );
 }
 
-export function CanvasLoader({ title, body, tone }: { title: string; body: string; tone?: 'error' }) {
+export function CanvasLoader({ title, body, tone }: { title: string; body?: string; tone?: 'error' }) {
   return (
     <div className={`emptyPreview canvasLoader ${tone === 'error' ? 'error' : ''}`} role="status" aria-live="polite" aria-busy={tone === 'error' ? undefined : true}>
       <CanvasFrameDecor loading />
@@ -536,7 +536,7 @@ export function CanvasLoader({ title, body, tone }: { title: string; body: strin
       </div>
       <div className="emptyCopy">
         <h1>{title}</h1>
-        <p>{body}</p>
+        {body && <p>{body}</p>}
       </div>
     </div>
   );
@@ -545,6 +545,21 @@ export function CanvasLoader({ title, body, tone }: { title: string; body: strin
 function CanvasFrameDecor({ loading }: { loading?: boolean } = {}) {
   return (
     <>
+      {loading && (
+        <div className="canvasSkeletonScene" aria-hidden="true">
+          <div className="canvasSkeletonTabs">
+            <span />
+            <span />
+            <span />
+          </div>
+          <span className="canvasSkeletonBlock hero" />
+          <span className="canvasSkeletonBlock side" />
+          <span className="canvasSkeletonBlock railA" />
+          <span className="canvasSkeletonBlock railB" />
+          <span className="canvasSkeletonBlock main" />
+          <span className="canvasSkeletonBlock footer" />
+        </div>
+      )}
       <div className="stars" />
       <div className={`canvasSignalField ${loading ? 'loading' : ''}`} aria-hidden="true">
         <span />

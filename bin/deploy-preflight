@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+TAG="${LIKEABLE_IMAGE_TAG:-likeable:deploy-preflight}"
+PORT="${LIKEABLE_PREFLIGHT_PORT:-18080}"
+CONTAINER="likeable-preflight-$PORT"
+GO_IMAGE="${LIKEABLE_GO_IMAGE:-golang:1.26.1-bookworm}"
+COMMIT_SHA="$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo local)"
+
+cleanup() {
+  docker stop "$CONTAINER" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+
+cd "$ROOT"
+
+echo "==> Operational script checks"
+for script in bin/*; do
+  if [ -f "$script" ]; then
+    bash -n "$script"
+  fi
+done
+LIKEABLE_BASE_URL=http://localhost \
+  LIKEABLE_DRY_RUN=1 \
+  LIKEABLE_PLAYGROUND_IDLE_STOP_HOURS=8 \
+  LIKEABLE_GOOGLE_CLIENT_ID=google-client-preflight \
+  LIKEABLE_GOOGLE_CLIENT_SECRET=google-secret-preflight \
+  LIKEABLE_SMTP_HOST=smtp.example.test \
+  LIKEABLE_SMTP_PORT=587 \
+  LIKEABLE_SMTP_TLS_MODE=starttls \
+  LIKEABLE_SMTP_FROM_EMAIL=support@example.test \
+  bin/live-configure >/dev/null
+
+echo "==> TypeScript check"
+npm run lint
+
+echo "==> Frontend build"
+npm run build
+
+echo "==> Go tests"
+docker run --rm \
+  -v "$ROOT":/src \
+  -v /tmp/likeable-go-mod:/go/pkg/mod \
+  -v /tmp/likeable-go-build:/root/.cache/go-build \
+  -w /src \
+  "$GO_IMAGE" go test ./...
+
+echo "==> Docker image build: $TAG"
+docker build \
+  --build-arg "FIBE_BUILD_GIT_COMMIT_SHA=$COMMIT_SHA" \
+  -t "$TAG" \
+  .
+
+cleanup
+
+echo "==> Container smoke on http://localhost:$PORT"
+docker run -d --rm \
+  --name "$CONTAINER" \
+  -p "$PORT:8080" \
+  -e ADDR=:8080 \
+  -e DATABASE_PATH=/data/likeable.db \
+  -e BASE_URL="http://localhost:$PORT" \
+  -e ADMIN_EMAIL=admin@example.com \
+  -e LIKEABLE_DEV_AUTH=1 \
+  "$TAG" >/dev/null
+
+for _ in $(seq 1 40); do
+  if curl -fsS "http://localhost:$PORT/healthz" >/dev/null 2>&1; then
+    break
+  fi
+  sleep 0.5
+done
+
+curl -fsS "http://localhost:$PORT/healthz" >/dev/null
+cookie_jar="$(mktemp)"
+curl -fsS -c "$cookie_jar" "http://localhost:$PORT/api/dev/login?email=admin@example.com" >/dev/null
+curl -fsS -b "$cookie_jar" "http://localhost:$PORT/admin" | grep -q '<div id="root">'
+curl -fsS -b "$cookie_jar" "http://localhost:$PORT/api/admin/billing/health" >/dev/null
+rm -f "$cookie_jar"
+
+image_id="$(docker image inspect "$TAG" --format '{{.Id}}')"
+echo "==> OK: $TAG ($image_id)"
