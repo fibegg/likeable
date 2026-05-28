@@ -204,6 +204,16 @@ export function ProfilePanel({ me, onClose, onOpenTutorial, onRefreshAccount }: 
             <BookOpen size={16} /> {t('profile.tutorialOpen')}
           </button>
         </div>
+        <div className="profileCard profileActionCard profileScopeCard">
+          <div>
+            <span className="profileLabel">{t('profile.scope')}</span>
+            <strong>{t('profile.scopeTitle')}</strong>
+            <em>{t('profile.scopeBody')}</em>
+          </div>
+          <a className="ghostButton" href="https://next.fibe.live" target="_blank" rel="noopener noreferrer">
+            <ExternalLink size={16} /> {t('profile.openFibe')}
+          </a>
+        </div>
         <div className="profileCard profileActionCard profileHoursCard">
           <div>
             <span className="profileLabel">{t('profile.hours')}</span>

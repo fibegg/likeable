@@ -136,12 +136,13 @@ Describe the app you want in the composer. Fibe builds the first playground in a
 - A live playground to open and use, with the frontend and any backing services.
 - Source code, downloadable as a ZIP or pushed to a private GitHub repository.
 - Conversation history — the playground keeps evolving as the chat continues.
+- Clear export paths when an experiment is ready to become a real Fibe project.
 
 ## Limits and lifecycle
 
 - Free build time resets on a window. Paid time rolls over and is used after free time.
 - Playgrounds auto-pause when inactive. Start them again from the menu.
-- Likeable is for experiments and development. For production hosting, always-on runtimes, and custom domains, continue the project in Fibe.
+- Likeable is for experiments and development. It does not sell production hosting or custom domains; continue the project in Fibe when you need an always-on app, a custom domain, or production operations.
 - Archived playgrounds stay downloadable for a while after archiving.
 - Delete a playground or the whole account from Profile — everything goes with it.
 
@@ -160,7 +161,7 @@ Likeable lets you build and run application playgrounds from prompts. By signing
 
 **Playgrounds and secrets.** Playgrounds may run generated code, install dependencies, call external services, and store files needed for the app. Do not include secrets, credentials, regulated data, or private third-party data unless you intend that data to be processed in the playground and by the build agent.
 
-**Billing.** Free and paid build time, project slots, and reset windows are shown in the app. Payments are processed by Stripe. Paid features are delivered according to the limits shown at purchase; future prices and limits may change prospectively.
+**Billing.** Free and paid build time, playground slots, and reset windows are shown in the app. Payments are processed by Stripe. Likeable billing is limited to development playground capacity; production hosting, always-on runtimes, and custom domains are handled in Fibe. Paid features are delivered according to the limits shown at purchase; future prices and limits may change prospectively.
 
 **Service availability.** Likeable is provided on a best-effort basis. Playgrounds may be queued, paused, restarted, archived, deleted, or temporarily unavailable for maintenance, security, capacity, or abuse-prevention reasons. Uninterrupted service is not guaranteed.
 
@@ -445,6 +446,10 @@ Likeable uses reasonable technical and organizational safeguards for account, pr
   'profile.tutorialTitle': 'Open onboarding',
   'profile.tutorialBody': 'Revisit the compact guide for prompts, build minutes, exports, and lifecycle.',
   'profile.tutorialOpen': 'Open',
+  'profile.scope': 'Next step',
+  'profile.scopeTitle': 'Likeable is for experiments',
+  'profile.scopeBody': 'Buy only build time and playground slots here. For production hosting, always-on runtimes, custom domains, and operations, continue in Fibe.',
+  'profile.openFibe': 'Open Fibe',
   'profile.hours': 'Build time',
   'profile.freeQuota': 'Free build-time quota',
   'profile.freeInWindow': '{remaining}/{limit} free per {hours}h window',
@@ -821,12 +826,13 @@ const uk: Record<keyof typeof en, string> = {
 - Живий майданчик, доступний для роботи, з фронтендом і всіма потрібними сервісами.
 - Вихідний код — для завантаження як ZIP або відправки в приватний репозиторій GitHub.
 - Історія розмови — майданчик продовжує розвиватися, поки триває діалог.
+- Зрозумілий шлях експорту, коли експеримент готовий стати повноцінним Fibe-проєктом.
 
 ## Ліміти та життєвий цикл
 
 - Безплатний час збірки оновлюється кожне вікно. Платний час переходить на наступний період і використовується після безплатного часу.
 - Майданчики автоматично призупиняються в стані спокою. Запустити знову — з меню.
-- Likeable призначений для експериментів і розробки. Для production hosting, always-on runtime і кастомних доменів продовжуйте проєкт у Fibe.
+- Likeable призначений для експериментів і розробки. Він не продає production hosting або кастомні домени; для always-on застосунку, кастомного домену й production-операцій продовжуйте проєкт у Fibe.
 - Архівовані майданчики можна завантажити обмежений час після архівування.
 - Видалення майданчика чи всього акаунта — у Профілі. Усе зникає разом.
 
@@ -845,7 +851,7 @@ Likeable дає змогу створювати й запускати майда
 
 **Майданчики та секрети.** Майданчики можуть запускати згенерований код, встановлювати залежності, звертатися до зовнішніх сервісів і зберігати файли, потрібні застосунку. Не додавайте секрети, облікові дані, регульовані дані або приватні дані третіх осіб, якщо ви не хочете, щоб ці дані оброблялися в майданчику та агентом збірки.
 
-**Білінг.** Безплатний і платний час збірки, слоти проєктів і вікна оновлення показані в застосунку. Платежі обробляє Stripe. Платні функції надаються в межах, показаних під час купівлі; майбутні ціни й ліміти можуть змінюватися для наступних покупок.
+**Білінг.** Безплатний і платний час збірки, місця майданчиків і вікна оновлення показані в застосунку. Платежі обробляє Stripe. Білінг Likeable обмежений capacity для розробки в майданчиках; production hosting, always-on runtime і кастомні домени обробляються у Fibe. Платні функції надаються в межах, показаних під час купівлі; майбутні ціни й ліміти можуть змінюватися для наступних покупок.
 
 **Доступність сервісу.** Likeable надається за принципом найкращих зусиль. Майданчики можуть ставати в чергу, призупинятися, перезапускатися, архівуватися, видалятися або бути тимчасово недоступні через обслуговування, безпеку, навантаження чи запобігання зловживанням. Безперервна робота не гарантується.
 
@@ -1130,6 +1136,10 @@ Likeable застосовує розумні технічні та органі�
   'profile.tutorialTitle': 'Відкрити онбординг',
   'profile.tutorialBody': 'Короткий гайд щодо запитів, хвилин збірки, експорту й життєвого циклу.',
   'profile.tutorialOpen': 'Відкрити',
+  'profile.scope': 'Наступний крок',
+  'profile.scopeTitle': 'Likeable для експериментів',
+  'profile.scopeBody': 'Тут купуються лише час збірки та місця майданчиків. Для production hosting, always-on runtime, кастомних доменів і операцій продовжуйте у Fibe.',
+  'profile.openFibe': 'Відкрити Fibe',
   'profile.hours': 'Час збірки',
   'profile.freeQuota': 'Безплатний ліміт часу збірки',
   'profile.freeInWindow': '{remaining}/{limit} безплатно за вікно {hours} год',
