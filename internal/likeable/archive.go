@@ -84,24 +84,22 @@ func (s *Server) archiveProjectSource(ctx context.Context, user *User, project *
 }
 
 func (s *Server) writeProjectArchive(ctx context.Context, user *User, project *Project, targetPath string) error {
+	client, err := s.workspaceClientForProject(ctx, project, user.Email)
+	if err == nil {
+		sourceDir := client.WorkspaceDir(project.ID)
+		if info, statErr := os.Stat(sourceDir); statErr == nil && info.IsDir() {
+			return zipDirectory(targetPath, sourceDir)
+		}
+	}
 	if strings.TrimSpace(project.RepoURL) == "" {
 		return writeFallbackProjectArchive(targetPath, user, project, "project source is not available")
-	}
-	fibe, err := s.fibeClientForProject(ctx, project, user.Email)
-	if err != nil {
-		return err
-	}
-	giteaToken, err := fibe.GiteaToken(ctx)
-	if err != nil {
-		return err
 	}
 	temp, err := os.MkdirTemp("", "likeable-archive-*")
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(temp)
-	sourceURL := withBasicAuth(project.RepoURL, giteaToken["username"], giteaToken["token"])
-	if err := runGit(ctx, temp, "clone", "--depth", "1", sourceURL, "."); err != nil {
+	if err := runGit(ctx, temp, "clone", "--depth", "1", project.RepoURL, "."); err != nil {
 		return err
 	}
 	return zipDirectory(targetPath, temp)
@@ -143,7 +141,8 @@ func zipDirectory(targetPath, sourceDir string) error {
 		if err != nil {
 			return err
 		}
-		if rel == ".git" || strings.HasPrefix(rel, ".git"+string(os.PathSeparator)) {
+		if rel == ".git" || strings.HasPrefix(rel, ".git"+string(os.PathSeparator)) ||
+			rel == ".likeable" || strings.HasPrefix(rel, ".likeable"+string(os.PathSeparator)) {
 			if entry.IsDir() {
 				return filepath.SkipDir
 			}

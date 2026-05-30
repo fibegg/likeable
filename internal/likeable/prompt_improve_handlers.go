@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	fibegateway "github.com/fibegg/likeable/internal/fibe"
+	workspace "github.com/fibegg/likeable/internal/workspace"
 	"github.com/google/uuid"
 )
 
@@ -96,7 +96,7 @@ func (s *Server) improvePromptWithAgent(ctx context.Context, user *User, project
 	if user == nil || project == nil {
 		return "", fmt.Errorf("project context is required")
 	}
-	client, err := s.fibeClientForProject(ctx, project, user.Email)
+	client, err := s.workspaceClientForProject(ctx, project, user.Email)
 	if err != nil {
 		return "", err
 	}
@@ -115,7 +115,7 @@ func (s *Server) improvePromptWithAgent(ctx context.Context, user *User, project
 		}
 	}()
 	if err := client.SendMessage(ctx, conversationID, request, nil, "reject"); err != nil {
-		if fibegateway.IsAgentRuntimeUnavailableError(err) {
+		if workspace.IsAgentRuntimeUnavailableError(err) {
 			if startErr := s.startProjectAgentChat(ctx, project, client, "prompt improve"); startErr != nil {
 				return "", startErr
 			}

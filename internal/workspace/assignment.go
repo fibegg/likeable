@@ -1,4 +1,4 @@
-package fibe
+package workspace
 
 import (
 	"crypto/sha256"
@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-type fibeAssignmentInput struct {
+type assignmentInput struct {
 	Label          string          `json:"label"`
 	AgentID        string          `json:"agent_id"`
 	AgentIDAlias   string          `json:"agentId"`
@@ -32,15 +32,19 @@ const (
 )
 
 func GlobalAssignment(cfg map[string]string) Assignment {
-	return Assignment{
-		AgentID:   strings.TrimSpace(cfg["fibe_agent_id"]),
-		MarqueeID: strings.TrimSpace(cfg["fibe_marquee_id"]),
-		Status:    AssignmentStatusActive,
+	agentID := strings.TrimSpace(cfg["workspace_agent_id"])
+	serverID := strings.TrimSpace(cfg["workspace_server_id"])
+	if agentID == "" {
+		agentID = "local-agent"
 	}
+	if serverID == "" {
+		serverID = "local"
+	}
+	return Assignment{AgentID: agentID, MarqueeID: serverID, Status: AssignmentStatusActive}
 }
 
 func AssignmentForNewProject(cfg map[string]string, projectID string) (Assignment, error) {
-	pool, err := assignmentPoolFromConfig(cfg)
+	pool, err := AssignmentPoolFromConfig(cfg)
 	if err != nil {
 		return Assignment{}, err
 	}
@@ -63,7 +67,7 @@ func AssignmentForProject(cfg map[string]string, project *Project, email string)
 	if global.AgentID != "" {
 		return global, nil
 	}
-	pool, err := assignmentPoolFromConfig(cfg)
+	pool, err := AssignmentPoolFromConfig(cfg)
 	if err != nil {
 		return Assignment{}, err
 	}
@@ -85,30 +89,12 @@ func CurrentAssignmentForProject(cfg map[string]string, project *Project, seed s
 	if stored.AgentID != "" || stored.MarqueeID != "" {
 		return stored, false, nil
 	}
-	global := GlobalAssignment(cfg)
-	if global.AgentID != "" {
-		return global, !sameAssignment(stored, global), nil
-	}
-	pool, err := assignmentPoolFromConfig(cfg)
-	if err != nil {
-		return Assignment{}, false, err
-	}
-	if len(pool) == 0 {
-		return stored, false, nil
-	}
-	current, ok := selectAssignment(seed, activeAssignments(pool))
-	if !ok {
-		return stored, false, nil
-	}
+	current := GlobalAssignment(cfg)
 	return current, !sameAssignment(stored, current), nil
 }
 
-func assignmentPoolFromConfig(cfg map[string]string) ([]Assignment, error) {
-	return ParseAssignmentPool(firstNonEmpty(cfg["fibe_agent_server_pool"], cfg["fibe_agent_marquee_pool"]))
-}
-
 func AssignmentPoolFromConfig(cfg map[string]string) ([]Assignment, error) {
-	return assignmentPoolFromConfig(cfg)
+	return ParseAssignmentPool(cfg["workspace_agent_server_pool"])
 }
 
 func ParseAssignmentPool(raw string) ([]Assignment, error) {
@@ -116,7 +102,7 @@ func ParseAssignmentPool(raw string) ([]Assignment, error) {
 	if raw == "" {
 		return nil, nil
 	}
-	var inputs []fibeAssignmentInput
+	var inputs []assignmentInput
 	if err := json.Unmarshal([]byte(raw), &inputs); err != nil {
 		return nil, fmt.Errorf("agent/server pool must be a JSON array: %w", err)
 	}
@@ -221,18 +207,6 @@ func activeAssignments(pool []Assignment) []Assignment {
 		}
 	}
 	return out
-}
-
-func assignmentInPool(assignment Assignment, pool []Assignment) bool {
-	if assignment.AgentID == "" {
-		return false
-	}
-	for _, candidate := range pool {
-		if sameAssignment(assignment, candidate) {
-			return true
-		}
-	}
-	return false
 }
 
 func sameAssignment(left Assignment, right Assignment) bool {

@@ -126,9 +126,9 @@ func AgentPromptWithArtefactsAndAttachments(project *domain.Project, userText st
 Likeable project context:
 - title: %s
 - Likeable project_id: %s
-- Fibe conversation_id: %s
-- target Fibe playground_id: %s
-- target Fibe playground_name: %s
+- workspace conversation_id: %s
+- target workspace_id: %s
+- target workspace_name: %s
 - target private source repo: %s
 - target preview_url: %s
 - target app subdomain: %s

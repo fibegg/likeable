@@ -227,23 +227,43 @@ func (s *Server) exportProjectToGithub(ctx context.Context, user *User, project 
 	if owner == "" {
 		return "", fmt.Errorf("github repository owner missing")
 	}
-	fibe, err := s.fibeClientForProject(ctx, project, user.Email)
-	if err != nil {
-		return "", err
-	}
-	giteaToken, err := fibe.GiteaToken(ctx)
-	if err != nil {
-		return "", err
-	}
 	temp, err := os.MkdirTemp("", "likeable-export-*")
 	if err != nil {
 		return "", err
 	}
 	defer os.RemoveAll(temp)
-	sourceURL := withBasicAuth(project.RepoURL, giteaToken["username"], giteaToken["token"])
 	targetURL := withBasicAuth("https://github.com/"+owner+"/"+repoName+".git", "x-access-token", conn.AccessToken)
-	if err := runGit(ctx, temp, "clone", sourceURL, "."); err != nil {
-		return "", err
+	client, clientErr := s.workspaceClientForProject(ctx, project, user.Email)
+	if clientErr == nil {
+		sourceDir := client.WorkspaceDir(project.ID)
+		if info, statErr := os.Stat(sourceDir); statErr == nil && info.IsDir() {
+			if err := copyDirectory(temp, sourceDir); err != nil {
+				return "", err
+			}
+			if err := runGit(ctx, temp, "init", "-b", "main"); err != nil {
+				return "", err
+			}
+			if err := runGit(ctx, temp, "config", "user.email", "export@likeable.local"); err != nil {
+				return "", err
+			}
+			if err := runGit(ctx, temp, "config", "user.name", "Likeable Export"); err != nil {
+				return "", err
+			}
+			if err := runGit(ctx, temp, "add", "-A"); err != nil {
+				return "", err
+			}
+			if err := runGit(ctx, temp, "commit", "--allow-empty", "-m", "Export Likeable project"); err != nil {
+				return "", err
+			}
+		}
+	}
+	if _, err := os.Stat(filepath.Join(temp, ".git")); err != nil {
+		if strings.TrimSpace(project.RepoURL) == "" || strings.HasPrefix(strings.TrimSpace(project.RepoURL), "local://") {
+			return "", fmt.Errorf("project source is not available")
+		}
+		if err := runGit(ctx, temp, "clone", project.RepoURL, "."); err != nil {
+			return "", err
+		}
 	}
 	if err := runGit(ctx, temp, "remote", "add", "github", targetURL); err != nil {
 		return "", err
@@ -252,6 +272,53 @@ func (s *Server) exportProjectToGithub(ctx context.Context, user *User, project 
 		return "", err
 	}
 	return repoURL, nil
+}
+
+func copyDirectory(targetDir, sourceDir string) error {
+	sourceDir = filepath.Clean(sourceDir)
+	targetDir = filepath.Clean(targetDir)
+	return filepath.WalkDir(sourceDir, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(sourceDir, path)
+		if err != nil {
+			return err
+		}
+		if rel == "." {
+			return nil
+		}
+		if rel == ".git" || strings.HasPrefix(rel, ".git"+string(os.PathSeparator)) ||
+			rel == ".likeable" || strings.HasPrefix(rel, ".likeable"+string(os.PathSeparator)) {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		target := filepath.Join(targetDir, rel)
+		if entry.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		input, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer input.Close()
+		output, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, info.Mode().Perm())
+		if err != nil {
+			return err
+		}
+		_, copyErr := io.Copy(output, input)
+		closeErr := output.Close()
+		if copyErr != nil {
+			return copyErr
+		}
+		return closeErr
+	})
 }
 
 func githubTokenScope(token *oauth2.Token) string {

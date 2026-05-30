@@ -374,11 +374,11 @@ func (s *Server) handleRecoverProjectTask(ctx context.Context, task *asynq.Task)
 	if blocked, err := s.projectIsExportOnly(ctx, &User{ID: payload.UserID, Email: payload.UserEmail}, project); err != nil || blocked {
 		return err
 	}
-	fibe, err := s.fibeClientForProject(ctx, project, payload.UserEmail)
+	workspaceClient, err := s.workspaceClientForProject(ctx, project, payload.UserEmail)
 	if err != nil {
 		return err
 	}
-	return s.recoverProjectReadiness(ctx, payload.UserID, project, fibe)
+	return s.recoverProjectReadiness(ctx, payload.UserID, project, workspaceClient)
 }
 
 func (s *Server) handleDeleteProjectResourcesTask(ctx context.Context, task *asynq.Task) error {
@@ -425,17 +425,17 @@ func (s *Server) handleDeleteProjectResourcesTask(ctx context.Context, task *asy
 		log.Printf("cleanup transition=succeeded project_id=%s user_id=%s", project.ID, payload.UserID)
 		return nil
 	}
-	fibeClient, err := s.completeProjectResourceSnapshot(ctx, payload.UserEmail, project)
+	workspaceClient, err := s.completeProjectResourceSnapshot(ctx, payload.UserEmail, project)
 	if err != nil {
-		if fibeClient == nil || !projectHasFibeResources(project) {
+		if workspaceClient == nil || !projectHasWorkspaceResources(project) {
 			_ = s.store.UpdateProjectCleanupError(context.Background(), project.ID, payload.UserID, err.Error())
 			log.Printf("cleanup transition=failed project_id=%s user_id=%s error=%q", project.ID, payload.UserID, err.Error())
 			return err
 		}
 		log.Printf("delete project %s resources: continuing with stored resources after snapshot error: %v", project.ID, err)
 	}
-	if projectHasFibeResources(project) {
-		if err := fibeClient.DeleteProjectResources(ctx, project); err != nil {
+	if projectHasWorkspaceResources(project) {
+		if err := workspaceClient.DeleteProjectResources(ctx, project); err != nil {
 			_ = s.store.UpdateProjectCleanupError(context.Background(), project.ID, payload.UserID, err.Error())
 			log.Printf("cleanup transition=failed project_id=%s user_id=%s error=%q", project.ID, payload.UserID, err.Error())
 			return err

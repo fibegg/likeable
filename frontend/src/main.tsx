@@ -1350,9 +1350,9 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
 
   const chat = (
     <section className={`chatPane ${draggingFiles ? 'dragActive' : ''} ${utilityScreenOpen ? 'screenOpen' : ''} ${agentActivityActive ? 'agentActive' : ''} ${prompt.trim() ? 'hasDraft' : ''}`} {...chatDragHandlers}>
-      <a className="poweredBy" href="https://fibe.gg" target="_blank" rel="noopener noreferrer">
-        {t('builder.poweredBy')} <span>fibe.gg</span>
-      </a>
+      <div className="poweredBy">
+        {t('builder.poweredBy')} <span>workspace</span>
+      </div>
       {projectTitleButton('chatProjectTitle', true, true)}
       {builderChrome}
       {showProjects && <ProjectList projects={currentProjects} activeID={activeID} projectCap={projectCap} busy={busy} exportingID={exportingID} controllingID={controllingProjectID} onSelect={(id) => { setActiveID(id); setShowProjects(false); }} onNew={() => setConfirmNewProject(true)} onRename={renameProject} onDelete={setDeleteTarget} onExport={requestProjectExport} onControlPlayground={controlProjectPlayground} onClose={() => setShowProjects(false)} />}

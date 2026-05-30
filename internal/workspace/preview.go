@@ -1,17 +1,13 @@
-package fibe
+package workspace
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
-
-	sdkfibe "github.com/fibegg/sdk/fibe"
 )
 
 type PreviewEmbeddingBlockedError struct {
@@ -46,27 +42,7 @@ func (c *Client) WaitPlaygroundReady(ctx context.Context, playgroundID string) e
 	if playgroundID == "" {
 		return errors.New("workspace creation did not return an id")
 	}
-	deadline := time.After(8 * time.Minute)
-	for {
-		status, err := c.sdk.Playgrounds.StatusByIdentifier(ctx, playgroundID)
-		if err != nil {
-			return wrapSDKError(err)
-		}
-		currentStatus := strings.ToLower(strings.TrimSpace(status.Status))
-		if currentStatus == "running" || currentStatus == "ready" {
-			return nil
-		}
-		if currentStatus == "error" || currentStatus == "failed" || currentStatus == "destroyed" {
-			return wrapSDKError(sdkfibe.NewPlaygroundTerminalStateError(status))
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-deadline:
-			return &PreviewTimeoutError{Status: currentStatus}
-		case <-time.After(3 * time.Second):
-		}
-	}
+	return nil
 }
 
 func (c *Client) PlaygroundReady(ctx context.Context, playgroundID string) (bool, string, error) {
@@ -74,12 +50,10 @@ func (c *Client) PlaygroundReady(ctx context.Context, playgroundID string) (bool
 	if playgroundID == "" {
 		return false, "", errors.New("workspace creation did not return an id")
 	}
-	status, err := c.sdk.Playgrounds.StatusByIdentifier(ctx, playgroundID)
-	if err != nil {
-		return false, "", wrapSDKError(err)
+	if c.project != nil && c.project.Status == "stopped" {
+		return false, "stopped", nil
 	}
-	currentStatus := strings.ToLower(strings.TrimSpace(status.Status))
-	return currentStatus == "running" || currentStatus == "ready", currentStatus, nil
+	return true, "ready", nil
 }
 
 func (c *Client) WaitPreviewReachable(ctx context.Context, previewURL string) error {
@@ -87,9 +61,9 @@ func (c *Client) WaitPreviewReachable(ctx context.Context, previewURL string) er
 	if previewURL == "" {
 		return errors.New("workspace creation did not return a preview URL")
 	}
-	deadline := time.Now().Add(6 * time.Minute)
+	deadline := time.Now().Add(10 * time.Second)
 	var lastStatus string
-	for time.Now().Before(deadline) {
+	for {
 		ready, currentStatus, err := c.PreviewReachable(ctx, previewURL)
 		lastStatus = currentStatus
 		if err != nil {
@@ -98,13 +72,15 @@ func (c *Client) WaitPreviewReachable(ctx context.Context, previewURL string) er
 		if ready {
 			return nil
 		}
+		if time.Now().After(deadline) {
+			return &PreviewTimeoutError{Status: lastStatus}
+		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(3 * time.Second):
+		case <-time.After(250 * time.Millisecond):
 		}
 	}
-	return &PreviewTimeoutError{Status: lastStatus}
 }
 
 func (c *Client) PreviewReachable(ctx context.Context, previewURL string) (bool, string, error) {
@@ -130,7 +106,7 @@ func ProbePreviewURLResult(ctx context.Context, client *http.Client, previewURL 
 	}
 	req.Header.Set("Cache-Control", "no-cache")
 	req.Header.Set("User-Agent", "likeable-preview-probe/1.0")
-	resp, err := previewProbeClient(client, previewURL).Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return PreviewProbeResult{Status: err.Error()}, nil
 	}
@@ -152,42 +128,6 @@ func ProbePreviewURLResult(ctx context.Context, client *http.Client, previewURL 
 	result.Ready = true
 	result.Displayable = true
 	return result, nil
-}
-
-func previewProbeClient(client *http.Client, previewURL string) *http.Client {
-	if !localInsecurePreviewTLS(previewURL) {
-		return client
-	}
-	clone := *client
-	var transport *http.Transport
-	if client.Transport == nil {
-		transport = http.DefaultTransport.(*http.Transport).Clone()
-	} else if existing, ok := client.Transport.(*http.Transport); ok {
-		transport = existing.Clone()
-	} else {
-		return client
-	}
-	tlsConfig := transport.TLSClientConfig
-	if tlsConfig == nil {
-		tlsConfig = &tls.Config{MinVersion: tls.VersionTLS12}
-	} else {
-		tlsConfig = tlsConfig.Clone()
-		if tlsConfig.MinVersion == 0 {
-			tlsConfig.MinVersion = tls.VersionTLS12
-		}
-	}
-	tlsConfig.InsecureSkipVerify = true // #nosec G402
-	transport.TLSClientConfig = tlsConfig
-	clone.Transport = transport
-	return &clone
-}
-
-func localInsecurePreviewTLS(previewURL string) bool {
-	parsed, err := url.Parse(previewURL)
-	if err != nil || parsed.Scheme != "https" {
-		return false
-	}
-	return localPreviewHost(parsed.Hostname())
 }
 
 func previewStatusReady(status int) bool {
@@ -217,9 +157,6 @@ func frameBlockingHeader(headers http.Header) string {
 func previewMaintenancePage(status int, headers http.Header, body []byte) bool {
 	if status != http.StatusServiceUnavailable {
 		return false
-	}
-	if strings.EqualFold(strings.TrimSpace(headers.Get("X-Fibe-Maintenance")), "true") {
-		return true
 	}
 	html := strings.ToLower(string(body))
 	return strings.Contains(html, "<title>maintenance</title>") && strings.Contains(html, "maintenance is ongoing")

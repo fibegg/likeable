@@ -26,10 +26,14 @@ services:
         required: false
     environment:
       ADDR: ":8080"
-      DATABASE_PATH: "/data/likeable.db"
-      BASE_URL: "http://localhost:8080"
+      DATABASE_PATH: "${DATABASE_PATH:-/data/likeable.db}"
+      BASE_URL: "${LIKEABLE_PUBLIC_URL:-http://localhost:8080}"
+      ADMIN_EMAIL: "${ADMIN_EMAIL:-}"
       HOME: "/tmp"
       REDIS_URL: "redis://redis:6379/0"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      OPENAI_MODEL: "${OPENAI_MODEL:-gpt-5-mini}"
+      LIKEABLE_WORKSPACE_ROOT: "${LIKEABLE_WORKSPACE_ROOT:-/data/workspaces}"
     depends_on:
       redis:
         condition: service_healthy

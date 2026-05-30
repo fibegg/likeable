@@ -24,7 +24,7 @@ func TestMain(m *testing.M) {
 func fakeFibeCLI(t *testing.T) (string, string, string) {
 	t.Helper()
 	dir := t.TempDir()
-	path := filepath.Join(dir, "fibe")
+	path := filepath.Join(dir, "workspaceClient")
 	logPath := filepath.Join(dir, "commands.log")
 	stdinPath := filepath.Join(dir, "stdin.json")
 	script := `#!/bin/sh
@@ -40,7 +40,7 @@ case "$*" in
     echo '{"diagnostics":{"playground":{"id":123,"playspec_id":456,"status":"running"},"routes":[{"service":"app","type":"dynamic","visibility":"external","url":"http://lk-test.phoenix.test"}]}}'
     ;;
   *"playspecs get"*)
-    echo '{"id":456,"source_template":{"id":321,"name":"delete-all-abc12345"},"source_template_version_id":654,"services":[{"name":"app","prop_id":789,"repo_url":"http://gitea.test/owner/repo.git","source_repo_url":"https://github.com/fibegg/go-fibe-app"}]}'
+    echo '{"id":456,"source_template":{"id":321,"name":"delete-all-abc12345"},"source_template_version_id":654,"services":[{"name":"app","prop_id":789,"repo_url":"http://gitea.test/owner/repo.git","source_repo_url":"https://github.com/fibegg/go-workspaceClient-app"}]}'
     ;;
   *"templates versions list"*)
     echo '{"Data":[{"id":654,"source":{"prop_id":789,"prop_repository_url":"http://gitea.test/owner/repo.git"}}]}'
@@ -82,7 +82,7 @@ esac
 func fakeTransformedFibeCLI(t *testing.T) (string, string) {
 	t.Helper()
 	dir := t.TempDir()
-	path := filepath.Join(dir, "fibe")
+	path := filepath.Join(dir, "workspaceClient")
 	stdinPath := filepath.Join(dir, "stdin.json")
 	script := `#!/bin/sh
 case "$*" in
@@ -125,7 +125,7 @@ esac
 func fakeProjectStateFibeCLI(t *testing.T, status, previewURL string) string {
 	t.Helper()
 	dir := t.TempDir()
-	path := filepath.Join(dir, "fibe")
+	path := filepath.Join(dir, "workspaceClient")
 	script := fmt.Sprintf(`#!/bin/sh
 case "$*" in
   *"playgrounds get 321"*)
@@ -135,7 +135,7 @@ case "$*" in
     echo '{"diagnostics":{"playground":{"id":321,"playspec_id":654,"status":%q},"routes":[{"service":"app","type":"dynamic","visibility":"external","url":%q}]}}'
     ;;
   *"playspecs get 654"*)
-    echo '{"id":654,"services":[{"name":"app","prop_id":81,"repo_url":"http://gitea.test/owner/app.git","source_repo_url":"https://github.com/fibegg/go-fibe-app"}]}'
+    echo '{"id":654,"services":[{"name":"app","prop_id":81,"repo_url":"http://gitea.test/owner/app.git","source_repo_url":"https://github.com/fibegg/go-workspaceClient-app"}]}'
     ;;
   *)
     echo "unexpected command: $*" >&2
@@ -158,7 +158,7 @@ esac
 func fakeAlreadyStoppedFibeCLI(t *testing.T) (string, string) {
 	t.Helper()
 	dir := t.TempDir()
-	path := filepath.Join(dir, "fibe")
+	path := filepath.Join(dir, "workspaceClient")
 	logPath := filepath.Join(dir, "commands.log")
 	script := `#!/bin/sh
 printf '%s\n' "$*" >> "` + logPath + `"
@@ -184,7 +184,7 @@ esac
 func fakeMissingPlaygroundFibeCLI(t *testing.T) (string, string) {
 	t.Helper()
 	dir := t.TempDir()
-	path := filepath.Join(dir, "fibe")
+	path := filepath.Join(dir, "workspaceClient")
 	logPath := filepath.Join(dir, "commands.log")
 	script := `#!/bin/sh
 printf '%s\n' "$*" >> "` + logPath + `"
@@ -316,7 +316,7 @@ func (rt *fakeFibeTransport) roundTripDefault(req *http.Request, methodPath stri
 			"id":                         456,
 			"source_template":            map[string]any{"id": 321, "name": "delete-all-abc12345"},
 			"source_template_version_id": 654,
-			"services":                   []map[string]any{{"name": "app", "prop_id": 789, "repo_url": "http://gitea.test/owner/repo.git", "source_repo_url": "https://github.com/fibegg/go-fibe-app"}},
+			"services":                   []map[string]any{{"name": "app", "prop_id": 789, "repo_url": "http://gitea.test/owner/repo.git", "source_repo_url": "https://github.com/fibegg/go-workspaceClient-app"}},
 		})
 	case methodPath == "GET /api/import_templates/321/versions":
 		return fakeJSONResponse(req, http.StatusOK, map[string]any{
@@ -340,7 +340,7 @@ func (rt *fakeFibeTransport) roundTripDefault(req *http.Request, methodPath stri
 		case "conv-feed-rate-limit":
 			return fakeJSONResponse(req, http.StatusTooManyRequests, map[string]any{"error": map[string]any{"code": "INTERNAL_ERROR", "message": "unexpected status 429"}})
 		case "conv-feed-timeout":
-			return fakeJSONResponse(req, http.StatusInternalServerError, map[string]any{"error": map[string]any{"code": "UNKNOWN_ERROR", "message": `Get "https://next.fibe.live/api/agents/83/live_state": context deadline exceeded (Client.Timeout exceeded while awaiting headers)`}})
+			return fakeJSONResponse(req, http.StatusInternalServerError, map[string]any{"error": map[string]any{"code": "UNKNOWN_ERROR", "message": `Get "https://next.workspace.live/api/agents/83/live_state": context deadline exceeded (Client.Timeout exceeded while awaiting headers)`}})
 		case "conv-clean":
 			return fakeJSONResponse(req, http.StatusOK, map[string]any{"content": []map[string]any{
 				{"role": "assistant", "body": "hidden prose [[LIKEABLE_NOTIFICATION_START]]Checking the preview[[LIKEABLE_NOTIFICATION_END]] more prose [[LIKEABLE_NOTIFICATION_START]]Canvas updated[[LIKEABLE_NOTIFICATION_END]]"},
@@ -437,7 +437,7 @@ func (rt *fakeFibeTransport) roundTripProjectState(req *http.Request, methodPath
 			"routes":     []map[string]any{{"service": "app", "type": "dynamic", "visibility": "external", "url": rt.cfg.PreviewURL}},
 		}})
 	case "GET /api/playspecs/654":
-		return fakeJSONResponse(req, http.StatusOK, map[string]any{"id": 654, "services": []map[string]any{{"name": "app", "prop_id": 81, "repo_url": "http://gitea.test/owner/app.git", "source_repo_url": "https://github.com/fibegg/go-fibe-app"}}})
+		return fakeJSONResponse(req, http.StatusOK, map[string]any{"id": 654, "services": []map[string]any{{"name": "app", "prop_id": 81, "repo_url": "http://gitea.test/owner/app.git", "source_repo_url": "https://github.com/fibegg/go-workspaceClient-app"}}})
 	default:
 		return fakeJSONResponse(req, http.StatusNotFound, map[string]any{"error": map[string]any{"code": "RESOURCE_NOT_FOUND", "message": "unexpected fake Fibe request: " + methodPath}})
 	}

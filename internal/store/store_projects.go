@@ -162,8 +162,8 @@ func publicProjectErrorMessage(message string) string {
 	switch {
 	case raw == "":
 		return "The canvas could not start. Ask an admin to check workspace settings, then create a new project."
-	case strings.Contains(raw, "linked fibe playground is in an error state"):
-		return "The linked Fibe playground is in an error state. Check it in Fibe, then restart the project playground from the project menu."
+	case strings.Contains(raw, "linked workspace is in an error state"):
+		return "The linked workspace is in an error state. Restart the project playground from the project menu."
 	case strings.Contains(raw, "not configured"):
 		return "Workspace settings are incomplete. Ask an admin to review the configuration, then create a new project."
 	case strings.Contains(raw, "timed out") || strings.Contains(raw, "timeout") || strings.Contains(raw, "did not become ready"):

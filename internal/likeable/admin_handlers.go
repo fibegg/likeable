@@ -10,14 +10,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fibegg/likeable/internal/fibe"
+	"github.com/fibegg/likeable/internal/workspace"
 	"github.com/google/uuid"
 )
 
 const adminMaxHourGrant = 100
 
 var secretConfigKeys = map[string]bool{
-	"fibe_api_key":          true,
+	"openai_api_key":        true,
 	"stripe_secret_key":     true,
 	"stripe_webhook_secret": true,
 	"github_client_secret":  true,
@@ -198,12 +198,12 @@ type agentPoolRetirementResult struct {
 }
 
 func (s *Server) retireAgentPoolPair(ctx context.Context, agentID, serverID string) (agentPoolRetirementResult, error) {
-	result := agentPoolRetirementResult{AgentID: agentID, ServerID: serverID, Status: fibe.AssignmentStatusRetiring}
+	result := agentPoolRetirementResult{AgentID: agentID, ServerID: serverID, Status: workspace.AssignmentStatusRetiring}
 	cfg, err := s.store.ConfigMap(ctx)
 	if err != nil {
 		return result, err
 	}
-	pool, err := fibe.AssignmentPoolFromConfig(cfg)
+	pool, err := workspace.AssignmentPoolFromConfig(cfg)
 	if err != nil {
 		return result, err
 	}
@@ -217,8 +217,8 @@ func (s *Server) retireAgentPoolPair(ctx context.Context, agentID, serverID stri
 	if index < 0 {
 		return result, sql.ErrNoRows
 	}
-	pool[index].Status = fibe.AssignmentStatusRetiring
-	if err := s.store.UpsertConfig(ctx, map[string]string{"fibe_agent_server_pool": fibe.EncodeAssignmentPool(pool)}, secretConfigKeys); err != nil {
+	pool[index].Status = workspace.AssignmentStatusRetiring
+	if err := s.store.UpsertConfig(ctx, map[string]string{"workspace_agent_server_pool": workspace.EncodeAssignmentPool(pool)}, secretConfigKeys); err != nil {
 		return result, err
 	}
 	projects, err := s.store.ProjectsForAssignment(ctx, agentID, serverID)
@@ -252,11 +252,11 @@ func (s *Server) retireAgentPoolPair(ctx context.Context, agentID, serverID stri
 	if len(result.Errors) > 0 {
 		return result, nil
 	}
-	pool[index].Status = fibe.AssignmentStatusRetired
-	if err := s.store.UpsertConfig(ctx, map[string]string{"fibe_agent_server_pool": fibe.EncodeAssignmentPool(pool)}, secretConfigKeys); err != nil {
+	pool[index].Status = workspace.AssignmentStatusRetired
+	if err := s.store.UpsertConfig(ctx, map[string]string{"workspace_agent_server_pool": workspace.EncodeAssignmentPool(pool)}, secretConfigKeys); err != nil {
 		return result, err
 	}
-	result.Status = fibe.AssignmentStatusRetired
+	result.Status = workspace.AssignmentStatusRetired
 	return result, nil
 }
 
@@ -541,7 +541,7 @@ func (s *Server) handleAdminUserProjectAssignment(w http.ResponseWriter, r *http
 		writeError(w, http.StatusNotFound, "agent/server pair not found")
 		return
 	}
-	if status != fibe.AssignmentStatusActive {
+	if status != workspace.AssignmentStatusActive {
 		writeError(w, http.StatusBadRequest, "agent/server pair is not active")
 		return
 	}
@@ -576,14 +576,7 @@ func (s *Server) warmProjectAssignmentWarning(ctx context.Context, userEmail str
 	if project == nil || strings.TrimSpace(project.ConversationID) == "" {
 		return ""
 	}
-	cfg, err := s.store.ConfigMap(ctx)
-	if err != nil {
-		return "assignment saved, but the new agent could not be warmed: " + err.Error()
-	}
-	if strings.TrimSpace(cfg["fibe_base_url"]) == "" || strings.TrimSpace(cfg["fibe_api_key"]) == "" {
-		return ""
-	}
-	client, err := s.fibeClientForProject(ctx, project, userEmail)
+	client, err := s.workspaceClientForProject(ctx, project, userEmail)
 	if err != nil {
 		return "assignment saved, but the new agent could not be warmed: " + err.Error()
 	}
@@ -607,7 +600,7 @@ func (s *Server) adminAgentPoolOptions(ctx context.Context) ([]AgentPoolOption, 
 }
 
 func adminAgentPoolOptionsFromConfig(cfg map[string]string) ([]AgentPoolOption, error) {
-	pool, err := fibe.AssignmentPoolFromConfig(cfg)
+	pool, err := workspace.AssignmentPoolFromConfig(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -617,7 +610,7 @@ func adminAgentPoolOptionsFromConfig(cfg map[string]string) ([]AgentPoolOption, 
 			Label:    strings.TrimSpace(assignment.Label),
 			AgentID:  strings.TrimSpace(assignment.AgentID),
 			ServerID: strings.TrimSpace(assignment.MarqueeID),
-			Status:   fibe.AssignmentStatus(assignment),
+			Status:   workspace.AssignmentStatus(assignment),
 			Capacity: assignment.Capacity,
 		})
 	}
@@ -652,7 +645,7 @@ func assignmentStatusForPair(pool []AgentPoolOption, agentID, serverID string) s
 	if status, found := assignmentStatusForPairInPool(pool, agentID, serverID); found {
 		return status
 	}
-	return fibe.AssignmentStatusRetired
+	return workspace.AssignmentStatusRetired
 }
 
 func assignmentStatusForPairInPool(pool []AgentPoolOption, agentID, serverID string) (string, bool) {
@@ -691,13 +684,9 @@ func firstNonEmptyString(values ...string) string {
 
 func publicAdminConfig(cfg map[string]string) map[string]any {
 	out := map[string]any{}
-	for _, key := range []string{"fibe_base_url", "fibe_agent_server_pool", "fibe_template_version_id", "free_hours", "free_hour_window_hours", "prompt_improve_charge_minutes", "project_cap", "signup_mode", "signup_allowed_emails", "stripe_publishable_key", "stripe_price_id_1_hour", "stripe_price_id_10_hours", "stripe_price_id_100_hours", "stripe_project_quota_price_id", "github_client_id", "github_username", "google_client_id", "smtp_host", "smtp_port", "smtp_username", "smtp_from_email", "smtp_from_name", "smtp_tls_mode"} {
+	for _, key := range []string{"openai_model", "workspace_root", "workspace_agent_server_pool", "free_hours", "free_hour_window_hours", "prompt_improve_charge_minutes", "project_cap", "signup_mode", "signup_allowed_emails", "stripe_publishable_key", "stripe_price_id_1_hour", "stripe_price_id_10_hours", "stripe_price_id_100_hours", "stripe_project_quota_price_id", "github_client_id", "github_username", "google_client_id", "smtp_host", "smtp_port", "smtp_username", "smtp_from_email", "smtp_from_name", "smtp_tls_mode"} {
 		value := cfg[key]
 		set := strings.TrimSpace(cfg[key]) != ""
-		if key == "fibe_agent_server_pool" && strings.TrimSpace(value) == "" {
-			value = cfg["fibe_agent_marquee_pool"]
-			set = strings.TrimSpace(value) != ""
-		}
 		if strings.TrimSpace(value) == "" {
 			value = publicConfigDefault(key)
 		}
@@ -724,8 +713,10 @@ func publicConfigDefault(key string) string {
 		return "3"
 	case "signup_mode":
 		return "forbidden"
-	case "fibe_agent_server_pool":
+	case "workspace_agent_server_pool":
 		return "[]"
+	case "openai_model":
+		return "gpt-5-mini"
 	case "smtp_port":
 		return "587"
 	case "smtp_from_name":
@@ -743,18 +734,16 @@ func normalizeAdminConfigValues(values map[string]string) (map[string]string, er
 		switch key {
 		case "signup_allowed_emails":
 			out[key] = normalizeEmailListConfig(value)
-		case "fibe_agent_server_pool", "fibe_agent_marquee_pool":
-			pool, err := fibe.ParseAssignmentPool(value)
+		case "workspace_agent_server_pool":
+			pool, err := workspace.ParseAssignmentPool(value)
 			if err != nil {
 				return nil, err
 			}
 			if len(pool) == 0 {
-				out["fibe_agent_server_pool"] = ""
-				out["fibe_agent_marquee_pool"] = ""
+				out["workspace_agent_server_pool"] = ""
 			} else {
-				encoded := fibe.EncodeAssignmentPool(pool)
-				out["fibe_agent_server_pool"] = encoded
-				out["fibe_agent_marquee_pool"] = ""
+				encoded := workspace.EncodeAssignmentPool(pool)
+				out["workspace_agent_server_pool"] = encoded
 			}
 		case "smtp_tls_mode":
 			out[key] = normalizeSMTPTLSMode(value)

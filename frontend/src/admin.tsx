@@ -540,6 +540,9 @@ function adminConfigLabel(key: string, t: (key: TranslationKey) => string): stri
     github_client_secret: 'admin.config.github_client_secret',
     github_username: 'admin.config.github_username',
     github_token: 'admin.config.github_token',
+    openai_api_key: 'admin.config.openai_api_key',
+    openai_model: 'admin.config.openai_model',
+    workspace_root: 'admin.config.workspace_root',
     google_client_id: 'admin.config.google_client_id',
     google_client_secret: 'admin.config.google_client_secret',
     stripe_publishable_key: 'admin.config.stripe_publishable_key',
@@ -582,7 +585,7 @@ export function Admin() {
     setDraft({});
     setSignupMode(response.config.signup_mode?.value ?? 'forbidden');
     setAllowedEmails(response.config.signup_allowed_emails?.value ?? '');
-    setPoolRows(parsePoolRows(response.config.fibe_agent_server_pool?.value ?? '[]'));
+    setPoolRows(parsePoolRows(response.config.workspace_agent_server_pool?.value ?? '[]'));
     setPoolStats(response.agentPoolStats ?? []);
   };
 
@@ -641,7 +644,7 @@ export function Admin() {
           ...draft,
           signup_mode: signupMode,
           signup_allowed_emails: allowedEmails,
-          fibe_agent_server_pool: JSON.stringify(pool)
+          workspace_agent_server_pool: JSON.stringify(pool)
         })
       });
       await loadConfig();
@@ -760,10 +763,10 @@ export function Admin() {
 
         <section className="adminCard integrationCard">
           <div className="adminCardHeader">
-            <h3>{t('admin.fibe.title')}</h3>
-            <p>{t('admin.fibe.body')}</p>
+            <h3>{t('admin.workspace.title')}</h3>
+            <p>{t('admin.workspace.body')}</p>
           </div>
-          {renderConfigFields(['fibe_base_url', 'fibe_api_key'])}
+          {renderConfigFields(['openai_api_key', 'openai_model', 'workspace_root'])}
           <div className="adminCardHeader withAction">
             <div>
               <h3>{t('admin.pool.title')}</h3>

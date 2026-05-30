@@ -1,6 +1,6 @@
 const en = {
   'app.title': 'Likeable',
-  'app.description': 'Build apps in a playground. Iterate with Fibe from any device.',
+  'app.description': 'Build apps in a local workspace. Iterate with OpenAI from any device.',
   'app.loading': 'Loading',
   'page.about.title': 'About',
   'page.adminSettings.title': 'Admin settings',
@@ -88,7 +88,7 @@ const en = {
   'error.attachmentUnsupported': 'Likeable could not deliver this attachment to the workspace. Try PNG, JPG, GIF, PDF, ZIP, text, CSV, Markdown, JSON, Word, or Excel.',
   'error.agentRuntimeStarting': 'The build agent was offline. Likeable is starting it now; try again shortly.',
   'error.agentRuntimeUnavailable': 'The build agent is offline or still starting. Try again shortly.',
-  'error.agentRuntimeStartFailed': 'The build agent is offline and Likeable could not start it. Check the assigned Fibe agent chat in Fibe, then try again.',
+  'error.agentRuntimeStartFailed': 'The build agent is offline and Likeable could not start it. Check the workspace configuration, then try again.',
   'error.workspaceRateLimited': 'The workspace platform is rate limited. Try again shortly.',
   'error.workspaceMessageFailed': 'Likeable could not send the request to the workspace. Try again in a moment.',
   'builder.agent.transmitting': 'Sending request',
@@ -120,7 +120,7 @@ const en = {
   'help.close': 'Close help',
   'help.markdown': `# How Likeable works
 
-Describe the app you want in the composer. Fibe builds the first playground in a few minutes, then keeps refining it in chat.
+Describe the app you want in the composer. The OpenAI build agent creates the first playground in a few minutes, then keeps refining it in chat.
 
 ## Writing great prompts
 
@@ -129,7 +129,7 @@ Describe the app you want in the composer. Fibe builds the first playground in a
 - Mention the visual style (clean, dense, playful) and any references.
 - After the first version, ask for small, focused changes — one thing at a time.
 - Attach screenshots, mockups, or example UIs when the look matters.
-- If something breaks, describe what you saw — Fibe can usually trace it back.
+- If something breaks, describe what you saw so the build agent can trace it back.
 
 ## What you get
 
@@ -195,12 +195,12 @@ Last updated: May 25, 2026
 
 **Who we share it with**
 
-- Google for sign-in, Stripe for payments, GitHub when you connect export, hosting/infrastructure providers, email delivery providers, Fibe, and the AI providers needed to turn prompts and project context into code.
+- Google for sign-in, Stripe for payments, GitHub when you connect export, hosting/infrastructure providers, email delivery providers, and AI providers needed to turn prompts and project context into code.
 - We do not sell your personal data or use your playground content for third-party advertising.
 
 **AI processing**
 
-Prompts, attachments, project context, and relevant generated code may be sent to Fibe and AI providers so they can generate, debug, and improve the playground you requested. Do not submit data you are not allowed to share with these processors.
+Prompts, attachments, project context, and relevant generated code may be sent to AI providers so they can generate, debug, and improve the playground you requested. Do not submit data you are not allowed to share with these processors.
 
 **Security**
 
@@ -220,7 +220,7 @@ Likeable uses reasonable technical and organizational safeguards for account, pr
 - Contact support from Profile with questions, correction requests, deletion requests, or requests for a copy of your data.
 
 </details>`,
-  'builder.poweredBy': 'Powered by',
+  'builder.poweredBy': 'Standalone',
   'builder.dropFiles': 'Drop files to attach',
   'builder.attachFiles': 'Attach files',
   'builder.removeAttachment': 'Remove {name}',
@@ -237,7 +237,7 @@ Likeable uses reasonable technical and organizational safeguards for account, pr
   'builder.placeholder.error': 'Playground needs attention...',
   'builder.placeholder.single': 'Describe your idea...',
   'builder.placeholder.default': 'Describe what you want to build...',
-  'builder.status.agentWorking': 'Fibe working',
+  'builder.status.agentWorking': 'Agent working',
   'builder.status.maintenance': 'Maintenance',
   'builder.status.canvasLive': 'Playground live',
   'builder.status.canvasStarting': 'Playground starting',
@@ -273,9 +273,9 @@ Likeable uses reasonable technical and organizational safeguards for account, pr
   'builder.composerHint.archived': 'Archived playground',
   'builder.preview.startingTitle': 'Starting playground',
   'builder.preview.preparingTitle': 'Preparing playground',
-  'builder.preview.launchingBody': 'Fibe is preparing your playground.',
+  'builder.preview.launchingBody': 'Likeable is preparing your playground.',
   'builder.preview.preparingBody': 'Setting up a new playground.',
-  'builder.preview.agentWorkingBody': 'Fibe is applying the latest changes. The preview will reopen when the app responds.',
+  'builder.preview.agentWorkingBody': 'The build agent is applying the latest changes. The preview will reopen when the app responds.',
   'builder.preview.respondedBody': 'Playground is ready. Opening the preview.',
   'builder.preview.warmingBody': "The playground is warming up. It will open as soon as it's ready.",
   'builder.preview.launchFailedTitle': 'Playground launch failed',
@@ -390,7 +390,7 @@ Likeable uses reasonable technical and organizational safeguards for account, pr
   'notification.receiving': 'Receiving update',
   'notification.canvasUpdated': 'Playground updated',
   'empty.awaitingTitle': 'Awaiting your prompt',
-  'empty.awaitingBody': 'Your playground is ready. Describe what to build and Fibe will create it.',
+  'empty.awaitingBody': 'Your playground is ready. Describe what to build and the agent will create it.',
   'empty.noProjectTitle': 'No playgrounds yet',
   'empty.noProjectBody': 'Create a playground before sending a prompt.',
   'empty.loadingProjectsTitle': 'Loading playgrounds',
@@ -555,8 +555,8 @@ Likeable uses reasonable technical and organizational safeguards for account, pr
   'admin.signupMode.all': 'all',
   'admin.signupAllowedEmails.label': 'Allowed emails and domains',
   'admin.signupAllowedEmails.placeholder': 'pilot@gmail.com\nfounder@gmail.com\n@trusted.test',
-  'admin.fibe.title': 'Fibe integration',
-  'admin.fibe.body': 'Connection used to create playgrounds and talk to Fibe.',
+  'admin.workspace.title': 'Workspace engine',
+  'admin.workspace.body': 'Local droplet workspaces and the OpenAI key used by the build agent.',
   'admin.pool.title': 'Agent and server pool',
   'admin.pool.body': 'New playgrounds pick a pair from this pool. Existing playgrounds keep theirs.',
   'admin.pool.add': 'Add pair',
@@ -600,6 +600,9 @@ Likeable uses reasonable technical and organizational safeguards for account, pr
   'admin.config.github_client_secret': 'OAuth client secret',
   'admin.config.github_username': 'Fallback username',
   'admin.config.github_token': 'Fallback token',
+  'admin.config.openai_api_key': 'OpenAI API key',
+  'admin.config.openai_model': 'OpenAI model',
+  'admin.config.workspace_root': 'Workspace root',
   'admin.config.google.title': 'Google integration',
   'admin.config.google.body': 'App used for sign-in.',
   'admin.config.google_client_id': 'OAuth client ID',
@@ -624,7 +627,7 @@ Likeable uses reasonable technical and organizational safeguards for account, pr
 
 const uk: Record<keyof typeof en, string> = {
   'app.title': 'Likeable',
-  'app.description': 'Створення застосунків у майданчику. Доопрацювання з Fibe на будь-якому пристрої.',
+  'app.description': 'Створення застосунків у локальному workspace. Доопрацювання з OpenAI на будь-якому пристрої.',
   'app.loading': 'Завантаження',
   'page.about.title': 'Про застосунок',
   'page.adminSettings.title': 'Налаштування адміна',
@@ -712,11 +715,11 @@ const uk: Record<keyof typeof en, string> = {
   'error.attachmentUnsupported': 'Likeable не зміг передати цей файл у майданчик. Спробуйте PNG, JPG, GIF, PDF, ZIP, text, CSV, Markdown, JSON, Word або Excel.',
   'error.agentRuntimeStarting': 'Build agent був офлайн. Likeable запускає його зараз; повторіть спробу трохи пізніше.',
   'error.agentRuntimeUnavailable': 'Build agent офлайн або ще запускається. Спробуйте трохи пізніше.',
-  'error.agentRuntimeStartFailed': 'Build agent офлайн, і Likeable не зміг його запустити. Перевірте призначений Fibe agent chat у Fibe, потім повторіть спробу.',
+  'error.agentRuntimeStartFailed': 'Build agent офлайн, і Likeable не зміг його запустити. Перевірте конфігурацію workspace, потім повторіть спробу.',
   'error.workspaceRateLimited': 'Платформа майданчика тимчасово обмежила запити. Спробуйте трохи пізніше.',
   'error.workspaceMessageFailed': 'Likeable не зміг надіслати запит у майданчик. Спробуйте ще раз за мить.',
   'builder.agent.transmitting': 'Надсилання запиту',
-  'builder.agent.synthesizing': 'Fibe оновлює майданчик',
+  'builder.agent.synthesizing': 'Агент оновлює майданчик',
   'builder.agent.waiting': 'Очікування build agent',
   'builder.agent.noActivity': 'Активності build agent ще немає. Запит може бути в черзі; повторіть, якщо стан не зміниться.',
   'builder.mode.basic': 'Базовий',
@@ -744,7 +747,7 @@ const uk: Record<keyof typeof en, string> = {
   'help.close': 'Закрити допомогу',
   'help.markdown': `# Як працює Likeable
 
-Опис застосунку — у полі повідомлення. Fibe створює перший майданчик за кілька хвилин і далі доопрацьовує його в чаті.
+Опис застосунку — у полі повідомлення. OpenAI build agent створює перший майданчик за кілька хвилин і далі доопрацьовує його в чаті.
 
 ## Як писати хороші запити
 
@@ -753,7 +756,7 @@ const uk: Record<keyof typeof en, string> = {
 - Візуальний стиль (мінімалістичний, щільний, грайливий) і приклади-референси.
 - Після першої версії — невеликі, точкові зміни по одній за раз.
 - Знімки екрана, макети чи приклади UI допомагають, коли важливий вигляд.
-- Якщо щось зламалося — опис того, що сталося. Fibe зазвичай знаходить причину.
+- Якщо щось зламалося — опишіть, що сталося, щоб build agent знайшов причину.
 
 ## Результат
 
@@ -819,12 +822,12 @@ Likeable дає змогу створювати й запускати майда
 
 **Кому передаємо**
 
-- Google для входу, Stripe для платежів, GitHub під час підключення експорту, провайдерам хостингу й інфраструктури, провайдерам email-доставки, Fibe та AI-провайдерам, потрібним для перетворення запитів і контексту проєкту на код.
+- Google для входу, Stripe для платежів, GitHub під час підключення експорту, провайдерам хостингу й інфраструктури, провайдерам email-доставки та AI-провайдерам, потрібним для перетворення запитів і контексту проєкту на код.
 - Ми не продаємо персональні дані й не використовуємо контент майданчиків для сторонньої реклами.
 
 **AI-обробка**
 
-Запити, вкладення, контекст проєкту та релевантний згенерований код можуть передаватися Fibe та AI-провайдерам, щоб вони могли створювати, діагностувати й покращувати майданчик за вашим запитом. Не надсилайте дані, які вам не дозволено передавати цим обробникам.
+Запити, вкладення, контекст проєкту та релевантний згенерований код можуть передаватися AI-провайдерам, щоб вони могли створювати, діагностувати й покращувати майданчик за вашим запитом. Не надсилайте дані, які вам не дозволено передавати цим обробникам.
 
 **Безпека**
 
@@ -844,7 +847,7 @@ Likeable застосовує розумні технічні та органі�
 - Звернення в підтримку з Профілю щодо питань, виправлення, видалення або отримання копії даних.
 
 </details>`,
-  'builder.poweredBy': 'На платформі',
+  'builder.poweredBy': 'Standalone',
   'builder.dropFiles': 'Перетягніть файли сюди',
   'builder.attachFiles': 'Додати файли',
   'builder.removeAttachment': 'Прибрати {name}',
@@ -861,7 +864,7 @@ Likeable застосовує розумні технічні та органі�
   'builder.placeholder.error': 'Майданчик потребує уваги...',
   'builder.placeholder.single': 'Опишіть ідею...',
   'builder.placeholder.default': 'Опишіть, що створити...',
-  'builder.status.agentWorking': 'Fibe працює',
+  'builder.status.agentWorking': 'Агент працює',
   'builder.status.maintenance': 'Обслуговування',
   'builder.status.canvasLive': 'Майданчик активний',
   'builder.status.canvasStarting': 'Запуск майданчика',
@@ -897,9 +900,9 @@ Likeable застосовує розумні технічні та органі�
   'builder.composerHint.archived': 'Майданчик архівовано',
   'builder.preview.startingTitle': 'Запуск майданчика',
   'builder.preview.preparingTitle': 'Підготовка майданчика',
-  'builder.preview.launchingBody': 'Fibe готує майданчик.',
+  'builder.preview.launchingBody': 'Likeable готує майданчик.',
   'builder.preview.preparingBody': 'Підготовка нового майданчика.',
-  'builder.preview.agentWorkingBody': 'Fibe застосовує останні зміни. Превʼю відкриється, коли застосунок відповість.',
+  'builder.preview.agentWorkingBody': 'Build agent застосовує останні зміни. Превʼю відкриється, коли застосунок відповість.',
   'builder.preview.respondedBody': 'Майданчик готовий. Відкриття превʼю.',
   'builder.preview.warmingBody': 'Майданчик прогрівається. Відкриється автоматично, щойно буде готовий.',
   'builder.preview.launchFailedTitle': 'Не вдалося запустити майданчик',
@@ -1014,7 +1017,7 @@ Likeable застосовує розумні технічні та органі�
   'notification.receiving': 'Отримання оновлення',
   'notification.canvasUpdated': 'Майданчик оновлено',
   'empty.awaitingTitle': 'Очікування запиту',
-  'empty.awaitingBody': 'Майданчик готовий. Опишіть задум — Fibe його створить.',
+  'empty.awaitingBody': 'Майданчик готовий. Опишіть задум — агент його створить.',
   'empty.noProjectTitle': 'Майданчиків ще немає',
   'empty.noProjectBody': 'Створіть майданчик, перш ніж надсилати запит.',
   'empty.loadingProjectsTitle': 'Завантаження майданчиків',
@@ -1179,8 +1182,8 @@ Likeable застосовує розумні технічні та органі�
   'admin.signupMode.all': 'усі',
   'admin.signupAllowedEmails.label': 'Дозволені email і домени',
   'admin.signupAllowedEmails.placeholder': 'pilot@gmail.com\nfounder@gmail.com\n@trusted.test',
-  'admin.fibe.title': 'Інтеграція Fibe',
-  'admin.fibe.body': 'Підключення для створення майданчиків і звʼязку з Fibe.',
+  'admin.workspace.title': 'Workspace engine',
+  'admin.workspace.body': 'Локальні workspace на droplet і OpenAI ключ для build agent.',
   'admin.pool.title': 'Пул агентів і серверів',
   'admin.pool.body': 'Нові майданчики беруть пару з цього пулу. Існуючі залишаються зі своєю.',
   'admin.pool.add': 'Додати пару',
@@ -1224,6 +1227,9 @@ Likeable застосовує розумні технічні та органі�
   'admin.config.github_client_secret': 'OAuth client secret',
   'admin.config.github_username': 'Запасний username',
   'admin.config.github_token': 'Запасний token',
+  'admin.config.openai_api_key': 'OpenAI API key',
+  'admin.config.openai_model': 'OpenAI model',
+  'admin.config.workspace_root': 'Workspace root',
   'admin.config.google.title': 'Інтеграція Google',
   'admin.config.google.body': 'Застосунок для входу.',
   'admin.config.google_client_id': 'OAuth client ID',
