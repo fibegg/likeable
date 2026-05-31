@@ -22,7 +22,11 @@ run_as_root() {
 }
 
 compose() {
-  run_as_root docker compose -f "$APP_DIR/docker-compose.yml" --project-directory "$APP_DIR" "$@"
+  local compose_files=(-f "$APP_DIR/docker-compose.yml")
+  if [ -f "$APP_DIR/docker-compose.traefik.yml" ]; then
+    compose_files+=(-f "$APP_DIR/docker-compose.traefik.yml")
+  fi
+  run_as_root docker compose "${compose_files[@]}" --project-directory "$APP_DIR" "$@"
 }
 
 install_base_packages() {
@@ -116,10 +120,52 @@ write_env() {
   } > "$env_file"
 }
 
+write_traefik_override() {
+  local override_file="$APP_DIR/docker-compose.traefik.yml"
+  local host="${LIKEABLE_TRAEFIK_HOST:-}"
+  if [ -z "$host" ]; then
+    rm -f "$override_file"
+    return
+  fi
+
+  local network="${LIKEABLE_TRAEFIK_NETWORK:-marquee-traefik-32_default}"
+  local certresolver="${LIKEABLE_TRAEFIK_CERTRESOLVER:-letsencrypt}"
+  log "writing Traefik route for $host on network $network"
+  cat > "$override_file" <<YAML
+services:
+  likeable:
+    labels:
+      "traefik.enable": "true"
+      "traefik.docker.network": "$network"
+      "traefik.http.middlewares.likeable-standalone-redirect-to-https.redirectscheme.scheme": "https"
+      "traefik.http.routers.likeable-standalone-http.entrypoints": "web"
+      "traefik.http.routers.likeable-standalone-http.middlewares": "likeable-standalone-redirect-to-https"
+      "traefik.http.routers.likeable-standalone-http.rule": "Host(\`$host\`)"
+      "traefik.http.routers.likeable-standalone-http.service": "likeable-standalone"
+      "traefik.http.routers.likeable-standalone-secure.entrypoints": "websecure"
+      "traefik.http.routers.likeable-standalone-secure.rule": "Host(\`$host\`)"
+      "traefik.http.routers.likeable-standalone-secure.service": "likeable-standalone"
+      "traefik.http.routers.likeable-standalone-secure.tls": "true"
+      "traefik.http.routers.likeable-standalone-secure.tls.certresolver": "$certresolver"
+      "traefik.http.services.likeable-standalone.loadbalancer.healthcheck.path": "/healthz"
+      "traefik.http.services.likeable-standalone.loadbalancer.healthcheck.interval": "30s"
+      "traefik.http.services.likeable-standalone.loadbalancer.healthcheck.timeout": "5s"
+      "traefik.http.services.likeable-standalone.loadbalancer.server.port": "8080"
+    networks:
+      - default
+      - traefik_proxy
+
+networks:
+  traefik_proxy:
+    external: true
+    name: "$network"
+YAML
+}
+
 open_firewall() {
   if command -v ufw >/dev/null 2>&1 && run_as_root ufw status | grep -q '^Status: active'; then
-    log "allowing tcp/8080 in ufw for direct test access"
-    run_as_root ufw allow 8080/tcp >/dev/null
+    log "allowing tcp/$LIKEABLE_HTTP_PORT in ufw for direct test access"
+    run_as_root ufw allow "$LIKEABLE_HTTP_PORT/tcp" >/dev/null
   fi
 }
 
@@ -148,6 +194,7 @@ main() {
   install_docker
   checkout_source
   write_env
+  write_traefik_override
   open_firewall
   compose_up
   wait_for_health
