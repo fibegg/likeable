@@ -58,10 +58,7 @@ func (s *Server) createProjectRecord(ctx context.Context, user *User, title stri
 	if err != nil {
 		return nil, err
 	}
-	assignment, err := s.assignmentForNewProject(ctx, cfg, projectID)
-	if err != nil {
-		return nil, err
-	}
+	assignment := workspace.GlobalAssignment(cfg)
 	project := &Project{
 		ID:             projectID,
 		UserID:         user.ID,

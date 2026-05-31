@@ -32,7 +32,7 @@ const MAX_INLINE_IMAGE_ATTACHMENT_BYTES = 4 * 1024 * 1024;
 const BROWSER_IMAGE_CONVERSION_TARGET_BYTES = 3 * 1024 * 1024;
 const MAX_BROWSER_CONVERTED_IMAGE_DIMENSION = 2048;
 const MAX_BROWSER_SOURCE_IMAGE_PIXELS = 4_000_000;
-const FIBE_INLINE_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif']);
+const INLINE_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif']);
 const MATRIX_RAIN_COLUMNS = [
   ['10101010', '01010101', '11010110', '00101011', '10110100', '01011001', '11101010', '00110101', '10010110', '01101011'],
   ['01011010', '10100101', '01101001', '10010110', '01010111', '11010010', '00101101', '10110101', '01001011', '11100100'],
@@ -1612,7 +1612,7 @@ function shouldConvertBrowserImage(file: File, image: HTMLImageElement): boolean
   const contentType = file.type.toLowerCase().split(';')[0].trim();
   const width = image.naturalWidth || image.width || 0;
   const height = image.naturalHeight || image.height || 0;
-  return !FIBE_INLINE_IMAGE_TYPES.has(contentType)
+  return !INLINE_IMAGE_TYPES.has(contentType)
     || file.size > MAX_INLINE_IMAGE_ATTACHMENT_BYTES
     || width > MAX_BROWSER_CONVERTED_IMAGE_DIMENSION
     || height > MAX_BROWSER_CONVERTED_IMAGE_DIMENSION
