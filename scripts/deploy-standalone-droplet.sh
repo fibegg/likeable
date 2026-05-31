@@ -182,9 +182,10 @@ write_caddy_proxy_override() {
   fi
 
   log "writing Caddy proxy route for $site_hosts"
-  cat > "$caddyfile" <<CADDY
+  if [ -n "${LIKEABLE_CADDY_EMAIL:-}" ]; then
+    cat > "$caddyfile" <<CADDY
 {
-	email ${LIKEABLE_CADDY_EMAIL:-admin@example.com}
+	email ${LIKEABLE_CADDY_EMAIL}
 }
 
 $site_hosts {
@@ -192,6 +193,14 @@ $site_hosts {
 	reverse_proxy likeable:8080
 }
 CADDY
+  else
+    cat > "$caddyfile" <<CADDY
+$site_hosts {
+	encode zstd gzip
+	reverse_proxy likeable:8080
+}
+CADDY
+  fi
 
   cat > "$override_file" <<YAML
 services:
