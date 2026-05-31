@@ -26,6 +26,9 @@ compose() {
   if [ -f "$APP_DIR/docker-compose.traefik.yml" ]; then
     compose_files+=(-f "$APP_DIR/docker-compose.traefik.yml")
   fi
+  if [ -f "$APP_DIR/docker-compose.proxy.yml" ]; then
+    compose_files+=(-f "$APP_DIR/docker-compose.proxy.yml")
+  fi
   run_as_root docker compose "${compose_files[@]}" --project-directory "$APP_DIR" "$@"
 }
 
@@ -162,6 +165,64 @@ networks:
 YAML
 }
 
+write_caddy_proxy_override() {
+  local hosts="${LIKEABLE_CADDY_HOSTS:-}"
+  local override_file="$APP_DIR/docker-compose.proxy.yml"
+  local caddyfile="$APP_DIR/Caddyfile"
+  if [ -z "$hosts" ]; then
+    rm -f "$override_file" "$caddyfile"
+    return
+  fi
+
+  local site_hosts
+  site_hosts="$(printf '%s' "$hosts" | tr ',' ' ' | awk '{$1=$1; print}' | sed 's/ /, /g')"
+  if [ -z "$site_hosts" ]; then
+    rm -f "$override_file" "$caddyfile"
+    return
+  fi
+
+  log "writing Caddy proxy route for $site_hosts"
+  cat > "$caddyfile" <<CADDY
+{
+	email ${LIKEABLE_CADDY_EMAIL:-admin@example.com}
+}
+
+$site_hosts {
+	encode zstd gzip
+	reverse_proxy likeable:8080
+}
+CADDY
+
+  cat > "$override_file" <<YAML
+services:
+  caddy:
+    image: caddy:2.9-alpine
+    restart: unless-stopped
+    depends_on:
+      likeable:
+        condition: service_started
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:
+YAML
+}
+
+reset_data_if_requested() {
+  if [ "${LIKEABLE_RESET_DATA:-0}" != "1" ]; then
+    return
+  fi
+  log "resetting standalone containers and volumes"
+  compose --profile app down -v --remove-orphans || true
+}
+
 open_firewall() {
   if command -v ufw >/dev/null 2>&1 && run_as_root ufw status | grep -q '^Status: active'; then
     log "allowing tcp/$LIKEABLE_HTTP_PORT in ufw for direct test access"
@@ -195,7 +256,9 @@ main() {
   checkout_source
   write_env
   write_traefik_override
+  write_caddy_proxy_override
   open_firewall
+  reset_data_if_requested
   compose_up
   wait_for_health
 
