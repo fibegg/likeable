@@ -63,6 +63,19 @@ func TestProjectHasDeleteReadySnapshotRequiresDeletableResourceIds(t *testing.T)
 	}
 }
 
+func TestSameOriginPreviewEmbeddingAllowedAllowsStandaloneProxy(t *testing.T) {
+	err := &workspace.PreviewEmbeddingBlockedError{Header: "X-Frame-Options: SAMEORIGIN"}
+	if !sameOriginPreviewEmbeddingAllowed(err, "https://likeable.example.test/api/projects/1/preview/", "https://likeable.example.test") {
+		t.Fatal("same-origin preview proxy should be embeddable")
+	}
+	if sameOriginPreviewEmbeddingAllowed(err, "https://preview.example.test", "https://likeable.example.test") {
+		t.Fatal("cross-origin preview should still be treated as blocked")
+	}
+	if sameOriginPreviewEmbeddingAllowed(&workspace.PreviewEmbeddingBlockedError{Header: "X-Frame-Options: DENY"}, "https://likeable.example.test/api/projects/1/preview/", "https://likeable.example.test") {
+		t.Fatal("deny header should stay blocked")
+	}
+}
+
 func TestEnsureDefaultProjectSkipsRestrictedUser(t *testing.T) {
 	store, err := store.Open(filepath.Join(t.TempDir(), "likeable.db"))
 	if err != nil {

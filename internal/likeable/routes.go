@@ -98,6 +98,18 @@ func sameOriginRequest(r *http.Request, baseURL string) bool {
 	return strings.EqualFold(originURL.Scheme, base.Scheme) && strings.EqualFold(originURL.Host, base.Host)
 }
 
+func sameOriginURL(targetURL, baseURL string) bool {
+	target, err := url.Parse(strings.TrimSpace(targetURL))
+	if err != nil || target.Scheme == "" || target.Host == "" {
+		return false
+	}
+	base, err := url.Parse(strings.TrimSpace(baseURL))
+	if err != nil || base.Scheme == "" || base.Host == "" {
+		return false
+	}
+	return strings.EqualFold(target.Scheme, base.Scheme) && strings.EqualFold(target.Host, base.Host)
+}
+
 func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.URL.Path == "/api/me":

@@ -607,6 +607,16 @@ func (s *Server) promoteProjectFromReachablePreview(ctx context.Context, userID 
 	}
 	result, err := workspace.ProbePreviewURLResult(ctx, s.http, project.PreviewURL)
 	if err != nil {
+		if sameOriginPreviewEmbeddingAllowed(err, project.PreviewURL, s.config.BaseURL) {
+			if userID != "" && project.Status != "ready" {
+				if err := s.store.SaveProjectProvisioningSnapshot(ctx, project, "ready"); err != nil && !errors.Is(err, sql.ErrNoRows) {
+					return project, false, result.Status, false, err
+				}
+			}
+			project.Status = "ready"
+			project.ErrorMessage = ""
+			return project, true, result.Status, false, nil
+		}
 		return project, false, result.Status, result.Maintenance, err
 	}
 	if result.Maintenance {
@@ -628,6 +638,18 @@ func (s *Server) promoteProjectFromReachablePreview(ctx context.Context, userID 
 func previewEmbeddingBlocked(err error) bool {
 	var blocked *workspace.PreviewEmbeddingBlockedError
 	return errors.As(err, &blocked)
+}
+
+func sameOriginPreviewEmbeddingAllowed(err error, previewURL, baseURL string) bool {
+	var blocked *workspace.PreviewEmbeddingBlockedError
+	if !errors.As(err, &blocked) {
+		return false
+	}
+	header := strings.ToLower(strings.TrimSpace(blocked.Header))
+	if !strings.Contains(header, "x-frame-options: sameorigin") && !strings.Contains(header, "content-security-policy: frame-ancestors") {
+		return false
+	}
+	return sameOriginURL(previewURL, baseURL)
 }
 
 func mergeProjectGreenfieldResult(project *Project, result *workspace.GreenfieldResult) {
