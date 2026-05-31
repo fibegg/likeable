@@ -24,9 +24,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fibegg/likeable/internal/fibe"
 	projecttext "github.com/fibegg/likeable/internal/project"
 	"github.com/fibegg/likeable/internal/store"
+	"github.com/fibegg/likeable/internal/workspace"
 	"github.com/hibiken/asynq"
 )
 
@@ -1563,7 +1563,7 @@ func TestProjectMessageAllowsDrainingPoolPair(t *testing.T) {
 
 func TestProjectMessageIsStoredBeforeForwardingToAgent(t *testing.T) {
 	dir := t.TempDir()
-	cliPath := filepath.Join(dir, "fibe")
+	cliPath := filepath.Join(dir, "workspaceClient")
 	markerPath := filepath.Join(dir, "send.started")
 	releasePath := filepath.Join(dir, "send.release")
 	stdinPath := filepath.Join(dir, "stdin.json")
@@ -1678,7 +1678,7 @@ esac
 
 func TestProjectMessageAttachmentFailureIsHumanReadable(t *testing.T) {
 	dir := t.TempDir()
-	cliPath := filepath.Join(dir, "fibe")
+	cliPath := filepath.Join(dir, "workspaceClient")
 	script := `#!/bin/sh
 case "$*" in
   *"agents send-message"*)
@@ -1775,7 +1775,7 @@ esac
 
 func TestProjectMessageStartsOfflineAgentAndReturnsHumanReadableRetry(t *testing.T) {
 	dir := t.TempDir()
-	cliPath := filepath.Join(dir, "fibe")
+	cliPath := filepath.Join(dir, "workspaceClient")
 	logPath := filepath.Join(dir, "commands.log")
 	script := `#!/bin/sh
 printf '%s\n' "$*" >> "` + logPath + `"
@@ -1920,7 +1920,7 @@ func TestProjectFeedTriggersReadinessRecovery(t *testing.T) {
 
 func TestProjectFeedSkipsWorkspaceSnapshotBeforeProvisioning(t *testing.T) {
 	dir := t.TempDir()
-	cliPath := filepath.Join(dir, "fibe")
+	cliPath := filepath.Join(dir, "workspaceClient")
 	logPath := filepath.Join(dir, "commands.log")
 	script := `#!/bin/sh
 printf '%s\n' "$*" >> "` + logPath + `"
@@ -1976,7 +1976,7 @@ exit 64
 
 func TestProjectFeedReturnsPartialSnapshotForTransientLiveStateFailure(t *testing.T) {
 	dir := t.TempDir()
-	cliPath := filepath.Join(dir, "fibe")
+	cliPath := filepath.Join(dir, "workspaceClient")
 	script := `#!/bin/sh
 case "$*" in
   *"agents messages"*|*"agents activity"*)
@@ -2055,7 +2055,7 @@ esac
 
 func TestProjectFeedSanitizesAgentNotificationProtocol(t *testing.T) {
 	dir := t.TempDir()
-	cliPath := filepath.Join(dir, "fibe")
+	cliPath := filepath.Join(dir, "workspaceClient")
 	script := `#!/bin/sh
 case "$*" in
   *"agents messages"*)
@@ -2138,7 +2138,7 @@ esac
 
 func TestProjectFeedPreservesUserFacingAgentLiveErrors(t *testing.T) {
 	dir := t.TempDir()
-	cliPath := filepath.Join(dir, "fibe")
+	cliPath := filepath.Join(dir, "workspaceClient")
 	script := `#!/bin/sh
 case "$*" in
   *"agents messages"*)
@@ -2228,7 +2228,7 @@ func TestProjectNotificationRowsUseCamelCaseAgentTimestamps(t *testing.T) {
 			},
 		},
 		nil,
-		&fibe.ConversationLiveState{
+		&workspace.ConversationLiveState{
 			ConversationID: "conv",
 			IsProcessing:   true,
 			StreamText:     notification,
@@ -2253,7 +2253,7 @@ func TestProjectNotificationRowsUntimedDurableRowsDoNotCoverCurrentLiveTurn(t *t
 		[]Message{{Role: "user", Body: "add theme switcher", CreatedAt: userAt.Format(time.RFC3339Nano)}},
 		nil,
 		[]any{map[string]any{"id": "old-activity", "message": notification}},
-		&fibe.ConversationLiveState{
+		&workspace.ConversationLiveState{
 			ConversationID: "conv",
 			IsProcessing:   true,
 			StreamText:     notification,
@@ -2332,7 +2332,7 @@ func TestProjectFeedCachesWorkspaceSnapshot(t *testing.T) {
 
 func TestProjectFeedBacksOffAfterPlatformRateLimit(t *testing.T) {
 	dir := t.TempDir()
-	cliPath := filepath.Join(dir, "fibe")
+	cliPath := filepath.Join(dir, "workspaceClient")
 	logPath := filepath.Join(dir, "commands.log")
 	script := `#!/bin/sh
 printf '%s\n' "$*" >> "` + logPath + `"
@@ -2409,13 +2409,13 @@ esac
 
 func TestProjectFeedBacksOffAfterPlatformTimeout(t *testing.T) {
 	dir := t.TempDir()
-	cliPath := filepath.Join(dir, "fibe")
+	cliPath := filepath.Join(dir, "workspaceClient")
 	logPath := filepath.Join(dir, "commands.log")
 	script := `#!/bin/sh
 printf '%s\n' "$*" >> "` + logPath + `"
 case "$*" in
   *"agents messages"*)
-    printf '%s\n' '{"error":{"message":"Get \"https://next.fibe.live/api/agents/83/live_state\": context deadline exceeded (Client.Timeout exceeded while awaiting headers)","code":"UNKNOWN_ERROR","status":500}}' >&2
+    printf '%s\n' '{"error":{"message":"Get \"https://next.workspace.live/api/agents/83/live_state\": context deadline exceeded (Client.Timeout exceeded while awaiting headers)","code":"UNKNOWN_ERROR","status":500}}' >&2
     exit 1
     ;;
   *)
@@ -2486,7 +2486,7 @@ esac
 
 func TestProjectFeedActivityTimeoutDoesNotBackOffLiveUpdates(t *testing.T) {
 	dir := t.TempDir()
-	cliPath := filepath.Join(dir, "fibe")
+	cliPath := filepath.Join(dir, "workspaceClient")
 	logPath := filepath.Join(dir, "commands.log")
 	script := `#!/bin/sh
 printf '%s\n' "$*" >> "` + logPath + `"
@@ -2616,7 +2616,7 @@ func TestProjectNotificationTimingsPersistAcrossRefresh(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	firstLive := &fibe.ConversationLiveState{
+	firstLive := &workspace.ConversationLiveState{
 		ConversationID: project.ConversationID,
 		IsProcessing:   true,
 		StreamText:     likeableNotificationStart + "Inspecting the app" + likeableNotificationEnd,
@@ -2636,7 +2636,7 @@ func TestProjectNotificationTimingsPersistAcrossRefresh(t *testing.T) {
 		t.Fatalf("first elapsed after initial observation=%d, want 0", timings[firstID].ElapsedMs)
 	}
 
-	secondLive := &fibe.ConversationLiveState{
+	secondLive := &workspace.ConversationLiveState{
 		ConversationID: project.ConversationID,
 		IsProcessing:   true,
 		StreamText:     likeableNotificationStart + "Inspecting the app" + likeableNotificationEnd + likeableNotificationStart + "Updating files" + likeableNotificationEnd,
@@ -2654,7 +2654,7 @@ func TestProjectNotificationTimingsPersistAcrossRefresh(t *testing.T) {
 		t.Fatalf("second elapsed=%d, want 0 until another notification arrives", got)
 	}
 
-	finalLive := &fibe.ConversationLiveState{
+	finalLive := &workspace.ConversationLiveState{
 		ConversationID: project.ConversationID,
 		IsProcessing:   false,
 		StreamText: likeableNotificationStart + "Inspecting the app" + likeableNotificationEnd +
@@ -2746,7 +2746,7 @@ func TestProjectNotificationTimingsUseLiveStartWhenFirstObservedIdle(t *testing.
 	}
 
 	observedAt := userAt.Add(10 * time.Minute)
-	finalLive := &fibe.ConversationLiveState{
+	finalLive := &workspace.ConversationLiveState{
 		ConversationID: project.ConversationID,
 		IsProcessing:   false,
 		StreamText: likeableNotificationStart + "Inspecting the app" + likeableNotificationEnd +
@@ -2873,7 +2873,7 @@ func TestProjectNotificationTimingsCompleteFinishedLastRowWhileQueued(t *testing
 		t.Fatal(err)
 	}
 
-	firstLive := &fibe.ConversationLiveState{
+	firstLive := &workspace.ConversationLiveState{
 		ConversationID: project.ConversationID,
 		IsProcessing:   true,
 		StreamText:     likeableNotificationStart + "Inspecting the app" + likeableNotificationEnd,
@@ -2884,7 +2884,7 @@ func TestProjectNotificationTimingsCompleteFinishedLastRowWhileQueued(t *testing
 		t.Fatal(err)
 	}
 
-	finalLive := &fibe.ConversationLiveState{
+	finalLive := &workspace.ConversationLiveState{
 		ConversationID: project.ConversationID,
 		IsProcessing:   false,
 		StreamText: likeableNotificationStart + "Inspecting the app" + likeableNotificationEnd +
@@ -2945,7 +2945,7 @@ func TestObservedLiveWorkWithoutCanvasNotificationIsBilled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	activeLive := &fibe.ConversationLiveState{
+	activeLive := &workspace.ConversationLiveState{
 		ConversationID: project.ConversationID,
 		IsProcessing:   true,
 		StreamText:     "",
@@ -2955,7 +2955,7 @@ func TestObservedLiveWorkWithoutCanvasNotificationIsBilled(t *testing.T) {
 	if _, _, err := server.syncProjectNotificationTimingsAt(t.Context(), project, local, nil, nil, activeLive, userAt.Add(10*time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	idleLive := &fibe.ConversationLiveState{
+	idleLive := &workspace.ConversationLiveState{
 		ConversationID: project.ConversationID,
 		IsProcessing:   false,
 		StreamText:     "",
@@ -3453,7 +3453,7 @@ func TestProfileDeleteAllUsesStoredResourcesWithoutDebugHydration(t *testing.T) 
 	}
 	defer store.Close()
 	dir := t.TempDir()
-	cliPath := filepath.Join(dir, "fibe")
+	cliPath := filepath.Join(dir, "workspaceClient")
 	logPath := filepath.Join(dir, "commands.log")
 	script := `#!/bin/sh
 printf '%s\n' "$*" >> "` + logPath + `"
@@ -3638,7 +3638,7 @@ func TestProjectDeleteHydrationFailureLeavesDeletingProject(t *testing.T) {
 	}
 	defer store.Close()
 	dir := t.TempDir()
-	cliPath := filepath.Join(dir, "fibe")
+	cliPath := filepath.Join(dir, "workspaceClient")
 	script := `#!/bin/sh
 case "$*" in
   *"playgrounds debug"*)
@@ -4462,7 +4462,7 @@ func TestFallbackImprovedPromptKeepsCyrillicLanguage(t *testing.T) {
 func fakePromptImproveFibeCLI(t *testing.T) (string, string, string) {
 	t.Helper()
 	dir := t.TempDir()
-	path := filepath.Join(dir, "fibe")
+	path := filepath.Join(dir, "workspaceClient")
 	logPath := filepath.Join(dir, "commands.log")
 	stdinPath := filepath.Join(dir, "stdin.json")
 	script := `#!/bin/sh
@@ -4660,7 +4660,7 @@ func TestNormalizeAdminConfigValuesFormatsAllowlistAndPool(t *testing.T) {
 	if values["signup_allowed_emails"] != "pilot@gmail.com\n@trusted.test" {
 		t.Fatalf("allowlist=%q, want newline-normalized emails", values["signup_allowed_emails"])
 	}
-	pool, err := fibe.ParseAssignmentPool(values["fibe_agent_server_pool"])
+	pool, err := workspace.ParseAssignmentPool(values["fibe_agent_server_pool"])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -4730,11 +4730,11 @@ func TestAdminRetireAgentPoolArchivesProjectsAndMarksPairRetired(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pool, err := fibe.ParseAssignmentPool(cfg["fibe_agent_server_pool"])
+	pool, err := workspace.ParseAssignmentPool(cfg["fibe_agent_server_pool"])
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(pool) != 2 || pool[0].Status != fibe.AssignmentStatusRetired || pool[1].Status != fibe.AssignmentStatusActive {
+	if len(pool) != 2 || pool[0].Status != workspace.AssignmentStatusRetired || pool[1].Status != workspace.AssignmentStatusActive {
 		t.Fatalf("pool=%+v, want old retired and new active", pool)
 	}
 	updated, err := store.ProjectForUser(t.Context(), user.ID, project.ID)
@@ -4802,7 +4802,7 @@ func TestAdminUserResponsesExposeProjectAssignments(t *testing.T) {
 	if err := json.Unmarshal(listRec.Body.Bytes(), &listBody); err != nil {
 		t.Fatal(err)
 	}
-	if len(listBody.AgentPool) != 1 || listBody.AgentPool[0].AgentID != "agent-1" || listBody.AgentPool[0].Status != fibe.AssignmentStatusActive {
+	if len(listBody.AgentPool) != 1 || listBody.AgentPool[0].AgentID != "agent-1" || listBody.AgentPool[0].Status != workspace.AssignmentStatusActive {
 		t.Fatalf("agentPool=%+v, want configured active option", listBody.AgentPool)
 	}
 	var customer AdminUserSummary
@@ -4812,7 +4812,7 @@ func TestAdminUserResponsesExposeProjectAssignments(t *testing.T) {
 			break
 		}
 	}
-	if len(customer.AgentPairs) != 1 || customer.AgentPairs[0].AgentID != "agent-1" || customer.AgentPairs[0].ServerID != "server-1" || customer.AgentPairs[0].Status != fibe.AssignmentStatusActive || customer.AgentPairs[0].ProjectCount != 1 {
+	if len(customer.AgentPairs) != 1 || customer.AgentPairs[0].AgentID != "agent-1" || customer.AgentPairs[0].ServerID != "server-1" || customer.AgentPairs[0].Status != workspace.AssignmentStatusActive || customer.AgentPairs[0].ProjectCount != 1 {
 		t.Fatalf("agentPairs=%+v, want active project assignment summary", customer.AgentPairs)
 	}
 
@@ -4827,7 +4827,7 @@ func TestAdminUserResponsesExposeProjectAssignments(t *testing.T) {
 	if err := json.Unmarshal(detailRec.Body.Bytes(), &detail); err != nil {
 		t.Fatal(err)
 	}
-	if len(detail.Projects) != 1 || detail.Projects[0].Assignment.AgentID != "agent-1" || detail.Projects[0].Assignment.ServerID != "server-1" || detail.Projects[0].Assignment.Status != fibe.AssignmentStatusActive {
+	if len(detail.Projects) != 1 || detail.Projects[0].Assignment.AgentID != "agent-1" || detail.Projects[0].Assignment.ServerID != "server-1" || detail.Projects[0].Assignment.Status != workspace.AssignmentStatusActive {
 		t.Fatalf("project assignments=%+v, want active assignment exposed to admin", detail.Projects)
 	}
 	if strings.Contains(detailRec.Body.String(), `"agentId":"agent-1"`) && strings.Contains(detailRec.Body.String(), `"project":{"`) && strings.Contains(detailRec.Body.String(), `"AgentID"`) {
@@ -5073,7 +5073,7 @@ func TestAdminProjectAssignmentPatchValidatesTargetAndPreservesProjectState(t *t
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if len(body.Detail.Projects) != 1 || body.Detail.Projects[0].Assignment.AgentID != "new-agent" || body.Detail.Projects[0].Assignment.Status != fibe.AssignmentStatusActive {
+	if len(body.Detail.Projects) != 1 || body.Detail.Projects[0].Assignment.AgentID != "new-agent" || body.Detail.Projects[0].Assignment.Status != workspace.AssignmentStatusActive {
 		t.Fatalf("response detail=%+v, want updated active assignment", body.Detail.Projects)
 	}
 }
@@ -5390,7 +5390,7 @@ func TestFibeClientForProjectUsesStoredAssignment(t *testing.T) {
 	}, secretConfigKeys); err != nil {
 		t.Fatal(err)
 	}
-	client, err := server.fibeClientForProject(t.Context(), &Project{AgentID: "stored-agent", MarqueeID: "stored-marquee"}, "pilot@example.com")
+	client, err := server.workspaceClientForProject(t.Context(), &Project{AgentID: "stored-agent", MarqueeID: "stored-marquee"}, "pilot@example.com")
 	if err != nil {
 		t.Fatal(err)
 	}

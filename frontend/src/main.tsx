@@ -32,7 +32,7 @@ const MAX_INLINE_IMAGE_ATTACHMENT_BYTES = 4 * 1024 * 1024;
 const BROWSER_IMAGE_CONVERSION_TARGET_BYTES = 3 * 1024 * 1024;
 const MAX_BROWSER_CONVERTED_IMAGE_DIMENSION = 2048;
 const MAX_BROWSER_SOURCE_IMAGE_PIXELS = 4_000_000;
-const FIBE_INLINE_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif']);
+const INLINE_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif']);
 const MATRIX_RAIN_COLUMNS = [
   ['10101010', '01010101', '11010110', '00101011', '10110100', '01011001', '11101010', '00110101', '10010110', '01101011'],
   ['01011010', '10100101', '01101001', '10010110', '01010111', '11010010', '00101101', '10110101', '01001011', '11100100'],
@@ -408,7 +408,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const chatCollapsedForTutorial = viewMode === 'overlay' && showOnboardingWizard;
   const effectiveChatCollapsed = basicChatCollapsed || chatCollapsedForTutorial;
   const canvasStatusLabel = agentWorking ? t('builder.status.agentWorking') : previewMaintenance ? t('builder.status.maintenance') : activeProject?.status === 'ready' ? (previewReady ? t('builder.status.canvasLive') : t('builder.status.canvasStarting')) : isProjectStarting ? t('builder.status.canvasStarting') : projectArchived ? t('builder.status.canvasArchived') : activeProject?.status === 'stopped' ? t('builder.status.canvasStopped') : activeProject?.status === 'error' ? t('builder.status.canvasError') : t('builder.status.canvasIdle');
-  const idleStopCountdown = activeProject?.status === 'ready' && activeProject.playgroundIdleStopAt ? formatResetCountdown(activeProject.playgroundIdleStopAt, quotaNow, resetCountdownLabels(t)) : '';
+  const idleStopCountdown = activeProject?.status === 'ready' && activeProject.workspaceIdleStopAt ? formatResetCountdown(activeProject.workspaceIdleStopAt, quotaNow, resetCountdownLabels(t)) : '';
   const idleStopTooltip = idleStopCountdown ? t('builder.idleStop.tooltip', { time: idleStopCountdown }) : '';
   const promptHasText = Boolean(prompt.trim());
   const hasDraft = promptHasText || attachments.length > 0;
@@ -886,18 +886,18 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       setBusy(false);
     }
   };
-  const controlProjectPlayground = async (project: Project, action: 'start' | 'stop' | 'restart') => {
+  const controlProjectWorkspace = async (project: Project, action: 'start' | 'stop' | 'restart') => {
     if (!signedIn) return;
     setBusy(true);
     setControllingProjectID(project.id);
     try {
-      const res = await api<{ project: Project }>(`/api/projects/${project.id}/playground`, { method: 'POST', body: JSON.stringify({ action }) });
+      const res = await api<{ project: Project }>(`/api/projects/${project.id}/workspace`, { method: 'POST', body: JSON.stringify({ action }) });
       setPreviewStatus(null);
       setIframeLoaded(false);
       setProjects((current) => current.map((item) => item.id === project.id ? res.project : item));
       setFeed((current) => current?.project.id === project.id ? { ...current, project: res.project } : current);
     } catch (err) {
-      setDialog({ title: t('dialog.playgroundActionFailed.title'), body: err instanceof Error ? err.message : t('dialog.requestFailed.title'), tone: 'warning', confirmLabel: t('common.close') });
+      setDialog({ title: t('dialog.projectActionFailed.title'), body: err instanceof Error ? err.message : t('dialog.requestFailed.title'), tone: 'warning', confirmLabel: t('common.close') });
     } finally {
       setControllingProjectID('');
       setBusy(false);
@@ -1350,12 +1350,12 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
 
   const chat = (
     <section className={`chatPane ${draggingFiles ? 'dragActive' : ''} ${utilityScreenOpen ? 'screenOpen' : ''} ${agentActivityActive ? 'agentActive' : ''} ${prompt.trim() ? 'hasDraft' : ''}`} {...chatDragHandlers}>
-      <a className="poweredBy" href="https://fibe.gg" target="_blank" rel="noopener noreferrer">
-        {t('builder.poweredBy')} <span>fibe.gg</span>
-      </a>
+      <div className="poweredBy">
+        {t('builder.poweredBy')} <span>workspace</span>
+      </div>
       {projectTitleButton('chatProjectTitle', true, true)}
       {builderChrome}
-      {showProjects && <ProjectList projects={currentProjects} activeID={activeID} projectCap={projectCap} busy={busy} exportingID={exportingID} controllingID={controllingProjectID} onSelect={(id) => { setActiveID(id); setShowProjects(false); }} onNew={() => setConfirmNewProject(true)} onRename={renameProject} onDelete={setDeleteTarget} onExport={requestProjectExport} onControlPlayground={controlProjectPlayground} onClose={() => setShowProjects(false)} />}
+      {showProjects && <ProjectList projects={currentProjects} activeID={activeID} projectCap={projectCap} busy={busy} exportingID={exportingID} controllingID={controllingProjectID} onSelect={(id) => { setActiveID(id); setShowProjects(false); }} onNew={() => setConfirmNewProject(true)} onRename={renameProject} onDelete={setDeleteTarget} onExport={requestProjectExport} onControlWorkspace={controlProjectWorkspace} onClose={() => setShowProjects(false)} />}
       {showProfile && <ProfilePanel me={accountMe} onClose={closeProfilePanel} onOpenTutorial={openOnboardingTutorial} onRefreshAccount={refreshBuilder} />}
       {showHelp && <HelpPanel markdown={t('help.markdown')} onClose={() => setShowHelp(false)} />}
       {showServices && activeProject?.services && <ServicePanel services={activeProject.services} selectedName={selectedService?.name} busy={busy} onSelect={(service) => void selectService(service)} onClose={() => setShowServices(false)} />}
@@ -1612,7 +1612,7 @@ function shouldConvertBrowserImage(file: File, image: HTMLImageElement): boolean
   const contentType = file.type.toLowerCase().split(';')[0].trim();
   const width = image.naturalWidth || image.width || 0;
   const height = image.naturalHeight || image.height || 0;
-  return !FIBE_INLINE_IMAGE_TYPES.has(contentType)
+  return !INLINE_IMAGE_TYPES.has(contentType)
     || file.size > MAX_INLINE_IMAGE_ATTACHMENT_BYTES
     || width > MAX_BROWSER_CONVERTED_IMAGE_DIMENSION
     || height > MAX_BROWSER_CONVERTED_IMAGE_DIMENSION

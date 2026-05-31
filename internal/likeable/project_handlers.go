@@ -8,16 +8,17 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 
-	fibegateway "github.com/fibegg/likeable/internal/fibe"
 	projecttext "github.com/fibegg/likeable/internal/project"
+	workspace "github.com/fibegg/likeable/internal/workspace"
 )
 
 var (
-	errInvalidPlaygroundAction  = errors.New("invalid playground action")
-	errProjectPlaygroundMissing = errors.New("project has no playground")
+	errInvalidPlaygroundAction  = errors.New("invalid workspace action")
+	errProjectPlaygroundMissing = errors.New("project has no workspace")
 )
 
 func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
@@ -157,6 +158,12 @@ func (s *Server) handleProjectRoute(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	previewPath := "/api/projects/" + parts[0] + "/preview"
+	previewPrefix := previewPath + "/"
+	if r.URL.Path == previewPath || strings.HasPrefix(r.URL.Path, previewPrefix) {
+		s.handleProjectPreview(w, r, user, project, strings.TrimPrefix(r.URL.Path, previewPath))
+		return
+	}
 	switch parts[1] {
 	case "messages":
 		s.handleProjectMessages(w, r, user, project)
@@ -172,7 +179,7 @@ func (s *Server) handleProjectRoute(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeError(w, http.StatusNotFound, "not found")
-	case "playground":
+	case "workspace", "playground":
 		s.handleProjectPlaygroundAction(w, r, user, project)
 	case "attachments":
 		if len(parts) != 3 {
@@ -187,6 +194,40 @@ func (s *Server) handleProjectRoute(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeError(w, http.StatusNotFound, "not found")
 	}
+}
+
+func (s *Server) handleProjectPreview(w http.ResponseWriter, r *http.Request, user *User, project *Project, previewPath string) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if project.Status == "stopped" {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte("<!doctype html><title>Stopped</title><p>This workspace is paused.</p>"))
+		return
+	}
+	client, err := s.workspaceClientForProject(r.Context(), project, user.Email)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "workspace is not configured")
+		return
+	}
+	rel := strings.TrimLeft(strings.TrimSpace(previewPath), "/")
+	if rel == "" {
+		rel = "index.html"
+	}
+	clean := filepath.Clean(strings.ReplaceAll(rel, "\\", "/"))
+	if clean == "." || filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") || clean == ".git" || strings.HasPrefix(clean, ".git"+string(filepath.Separator)) || strings.HasPrefix(clean, ".likeable"+string(filepath.Separator)) || clean == ".likeable" {
+		writeError(w, http.StatusBadRequest, "invalid preview path")
+		return
+	}
+	root := filepath.Clean(client.WorkspaceDir(project.ID))
+	target := filepath.Clean(filepath.Join(root, clean))
+	if rel, err := filepath.Rel(root, target); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		writeError(w, http.StatusBadRequest, "invalid preview path")
+		return
+	}
+	http.ServeFile(w, r, target)
 }
 
 func (s *Server) handleProjectUpdate(w http.ResponseWriter, r *http.Request, user *User, project *Project) {
@@ -257,13 +298,13 @@ func (s *Server) handleProjectAgentInterrupt(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusConflict, developmentBlockedMessage(err))
 		return
 	}
-	fibe, err := s.fibeClientForProject(r.Context(), project, user.Email)
+	workspaceClient, err := s.workspaceClientForProject(r.Context(), project, user.Email)
 	if err != nil {
 		log.Printf("interrupt workspace client for project %s: %v", project.ID, err)
 		writeError(w, http.StatusServiceUnavailable, "workspace messaging is not configured")
 		return
 	}
-	if err := fibe.Interrupt(r.Context(), project.ConversationID); err != nil {
+	if err := workspaceClient.Interrupt(r.Context(), project.ConversationID); err != nil {
 		s.observePlatformError(err)
 		log.Printf("interrupt workspace message for project %s: %v", project.ID, err)
 		if isPlatformRateLimited(err) {
@@ -299,11 +340,11 @@ func (s *Server) handleProjectPlaygroundAction(w http.ResponseWriter, r *http.Re
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		log.Printf("project playground action %s for project %s: %v", body.Action, project.ID, err)
+		log.Printf("project workspace action %s for project %s: %v", body.Action, project.ID, err)
 		if isPlatformRateLimited(err) {
 			writeError(w, http.StatusServiceUnavailable, "workspace platform is rate limited; try again shortly")
 		} else {
-			writeError(w, http.StatusBadGateway, "could not update the playground")
+			writeError(w, http.StatusBadGateway, "could not update the workspace")
 		}
 		return
 	}
@@ -325,7 +366,7 @@ func (s *Server) controlProjectPlayground(ctx context.Context, user *User, proje
 	if playgroundID == "" {
 		return nil, errProjectPlaygroundMissing
 	}
-	fibeClient, err := s.fibeClientForProject(ctx, project, user.Email)
+	workspaceClient, err := s.workspaceClientForProject(ctx, project, user.Email)
 	if err != nil {
 		return nil, err
 	}
@@ -334,17 +375,17 @@ func (s *Server) controlProjectPlayground(ctx context.Context, user *User, proje
 	nextStatus := "launching"
 	switch action {
 	case "start":
-		err = fibeClient.StartPlayground(actionCtx, playgroundID)
+		err = workspaceClient.StartPlayground(actionCtx, playgroundID)
 	case "stop":
 		nextStatus = "stopped"
-		err = fibeClient.StopPlayground(actionCtx, playgroundID)
+		err = workspaceClient.StopPlayground(actionCtx, playgroundID)
 	case "restart":
-		err = fibeClient.RestartPlayground(actionCtx, playgroundID)
+		err = workspaceClient.RestartPlayground(actionCtx, playgroundID)
 	default:
 		return nil, errInvalidPlaygroundAction
 	}
 	if err != nil {
-		if action == "stop" && (fibegateway.IsPlaygroundAlreadyStoppedError(err) || fibegateway.IsPlaygroundMissingError(err)) {
+		if action == "stop" && (workspace.IsPlaygroundAlreadyStoppedError(err) || workspace.IsPlaygroundMissingError(err)) {
 			if updateErr := s.store.UpdateProjectStatus(ctx, project.ID, user.ID, "stopped"); updateErr != nil {
 				return nil, updateErr
 			}

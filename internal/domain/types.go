@@ -37,14 +37,18 @@ type Project struct {
 	ErrorMessage          string              `json:"errorMessage,omitempty"`
 	ProvisioningLockUntil string              `json:"-"`
 	CleanupLastError      string              `json:"-"`
-	PlaygroundLastUsedAt  string              `json:"playgroundLastUsedAt,omitempty"`
-	PlaygroundIdleStopAt  string              `json:"playgroundIdleStopAt,omitempty"`
+	PlaygroundLastUsedAt  string              `json:"-"`
+	PlaygroundIdleStopAt  string              `json:"-"`
+	WorkspaceLastUsedAt   string              `json:"workspaceLastUsedAt,omitempty"`
+	WorkspaceIdleStopAt   string              `json:"workspaceIdleStopAt,omitempty"`
 	CreatedAt             string              `json:"createdAt"`
 	UpdatedAt             string              `json:"updatedAt"`
 }
 
 func (p *Project) RefreshComputedFields() {
 	p.PlaygroundIdleStopAt = ""
+	p.WorkspaceLastUsedAt = p.PlaygroundLastUsedAt
+	p.WorkspaceIdleStopAt = ""
 	if p.Status != "ready" || strings.TrimSpace(p.PlaygroundLastUsedAt) == "" {
 		return
 	}
@@ -52,7 +56,9 @@ func (p *Project) RefreshComputedFields() {
 	if err != nil {
 		return
 	}
-	p.PlaygroundIdleStopAt = lastUsedAt.UTC().Add(PlaygroundIdleStopAfter).Format(time.RFC3339Nano)
+	idleStopAt := lastUsedAt.UTC().Add(PlaygroundIdleStopAfter).Format(time.RFC3339Nano)
+	p.PlaygroundIdleStopAt = idleStopAt
+	p.WorkspaceIdleStopAt = idleStopAt
 }
 
 type ProjectRepository struct {

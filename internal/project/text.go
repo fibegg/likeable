@@ -34,9 +34,9 @@ func CleanTitle(title string) string {
 
 func DefaultTitle(existing int) string {
 	if existing <= 0 {
-		return "New playground"
+		return "New project"
 	}
-	return fmt.Sprintf("New playground %d", existing+1)
+	return fmt.Sprintf("New project %d", existing+1)
 }
 
 func SourceName(title string) string {
@@ -126,9 +126,9 @@ func AgentPromptWithArtefactsAndAttachments(project *domain.Project, userText st
 Likeable project context:
 - title: %s
 - Likeable project_id: %s
-- Fibe conversation_id: %s
-- target Fibe playground_id: %s
-- target Fibe playground_name: %s
+- workspace conversation_id: %s
+- target workspace_id: %s
+- target workspace_name: %s
 - target private source repo: %s
 - target preview_url: %s
 - target app subdomain: %s
@@ -144,7 +144,7 @@ Likeable project context:
 
 [[LIKEABLE_AGENT_CONTRACT_START]]
 Operating contract:
-- Work in the existing target playground/repositories above. Do not create or switch to another playground unless the user explicitly asks for a new app or a reset.
+- Work in the existing target workspace/source files above. Do not create or switch to another project unless the user explicitly asks for a new app or a reset.
 - Preserve the current product/domain and working behavior unless the user explicitly asks to replace it.
 - For follow-up changes, make the smallest coherent change that satisfies the request, then verify the app still runs.
 - Build a real usable app surface, not a landing page, unless the user asks for a landing page.

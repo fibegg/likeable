@@ -8,9 +8,9 @@ export const LIKEABLE_NOTIFICATION_START = '[[LIKEABLE_NOTIFICATION_START]]';
 export const LIKEABLE_NOTIFICATION_END = '[[LIKEABLE_NOTIFICATION_END]]';
 export const ADMIN_CONFIG_SECTIONS = [
   {
-    titleKey: 'admin.fibe.title',
-    bodyKey: 'admin.fibe.body',
-    keys: ['fibe_base_url', 'fibe_api_key']
+    titleKey: 'admin.workspace.title',
+    bodyKey: 'admin.workspace.body',
+    keys: ['openai_api_key', 'openai_model', 'workspace_root']
   },
   {
     titleKey: 'admin.config.github.title',
@@ -30,6 +30,6 @@ export const ADMIN_CONFIG_SECTIONS = [
   {
     titleKey: 'admin.config.application.title',
     bodyKey: 'admin.config.application.body',
-    keys: ['fibe_template_version_id', 'free_hours', 'free_hour_window_hours', 'prompt_improve_charge_minutes', 'project_cap', 'agent_artefacts', 'smtp_host', 'smtp_port', 'smtp_username', 'smtp_password', 'smtp_from_email', 'smtp_from_name', 'smtp_tls_mode']
+    keys: ['free_hours', 'free_hour_window_hours', 'prompt_improve_charge_minutes', 'project_cap', 'agent_artefacts', 'smtp_host', 'smtp_port', 'smtp_username', 'smtp_password', 'smtp_from_email', 'smtp_from_name', 'smtp_tls_mode']
   }
 ];

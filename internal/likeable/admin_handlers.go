@@ -1,7 +1,6 @@
 package likeable
 
 import (
-	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -10,14 +9,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fibegg/likeable/internal/fibe"
 	"github.com/google/uuid"
 )
 
 const adminMaxHourGrant = 100
 
 var secretConfigKeys = map[string]bool{
-	"fibe_api_key":          true,
+	"openai_api_key":        true,
 	"stripe_secret_key":     true,
 	"stripe_webhook_secret": true,
 	"github_client_secret":  true,
@@ -35,17 +33,7 @@ func (s *Server) handleAdminConfig(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		stats, err := s.store.AgentPoolStats(r.Context())
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		pool, err := adminAgentPoolOptionsFromConfig(cfg)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"config": publicAdminConfig(cfg), "adminEmail": s.config.AdminEmail, "agentPoolStats": stats, "agentPool": pool})
+		writeJSON(w, http.StatusOK, map[string]any{"config": publicAdminConfig(cfg), "adminEmail": s.config.AdminEmail})
 	case http.MethodPut:
 		var body map[string]string
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -65,45 +53,6 @@ func (s *Server) handleAdminConfig(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
-}
-
-func (s *Server) handleAdminAgentPoolRetire(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
-	var body struct {
-		AgentID       string `json:"agent_id"`
-		AgentIDAlias  string `json:"agentId"`
-		ServerID      string `json:"server_id"`
-		ServerIDAlias string `json:"serverId"`
-		MarqueeID     string `json:"marquee_id"`
-		MarqueeAlias  string `json:"marqueeId"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid json")
-		return
-	}
-	agentID := firstNonEmptyString(body.AgentID, body.AgentIDAlias)
-	serverID := firstNonEmptyString(body.ServerID, body.ServerIDAlias, body.MarqueeID, body.MarqueeAlias)
-	if agentID == "" || serverID == "" {
-		writeError(w, http.StatusBadRequest, "agent_id and server_id are required")
-		return
-	}
-	result, err := s.retireAgentPoolPair(r.Context(), agentID, serverID)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			writeError(w, http.StatusNotFound, "agent/server pair not found")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if len(result.Errors) > 0 {
-		writeJSON(w, http.StatusBadGateway, map[string]any{"error": "archive failed: " + strings.Join(result.Errors, "; "), "result": result})
-		return
-	}
-	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) handleAdminRecovery(w http.ResponseWriter, r *http.Request) {
@@ -157,7 +106,7 @@ type adminRecoveryProject struct {
 	Title            string `json:"title"`
 	Status           string `json:"status"`
 	CleanupLastError string `json:"cleanupLastError,omitempty"`
-	PlaygroundID     string `json:"playgroundId,omitempty"`
+	PlaygroundID     string `json:"workspaceId,omitempty"`
 	PlayspecID       string `json:"playspecId,omitempty"`
 	PropID           string `json:"propId,omitempty"`
 	UpdatedAt        string `json:"updatedAt"`
@@ -186,78 +135,6 @@ func adminRecoveryProjectFromProject(project *Project) adminRecoveryProject {
 		PropID:           project.PropID,
 		UpdatedAt:        project.UpdatedAt,
 	}
-}
-
-type agentPoolRetirementResult struct {
-	AgentID       string   `json:"agentId"`
-	ServerID      string   `json:"serverId"`
-	Status        string   `json:"status"`
-	ProjectCount  int      `json:"projectCount"`
-	ArchivedCount int      `json:"archivedCount"`
-	Errors        []string `json:"errors,omitempty"`
-}
-
-func (s *Server) retireAgentPoolPair(ctx context.Context, agentID, serverID string) (agentPoolRetirementResult, error) {
-	result := agentPoolRetirementResult{AgentID: agentID, ServerID: serverID, Status: fibe.AssignmentStatusRetiring}
-	cfg, err := s.store.ConfigMap(ctx)
-	if err != nil {
-		return result, err
-	}
-	pool, err := fibe.AssignmentPoolFromConfig(cfg)
-	if err != nil {
-		return result, err
-	}
-	index := -1
-	for i := range pool {
-		if strings.TrimSpace(pool[i].AgentID) == agentID && strings.TrimSpace(pool[i].MarqueeID) == serverID {
-			index = i
-			break
-		}
-	}
-	if index < 0 {
-		return result, sql.ErrNoRows
-	}
-	pool[index].Status = fibe.AssignmentStatusRetiring
-	if err := s.store.UpsertConfig(ctx, map[string]string{"fibe_agent_server_pool": fibe.EncodeAssignmentPool(pool)}, secretConfigKeys); err != nil {
-		return result, err
-	}
-	projects, err := s.store.ProjectsForAssignment(ctx, agentID, serverID)
-	if err != nil {
-		return result, err
-	}
-	result.ProjectCount = len(projects)
-	for i := range projects {
-		project := projects[i]
-		user, err := s.store.UserByID(ctx, project.UserID)
-		if err != nil {
-			result.Errors = append(result.Errors, project.ID+": "+err.Error())
-			continue
-		}
-		if project.Status == "archived" {
-			if _, err := s.store.LatestProjectArchive(ctx, user.ID, project.ID); err == nil {
-				result.ArchivedCount++
-				continue
-			}
-		}
-		if _, err := s.archiveProjectSource(ctx, user, &project); err != nil {
-			result.Errors = append(result.Errors, project.ID+": "+err.Error())
-			continue
-		}
-		if err := s.markProjectArchived(ctx, user.ID, &project); err != nil {
-			result.Errors = append(result.Errors, project.ID+": "+err.Error())
-			continue
-		}
-		result.ArchivedCount++
-	}
-	if len(result.Errors) > 0 {
-		return result, nil
-	}
-	pool[index].Status = fibe.AssignmentStatusRetired
-	if err := s.store.UpsertConfig(ctx, map[string]string{"fibe_agent_server_pool": fibe.EncodeAssignmentPool(pool)}, secretConfigKeys); err != nil {
-		return result, err
-	}
-	result.Status = fibe.AssignmentStatusRetired
-	return result, nil
 }
 
 func (s *Server) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
@@ -289,8 +166,6 @@ func (s *Server) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 		s.handleAdminUserGrantHours(w, r, userID)
 	case len(parts) == 3 && parts[1] == "projects" && r.Method == http.MethodDelete:
 		s.handleAdminUserProjectDelete(w, r, userID, parts[2])
-	case len(parts) == 4 && parts[1] == "projects" && parts[3] == "assignment" && r.Method == http.MethodPatch:
-		s.handleAdminUserProjectAssignment(w, r, userID, parts[2])
 	default:
 		writeError(w, http.StatusNotFound, "not found")
 	}
@@ -315,20 +190,14 @@ func (s *Server) handleAdminUsersIndex(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	pool, err := s.adminAgentPoolOptions(r.Context())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
 	freeLimitMs := s.freeHourLimitMs(r.Context())
 	for i := range users {
 		users[i].FreeHourLimitMs = freeLimitMs
 		users[i].ProjectLimit = s.baseProjectCap(r.Context()) + users[i].PaidProjectSlots
-		decorateAdminUserAssignmentStatuses(&users[i], pool)
+		users[i].AgentPairs = nil
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"users":     users,
-		"agentPool": pool,
+		"users": users,
 		"pagination": map[string]any{
 			"page":    filters.Page,
 			"perPage": filters.PerPage,
@@ -349,13 +218,7 @@ func (s *Server) handleAdminUserShow(w http.ResponseWriter, r *http.Request, use
 		return
 	}
 	detail.Summary.ProjectLimit = s.baseProjectCap(r.Context()) + detail.Summary.PaidProjectSlots
-	pool, err := s.adminAgentPoolOptions(r.Context())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	decorateAdminDetailAssignmentStatuses(detail, pool)
-	detail.AgentPool = pool
+	clearAdminAssignments(detail)
 	writeJSON(w, http.StatusOK, detail)
 }
 
@@ -448,13 +311,7 @@ func (s *Server) handleAdminUserGrantHours(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	detail.Summary.ProjectLimit = s.baseProjectCap(r.Context()) + detail.Summary.PaidProjectSlots
-	pool, err := s.adminAgentPoolOptions(r.Context())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	decorateAdminDetailAssignmentStatuses(detail, pool)
-	detail.AgentPool = pool
+	clearAdminAssignments(detail)
 	writeJSON(w, http.StatusOK, map[string]any{"detail": detail, "granted": granted, "hours": body.Hours})
 }
 
@@ -498,172 +355,15 @@ func (s *Server) handleAdminUserProjectDelete(w http.ResponseWriter, r *http.Req
 	writeJSON(w, http.StatusAccepted, map[string]any{"project": project})
 }
 
-func (s *Server) handleAdminUserProjectAssignment(w http.ResponseWriter, r *http.Request, userID, projectID string) {
-	var body struct {
-		AgentID       string `json:"agent_id"`
-		AgentIDAlias  string `json:"agentId"`
-		ServerID      string `json:"server_id"`
-		ServerIDAlias string `json:"serverId"`
-		MarqueeID     string `json:"marquee_id"`
-		MarqueeAlias  string `json:"marqueeId"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid json")
-		return
-	}
-	agentID := firstNonEmptyString(body.AgentID, body.AgentIDAlias)
-	serverID := firstNonEmptyString(body.ServerID, body.ServerIDAlias, body.MarqueeID, body.MarqueeAlias)
-	if agentID == "" || serverID == "" {
-		writeError(w, http.StatusBadRequest, "agent_id and server_id are required")
-		return
-	}
-	target, err := s.store.UserByID(r.Context(), userID)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "user not found")
-		return
-	}
-	project, err := s.store.ProjectForUser(r.Context(), userID, projectID)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "project not found")
-		return
-	}
-	if project.Status == "deleting" || project.Status == "archived" {
-		writeError(w, http.StatusConflict, "project cannot be reassigned")
-		return
-	}
-	pool, err := s.adminAgentPoolOptions(r.Context())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	status, found := assignmentStatusForPairInPool(pool, agentID, serverID)
-	if !found {
-		writeError(w, http.StatusNotFound, "agent/server pair not found")
-		return
-	}
-	if status != fibe.AssignmentStatusActive {
-		writeError(w, http.StatusBadRequest, "agent/server pair is not active")
-		return
-	}
-	if err := s.store.UpdateProjectAssignment(r.Context(), projectID, userID, agentID, serverID); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			writeError(w, http.StatusNotFound, "project not found")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	s.invalidateProjectFeedCache(projectID)
-	updated, err := s.store.ProjectForUser(r.Context(), userID, projectID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	warning := s.warmProjectAssignmentWarning(r.Context(), target.Email, updated)
-	windowStart, windowEnd := s.freeHourWindow(time.Now(), r.Context())
-	detail, err := s.store.AdminUserDetail(r.Context(), userID, s.freeHourLimitMs(r.Context()), windowStart, windowEnd)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	detail.Summary.ProjectLimit = s.baseProjectCap(r.Context()) + detail.Summary.PaidProjectSlots
-	decorateAdminDetailAssignmentStatuses(detail, pool)
-	detail.AgentPool = pool
-	writeJSON(w, http.StatusOK, map[string]any{"detail": detail, "project": updated, "warning": warning})
-}
-
-func (s *Server) warmProjectAssignmentWarning(ctx context.Context, userEmail string, project *Project) string {
-	if project == nil || strings.TrimSpace(project.ConversationID) == "" {
-		return ""
-	}
-	cfg, err := s.store.ConfigMap(ctx)
-	if err != nil {
-		return "assignment saved, but the new agent could not be warmed: " + err.Error()
-	}
-	if strings.TrimSpace(cfg["fibe_base_url"]) == "" || strings.TrimSpace(cfg["fibe_api_key"]) == "" {
-		return ""
-	}
-	client, err := s.fibeClientForProject(ctx, project, userEmail)
-	if err != nil {
-		return "assignment saved, but the new agent could not be warmed: " + err.Error()
-	}
-	warmCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
-	defer cancel()
-	if err := client.StartAgentChat(warmCtx); err != nil {
-		return "assignment saved, but the new agent could not be warmed: " + err.Error()
-	}
-	if err := client.EnsureConversation(warmCtx, project.ConversationID, project.Title); err != nil {
-		return "assignment saved, but the project conversation could not be prepared on the new agent: " + err.Error()
-	}
-	return ""
-}
-
-func (s *Server) adminAgentPoolOptions(ctx context.Context) ([]AgentPoolOption, error) {
-	cfg, err := s.store.ConfigMap(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return adminAgentPoolOptionsFromConfig(cfg)
-}
-
-func adminAgentPoolOptionsFromConfig(cfg map[string]string) ([]AgentPoolOption, error) {
-	pool, err := fibe.AssignmentPoolFromConfig(cfg)
-	if err != nil {
-		return nil, err
-	}
-	options := make([]AgentPoolOption, 0, len(pool))
-	for _, assignment := range pool {
-		options = append(options, AgentPoolOption{
-			Label:    strings.TrimSpace(assignment.Label),
-			AgentID:  strings.TrimSpace(assignment.AgentID),
-			ServerID: strings.TrimSpace(assignment.MarqueeID),
-			Status:   fibe.AssignmentStatus(assignment),
-			Capacity: assignment.Capacity,
-		})
-	}
-	return options, nil
-}
-
-func decorateAdminDetailAssignmentStatuses(detail *AdminUserDetail, pool []AgentPoolOption) {
+func clearAdminAssignments(detail *AdminUserDetail) {
 	if detail == nil {
 		return
 	}
-	decorateAdminUserAssignmentStatuses(&detail.Summary, pool)
+	detail.Summary.AgentPairs = nil
+	detail.AgentPool = nil
 	for i := range detail.Projects {
-		detail.Projects[i].Assignment.Status = assignmentStatusForPair(pool, detail.Projects[i].Assignment.AgentID, detail.Projects[i].Assignment.ServerID)
+		detail.Projects[i].Assignment = AgentAssignmentSummary{}
 	}
-}
-
-func decorateAdminUserAssignmentStatuses(summary *AdminUserSummary, pool []AgentPoolOption) {
-	if summary == nil {
-		return
-	}
-	for i := range summary.AgentPairs {
-		summary.AgentPairs[i].Status = assignmentStatusForPair(pool, summary.AgentPairs[i].AgentID, summary.AgentPairs[i].ServerID)
-	}
-}
-
-func assignmentStatusForPair(pool []AgentPoolOption, agentID, serverID string) string {
-	agentID = strings.TrimSpace(agentID)
-	serverID = strings.TrimSpace(serverID)
-	if agentID == "" && serverID == "" {
-		return ""
-	}
-	if status, found := assignmentStatusForPairInPool(pool, agentID, serverID); found {
-		return status
-	}
-	return fibe.AssignmentStatusRetired
-}
-
-func assignmentStatusForPairInPool(pool []AgentPoolOption, agentID, serverID string) (string, bool) {
-	agentID = strings.TrimSpace(agentID)
-	serverID = strings.TrimSpace(serverID)
-	for _, option := range pool {
-		if strings.TrimSpace(option.AgentID) == agentID && strings.TrimSpace(option.ServerID) == serverID {
-			return strings.TrimSpace(option.Status), true
-		}
-	}
-	return "", false
 }
 
 func boundedQueryInt(raw string, fallback, min, max int) int {
@@ -691,13 +391,9 @@ func firstNonEmptyString(values ...string) string {
 
 func publicAdminConfig(cfg map[string]string) map[string]any {
 	out := map[string]any{}
-	for _, key := range []string{"fibe_base_url", "fibe_agent_server_pool", "fibe_template_version_id", "free_hours", "free_hour_window_hours", "prompt_improve_charge_minutes", "project_cap", "signup_mode", "signup_allowed_emails", "stripe_publishable_key", "stripe_price_id_1_hour", "stripe_price_id_10_hours", "stripe_price_id_100_hours", "stripe_project_quota_price_id", "github_client_id", "github_username", "google_client_id", "smtp_host", "smtp_port", "smtp_username", "smtp_from_email", "smtp_from_name", "smtp_tls_mode"} {
+	for _, key := range []string{"openai_model", "workspace_root", "free_hours", "free_hour_window_hours", "prompt_improve_charge_minutes", "project_cap", "signup_mode", "signup_allowed_emails", "stripe_publishable_key", "stripe_price_id_1_hour", "stripe_price_id_10_hours", "stripe_price_id_100_hours", "stripe_project_quota_price_id", "github_client_id", "github_username", "google_client_id", "smtp_host", "smtp_port", "smtp_username", "smtp_from_email", "smtp_from_name", "smtp_tls_mode"} {
 		value := cfg[key]
 		set := strings.TrimSpace(cfg[key]) != ""
-		if key == "fibe_agent_server_pool" && strings.TrimSpace(value) == "" {
-			value = cfg["fibe_agent_marquee_pool"]
-			set = strings.TrimSpace(value) != ""
-		}
 		if strings.TrimSpace(value) == "" {
 			value = publicConfigDefault(key)
 		}
@@ -724,8 +420,8 @@ func publicConfigDefault(key string) string {
 		return "3"
 	case "signup_mode":
 		return "forbidden"
-	case "fibe_agent_server_pool":
-		return "[]"
+	case "openai_model":
+		return "gpt-5-mini"
 	case "smtp_port":
 		return "587"
 	case "smtp_from_name":
@@ -743,19 +439,8 @@ func normalizeAdminConfigValues(values map[string]string) (map[string]string, er
 		switch key {
 		case "signup_allowed_emails":
 			out[key] = normalizeEmailListConfig(value)
-		case "fibe_agent_server_pool", "fibe_agent_marquee_pool":
-			pool, err := fibe.ParseAssignmentPool(value)
-			if err != nil {
-				return nil, err
-			}
-			if len(pool) == 0 {
-				out["fibe_agent_server_pool"] = ""
-				out["fibe_agent_marquee_pool"] = ""
-			} else {
-				encoded := fibe.EncodeAssignmentPool(pool)
-				out["fibe_agent_server_pool"] = encoded
-				out["fibe_agent_marquee_pool"] = ""
-			}
+		case "workspace_agent_server_pool":
+			continue
 		case "smtp_tls_mode":
 			out[key] = normalizeSMTPTLSMode(value)
 		case "free_hour_window_hours":

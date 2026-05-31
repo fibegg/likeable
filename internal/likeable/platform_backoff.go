@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	fibegateway "github.com/fibegg/likeable/internal/fibe"
+	workspace "github.com/fibegg/likeable/internal/workspace"
 )
 
 const platformBackoff = 60 * time.Second
@@ -54,7 +54,7 @@ func isPlatformRateLimited(err error) bool {
 	if err == nil {
 		return false
 	}
-	var platformErr *fibegateway.PlatformError
+	var platformErr *workspace.PlatformError
 	if errors.As(err, &platformErr) {
 		code := strings.ToUpper(strings.TrimSpace(platformErr.Code))
 		message := strings.ToLower(strings.TrimSpace(platformErr.Message + "\n" + platformErr.Stderr))
@@ -79,7 +79,7 @@ func isPlatformBackoffError(err error) bool {
 	if isPlatformRateLimited(err) || errors.Is(err, context.DeadlineExceeded) {
 		return true
 	}
-	var platformErr *fibegateway.PlatformError
+	var platformErr *workspace.PlatformError
 	if errors.As(err, &platformErr) {
 		code := strings.ToUpper(strings.TrimSpace(platformErr.Code))
 		message := strings.ToLower(strings.TrimSpace(platformErr.Message + "\n" + platformErr.Stderr))

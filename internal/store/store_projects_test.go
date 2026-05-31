@@ -362,9 +362,9 @@ func TestProjectIdleForPlaygroundStopSkipsMissingOrInvalidUsageTimestamp(t *test
 	}
 }
 
-func TestPublicProjectErrorMessageExplainsLinkedFibePlaygroundError(t *testing.T) {
-	got := publicProjectErrorMessage("The linked Fibe playground is in an error state.")
-	want := "The linked Fibe playground is in an error state. Check it in Fibe, then restart the project playground from the project menu."
+func TestPublicProjectErrorMessageExplainsLinkedWorkspaceError(t *testing.T) {
+	got := publicProjectErrorMessage("The linked workspace is in an error state.")
+	want := "The linked workspace is in an error state. Restart the project workspace from the project menu."
 	if got != want {
 		t.Fatalf("message=%q, want %q", got, want)
 	}

@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fibegg/likeable/internal/fibe"
 	"github.com/fibegg/likeable/internal/store"
+	"github.com/fibegg/likeable/internal/workspace"
 	"github.com/hibiken/asynq"
 )
 
@@ -24,7 +24,7 @@ func TestRetryProjectProvisionLaterRequiresProvisionedResources(t *testing.T) {
 		t.Fatal("conversation-only project should not stay launching after provisioning failure")
 	}
 
-	if !retryProjectProvisionLater(project, &fibe.PlatformError{Code: "INTERNAL_ERROR", Status: 422, Message: "unexpected status 422"}) {
+	if !retryProjectProvisionLater(project, &workspace.PlatformError{Code: "INTERNAL_ERROR", Status: 422, Message: "unexpected status 422"}) {
 		t.Fatal("transient platform failure before Greenfield should remain retryable")
 	}
 
@@ -40,12 +40,12 @@ func TestProjectHasFibeResourcesIgnoresSyntheticIdentifiers(t *testing.T) {
 		ConversationID: "conv-synthetic-only",
 		PlaygroundName: "project-synthetic-only",
 	}
-	if projectHasFibeResources(project) {
+	if projectHasWorkspaceResources(project) {
 		t.Fatal("synthetic project name and conversation id should not count as remote resources")
 	}
 
 	project.PlaygroundID = "123"
-	if !projectHasFibeResources(project) {
+	if !projectHasWorkspaceResources(project) {
 		t.Fatal("playground id should count as a remote resource")
 	}
 }
@@ -60,6 +60,19 @@ func TestProjectHasDeleteReadySnapshotRequiresDeletableResourceIds(t *testing.T)
 	project.PropID = "789"
 	if !projectHasDeleteReadySnapshot(project) {
 		t.Fatal("playground, playspec, and source ids should be enough for deletion")
+	}
+}
+
+func TestSameOriginPreviewEmbeddingAllowedAllowsStandaloneProxy(t *testing.T) {
+	err := &workspace.PreviewEmbeddingBlockedError{Header: "X-Frame-Options: SAMEORIGIN"}
+	if !sameOriginPreviewEmbeddingAllowed(err, "https://likeable.example.test/api/projects/1/preview/", "https://likeable.example.test") {
+		t.Fatal("same-origin preview proxy should be embeddable")
+	}
+	if sameOriginPreviewEmbeddingAllowed(err, "https://preview.example.test", "https://likeable.example.test") {
+		t.Fatal("cross-origin preview should still be treated as blocked")
+	}
+	if sameOriginPreviewEmbeddingAllowed(&workspace.PreviewEmbeddingBlockedError{Header: "X-Frame-Options: DENY"}, "https://likeable.example.test/api/projects/1/preview/", "https://likeable.example.test") {
+		t.Fatal("deny header should stay blocked")
 	}
 }
 
@@ -148,7 +161,7 @@ func TestRecordProjectProvisionFailureKeepsTransientPreGreenfieldFailureCreating
 	}
 	server := &Server{store: store}
 
-	server.recordProjectProvisionFailure(t.Context(), user.ID, project, &fibe.PlatformError{Code: "INTERNAL_ERROR", Status: 422, Message: "unexpected status 422"}, true)
+	server.recordProjectProvisionFailure(t.Context(), user.ID, project, &workspace.PlatformError{Code: "INTERNAL_ERROR", Status: 422, Message: "unexpected status 422"}, true)
 
 	stored, err := store.ProjectForUser(t.Context(), user.ID, project.ID)
 	if err != nil {

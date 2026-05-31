@@ -100,7 +100,7 @@ func (s *Server) handleProfileArchives(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, fullPath)
 }
 
-func projectHasFibeResources(project *Project) bool {
+func projectHasWorkspaceResources(project *Project) bool {
 	return strings.TrimSpace(project.PlaygroundID) != "" ||
 		strings.TrimSpace(project.PlayspecID) != "" ||
 		strings.TrimSpace(project.PropID) != "" ||

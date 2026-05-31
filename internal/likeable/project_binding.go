@@ -5,7 +5,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/fibegg/likeable/internal/fibe"
+	"github.com/fibegg/likeable/internal/workspace"
 )
 
 var (
@@ -25,9 +25,9 @@ func (s *Server) ensureProjectDevelopmentAllowed(ctx context.Context, user *User
 		return errProjectExportOnly
 	}
 	switch status {
-	case fibe.AssignmentStatusActive, fibe.AssignmentStatusDraining:
+	case workspace.AssignmentStatusActive, workspace.AssignmentStatusDraining:
 		return nil
-	case fibe.AssignmentStatusRetiring:
+	case workspace.AssignmentStatusRetiring:
 		return errProjectRetiring
 	default:
 		if user != nil {
@@ -64,10 +64,10 @@ func (s *Server) markProjectArchived(ctx context.Context, userID string, project
 
 func (s *Server) projectBindingStatus(ctx context.Context, project *Project) (string, error) {
 	if project == nil {
-		return fibe.AssignmentStatusActive, nil
+		return workspace.AssignmentStatusActive, nil
 	}
 	if project.Status == "archived" {
-		return fibe.AssignmentStatusRetired, nil
+		return workspace.AssignmentStatusRetired, nil
 	}
 	cfg, err := s.store.ConfigMap(ctx)
 	if err != nil {
@@ -75,29 +75,29 @@ func (s *Server) projectBindingStatus(ctx context.Context, project *Project) (st
 	}
 	agentID := strings.TrimSpace(project.AgentID)
 	marqueeID := strings.TrimSpace(project.MarqueeID)
-	global := fibe.GlobalAssignment(cfg)
-	pool, err := fibe.AssignmentPoolFromConfig(cfg)
+	global := workspace.GlobalAssignment(cfg)
+	pool, err := workspace.AssignmentPoolFromConfig(cfg)
 	if err != nil {
 		return "", err
 	}
 	if len(pool) == 0 {
-		return fibe.AssignmentStatusActive, nil
+		return workspace.AssignmentStatusActive, nil
 	}
 	if agentID == "" {
 		if global.AgentID != "" {
-			return fibe.AssignmentStatusActive, nil
+			return workspace.AssignmentStatusActive, nil
 		}
-		return fibe.AssignmentStatusRetired, nil
+		return workspace.AssignmentStatusRetired, nil
 	}
 	for _, assignment := range pool {
 		if strings.TrimSpace(assignment.AgentID) == agentID && strings.TrimSpace(assignment.MarqueeID) == marqueeID {
-			return fibe.AssignmentStatus(assignment), nil
+			return workspace.AssignmentStatus(assignment), nil
 		}
 	}
 	if global.AgentID != "" && agentID == global.AgentID && (global.MarqueeID == "" || marqueeID == global.MarqueeID) {
-		return fibe.AssignmentStatusActive, nil
+		return workspace.AssignmentStatusActive, nil
 	}
-	return fibe.AssignmentStatusRetired, nil
+	return workspace.AssignmentStatusRetired, nil
 }
 
 func developmentBlockedMessage(err error) string {

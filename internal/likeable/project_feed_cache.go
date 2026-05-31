@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	fibegateway "github.com/fibegg/likeable/internal/fibe"
+	workspace "github.com/fibegg/likeable/internal/workspace"
 )
 
 const (
@@ -35,7 +35,7 @@ type projectFeedSnapshot struct {
 	local         []Message
 	messages      []any
 	activity      []any
-	live          *fibegateway.ConversationLiveState
+	live          *workspace.ConversationLiveState
 	timings       map[string]ProjectNotificationTiming
 	warning       string
 	fullFetchedAt time.Time
@@ -122,7 +122,7 @@ func (s *Server) loadProjectFeedSnapshot(ctx context.Context, user *User, projec
 		entry.snapshot = base.clone()
 		return base.clone(), nil
 	}
-	fibeClient, err := s.fibeClientForProject(ctx, project, user.Email)
+	workspaceClient, err := s.workspaceClientForProject(ctx, project, user.Email)
 	if err != nil {
 		log.Printf("load project feed workspace client for project %s: %v", project.ID, err)
 		base.warning = projectFeedUnavailableWarning
@@ -134,9 +134,9 @@ func (s *Server) loadProjectFeedSnapshot(ctx context.Context, user *User, projec
 	needFull := base.fullFetchedAt.IsZero() || now.Sub(base.fullFetchedAt) >= fullTTL
 	needLive := needFull || base.liveFetchedAt.IsZero() || now.Sub(base.liveFetchedAt) >= liveTTL
 	if needFull {
-		s.refreshProjectFeedFull(ctx, fibeClient, project, base, now)
+		s.refreshProjectFeedFull(ctx, workspaceClient, project, base, now)
 	} else if needLive {
-		s.refreshProjectFeedLive(ctx, fibeClient, project, base, now)
+		s.refreshProjectFeedLive(ctx, workspaceClient, project, base, now)
 	}
 	if base.timings == nil {
 		base.timings = map[string]ProjectNotificationTiming{}
@@ -162,17 +162,17 @@ func (s *Server) baseProjectFeedSnapshot(ctx context.Context, project *Project, 
 		local:    local,
 		messages: []any{},
 		activity: []any{},
-		live:     &fibegateway.ConversationLiveState{ConversationID: project.ConversationID, IsProcessing: false, StreamText: "", QueuedTurns: 0},
+		live:     &workspace.ConversationLiveState{ConversationID: project.ConversationID, IsProcessing: false, StreamText: "", QueuedTurns: 0},
 		timings:  timings,
 	}
 }
 
-func (s *Server) refreshProjectFeedFull(ctx context.Context, fibeClient *fibegateway.Client, project *Project, snapshot *projectFeedSnapshot, fetchedAt time.Time) {
+func (s *Server) refreshProjectFeedFull(ctx context.Context, workspaceClient *workspace.Client, project *Project, snapshot *projectFeedSnapshot, fetchedAt time.Time) {
 	warnings := []string{}
-	messages, err := fibeClient.Messages(ctx, project.ConversationID)
+	messages, err := workspaceClient.Messages(ctx, project.ConversationID)
 	if err != nil {
 		s.observePlatformError(err)
-		if fibegateway.IsConversationMissingError(err) {
+		if workspace.IsConversationMissingError(err) {
 			messages = []any{}
 		} else {
 			log.Printf("load project feed messages for project %s: %v", project.ID, err)
@@ -191,9 +191,9 @@ func (s *Server) refreshProjectFeedFull(ctx context.Context, fibeClient *fibegat
 	}
 
 	if _, ok := s.platformBackoffRemaining(); !ok {
-		activity, activityErr := fibeClient.Activity(ctx, project.ConversationID)
+		activity, activityErr := workspaceClient.Activity(ctx, project.ConversationID)
 		if activityErr != nil {
-			if fibegateway.IsConversationMissingError(activityErr) {
+			if workspace.IsConversationMissingError(activityErr) {
 				activity = []any{}
 			} else {
 				log.Printf("load project feed activity for project %s: %v", project.ID, activityErr)
@@ -212,10 +212,10 @@ func (s *Server) refreshProjectFeedFull(ctx context.Context, fibeClient *fibegat
 	}
 
 	if _, ok := s.platformBackoffRemaining(); !ok {
-		live, liveErr := fibeClient.ConversationLiveState(ctx, project.ConversationID)
+		live, liveErr := workspaceClient.ConversationLiveState(ctx, project.ConversationID)
 		if liveErr != nil {
 			s.observePlatformError(liveErr)
-			if fibegateway.IsConversationMissingError(liveErr) {
+			if workspace.IsConversationMissingError(liveErr) {
 				live = idleConversationLiveState(project.ConversationID)
 			} else {
 				log.Printf("load project feed live state for project %s: %v", project.ID, liveErr)
@@ -250,11 +250,11 @@ func (s *Server) refreshProjectFeedFull(ctx context.Context, fibeClient *fibegat
 	s.syncProjectFeedSnapshotTimings(ctx, snapshot)
 }
 
-func (s *Server) refreshProjectFeedLive(ctx context.Context, fibeClient *fibegateway.Client, project *Project, snapshot *projectFeedSnapshot, fetchedAt time.Time) {
-	live, err := fibeClient.ConversationLiveState(ctx, project.ConversationID)
+func (s *Server) refreshProjectFeedLive(ctx context.Context, workspaceClient *workspace.Client, project *Project, snapshot *projectFeedSnapshot, fetchedAt time.Time) {
+	live, err := workspaceClient.ConversationLiveState(ctx, project.ConversationID)
 	if err != nil {
 		s.observePlatformError(err)
-		if fibegateway.IsConversationMissingError(err) {
+		if workspace.IsConversationMissingError(err) {
 			live = idleConversationLiveState(project.ConversationID)
 		} else {
 			log.Printf("load project feed live state for project %s: %v", project.ID, err)
@@ -290,14 +290,14 @@ func (s *Server) syncProjectFeedSnapshotTimings(ctx context.Context, snapshot *p
 	snapshot.shouldMonitor = shouldMonitor
 }
 
-func projectFeedTTLs(live *fibegateway.ConversationLiveState) (time.Duration, time.Duration) {
+func projectFeedTTLs(live *workspace.ConversationLiveState) (time.Duration, time.Duration) {
 	if projectFeedLiveActive(live) {
 		return projectFeedFullActiveTTL, projectFeedLiveActiveTTL
 	}
 	return projectFeedFullIdleTTL, projectFeedLiveIdleTTL
 }
 
-func projectFeedLiveActive(live *fibegateway.ConversationLiveState) bool {
+func projectFeedLiveActive(live *workspace.ConversationLiveState) bool {
 	if live == nil {
 		return false
 	}
@@ -320,8 +320,8 @@ func warningForProjectFeedError(err error, fallback string) string {
 	return fallback
 }
 
-func idleConversationLiveState(conversationID string) *fibegateway.ConversationLiveState {
-	return &fibegateway.ConversationLiveState{ConversationID: conversationID, IsProcessing: false, StreamText: "", QueuedTurns: 0}
+func idleConversationLiveState(conversationID string) *workspace.ConversationLiveState {
+	return &workspace.ConversationLiveState{ConversationID: conversationID, IsProcessing: false, StreamText: "", QueuedTurns: 0}
 }
 
 func joinWarnings(warnings []string) string {
@@ -399,7 +399,7 @@ func (snapshot *projectFeedSnapshot) clone() *projectFeedSnapshot {
 	return &next
 }
 
-func cloneConversationLiveState(live *fibegateway.ConversationLiveState) *fibegateway.ConversationLiveState {
+func cloneConversationLiveState(live *workspace.ConversationLiveState) *workspace.ConversationLiveState {
 	if live == nil {
 		return nil
 	}

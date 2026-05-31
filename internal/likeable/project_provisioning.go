@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fibegg/likeable/internal/fibe"
 	projecttext "github.com/fibegg/likeable/internal/project"
+	"github.com/fibegg/likeable/internal/workspace"
 	"github.com/google/uuid"
 	"github.com/hibiken/asynq"
 )
@@ -38,7 +38,7 @@ func (s *Server) ensureDefaultProject(ctx context.Context, user *User) {
 	if len(projects) > 0 || s.projectCapForUser(ctx, user) <= 0 {
 		return
 	}
-	project, err := s.createProjectRecord(ctx, user, "New playground")
+	project, err := s.createProjectRecord(ctx, user, "New project")
 	if err != nil {
 		log.Printf("create starter project: %v", err)
 		return
@@ -58,10 +58,7 @@ func (s *Server) createProjectRecord(ctx context.Context, user *User, title stri
 	if err != nil {
 		return nil, err
 	}
-	assignment, err := s.assignmentForNewProject(ctx, cfg, projectID)
-	if err != nil {
-		return nil, err
-	}
+	assignment := workspace.GlobalAssignment(cfg)
 	project := &Project{
 		ID:             projectID,
 		UserID:         user.ID,
@@ -78,28 +75,28 @@ func (s *Server) createProjectRecord(ctx context.Context, user *User, title stri
 	return project, nil
 }
 
-func (s *Server) assignmentForNewProject(ctx context.Context, cfg map[string]string, projectID string) (fibe.Assignment, error) {
-	pool, err := fibe.AssignmentPoolFromConfig(cfg)
+func (s *Server) assignmentForNewProject(ctx context.Context, cfg map[string]string, projectID string) (workspace.Assignment, error) {
+	pool, err := workspace.AssignmentPoolFromConfig(cfg)
 	if err != nil {
-		return fibe.Assignment{}, err
+		return workspace.Assignment{}, err
 	}
-	active := make([]fibe.Assignment, 0, len(pool))
+	active := make([]workspace.Assignment, 0, len(pool))
 	for _, assignment := range pool {
-		if fibe.AssignmentStatus(assignment) == fibe.AssignmentStatusActive {
+		if workspace.AssignmentStatus(assignment) == workspace.AssignmentStatusActive {
 			active = append(active, assignment)
 		}
 	}
 	if len(active) == 0 {
-		return fibe.AssignmentForNewProject(cfg, projectID)
+		return workspace.AssignmentForNewProject(cfg, projectID)
 	}
 	counts, err := s.activeAssignmentCounts(ctx)
 	if err != nil {
-		return fibe.Assignment{}, err
+		return workspace.Assignment{}, err
 	}
 	if assignment, ok := selectLaunchAssignment(projectID, active, counts); ok {
 		return assignment, nil
 	}
-	return fibe.Assignment{}, errAgentPoolAtCapacity
+	return workspace.Assignment{}, errAgentPoolAtCapacity
 }
 
 func (s *Server) activeAssignmentCounts(ctx context.Context) (map[string]int, error) {
@@ -114,8 +111,8 @@ func (s *Server) activeAssignmentCounts(ctx context.Context) (map[string]int, er
 	return out, nil
 }
 
-func selectLaunchAssignment(seed string, pool []fibe.Assignment, activeCounts map[string]int) (fibe.Assignment, bool) {
-	var selected fibe.Assignment
+func selectLaunchAssignment(seed string, pool []workspace.Assignment, activeCounts map[string]int) (workspace.Assignment, bool) {
+	var selected workspace.Assignment
 	var selectedLoad int
 	var selectedRatio float64
 	var selectedScore uint64
@@ -146,7 +143,7 @@ func selectLaunchAssignment(seed string, pool []fibe.Assignment, activeCounts ma
 	return selected, selected.AgentID != ""
 }
 
-func assignmentLoadRatio(assignment fibe.Assignment, load int) float64 {
+func assignmentLoadRatio(assignment workspace.Assignment, load int) float64 {
 	if assignment.Capacity > 0 {
 		return float64(load) / float64(assignment.Capacity)
 	}
@@ -208,12 +205,12 @@ func (s *Server) provisionProject(ctx context.Context, userID, userEmail string,
 		return nil
 	}
 	ensureProjectPlaygroundName(project)
-	fibeClient, err := s.fibeClientForProject(ctx, project, userEmail)
+	workspaceClient, err := s.workspaceClientForProject(ctx, project, userEmail)
 	if err != nil {
 		return err
 	}
 	if strings.TrimSpace(project.PlaygroundID) == "" {
-		result, err := fibeClient.CreateGreenfield(ctx, project)
+		result, err := workspaceClient.CreateGreenfield(ctx, project)
 		if err != nil {
 			return err
 		}
@@ -229,7 +226,7 @@ func (s *Server) provisionProject(ctx context.Context, userID, userEmail string,
 		project.Status = "launching"
 		if err := s.store.SaveProjectProvisioningSnapshot(ctx, project, project.Status); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
-				_ = fibeClient.DeleteProjectResources(ctx, project)
+				_ = workspaceClient.DeleteProjectResources(ctx, project)
 			}
 			return err
 		}
@@ -239,35 +236,35 @@ func (s *Server) provisionProject(ctx context.Context, userID, userEmail string,
 			return err
 		}
 	}
-	if err := s.startProjectAgentChat(ctx, project, fibeClient, "project provisioning"); err != nil {
+	if err := s.startProjectAgentChat(ctx, project, workspaceClient, "project provisioning"); err != nil {
 		log.Printf("start workspace agent chat during project provisioning %s: %v", project.ID, err)
 	}
-	if err := fibeClient.WaitPlaygroundReady(ctx, project.PlaygroundID); err != nil {
+	if err := workspaceClient.WaitPlaygroundReady(ctx, project.PlaygroundID); err != nil {
 		return err
 	}
 	if project.PreviewURL == "" || len(project.Repositories) == 0 || len(project.Services) == 0 {
-		if recovered, err := fibeClient.GreenfieldByPlaygroundID(ctx, project.PlaygroundID); err == nil {
+		if recovered, err := workspaceClient.GreenfieldByPlaygroundID(ctx, project.PlaygroundID); err == nil {
 			mergeProjectGreenfieldResult(project, recovered)
 			if err := s.store.SaveProjectProvisioningSnapshot(ctx, project, "launching"); err != nil {
 				if errors.Is(err, sql.ErrNoRows) {
-					_ = fibeClient.DeleteProjectResources(ctx, project)
+					_ = workspaceClient.DeleteProjectResources(ctx, project)
 				}
 				return err
 			}
 		}
 	}
-	if err := fibeClient.WaitPreviewReachable(ctx, project.PreviewURL); err != nil {
+	if err := workspaceClient.WaitPreviewReachable(ctx, project.PreviewURL); err != nil {
 		return err
 	}
 	project.Status = "ready"
 	if err := s.store.SaveProjectProvisioningSnapshot(ctx, project, project.Status); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			_ = fibeClient.DeleteProjectResources(ctx, project)
+			_ = workspaceClient.DeleteProjectResources(ctx, project)
 		}
 		return err
 	}
 	if strings.TrimSpace(prompt) != "" {
-		if err := fibeClient.EnsureConversation(ctx, project.ConversationID, project.Title); err != nil {
+		if err := workspaceClient.EnsureConversation(ctx, project.ConversationID, project.Title); err != nil {
 			log.Printf("create initial conversation for project %s: %v", project.ID, err)
 			return nil
 		}
@@ -276,7 +273,7 @@ func (s *Server) provisionProject(ctx context.Context, userID, userEmail string,
 			log.Printf("resolve initial prompt artefacts for project %s: %v", project.ID, err)
 			return nil
 		}
-		if err := fibeClient.SendMessage(ctx, project.ConversationID, projecttext.AgentPromptWithArtefacts(project, agentPrompt, promptArtefacts), nil, "queue"); err != nil {
+		if err := workspaceClient.SendMessage(ctx, project.ConversationID, projecttext.AgentPromptWithArtefacts(project, agentPrompt, promptArtefacts), nil, "queue"); err != nil {
 			log.Printf("send initial prompt for project %s: %v", project.ID, err)
 		} else {
 			s.enqueueProjectNotificationMonitor(context.Background(), userID, userEmail, project.ID, 0)
@@ -304,7 +301,7 @@ func retryProjectProvisionLater(project *Project, err error) bool {
 	if projectHasProvisionedResources(project) {
 		return true
 	}
-	return fibe.IsRetryableProvisioningError(err)
+	return workspace.IsRetryableProvisioningError(err)
 }
 
 func (s *Server) recoverProjectsAsync(userID, userEmail string, projects []Project) {
@@ -351,11 +348,11 @@ func (s *Server) recoverProjectAsync(userID, userEmail string, project *Project)
 		if blocked, err := s.projectIsExportOnly(ctx, &User{ID: userID, Email: userEmail}, current); err != nil || blocked {
 			return
 		}
-		fibe, err := s.fibeClientForProject(ctx, current, userEmail)
+		workspaceClient, err := s.workspaceClientForProject(ctx, current, userEmail)
 		if err != nil {
 			return
 		}
-		if err := s.recoverProjectReadiness(ctx, userID, current, fibe); err != nil {
+		if err := s.recoverProjectReadiness(ctx, userID, current, workspaceClient); err != nil {
 			return
 		}
 	}()
@@ -373,21 +370,21 @@ func (s *Server) reserveProjectRecovery(key string, ttl time.Duration) bool {
 	return true
 }
 
-func (s *Server) recoverProjectReadiness(ctx context.Context, userID string, project *Project, fibe *fibe.Client) error {
+func (s *Server) recoverProjectReadiness(ctx context.Context, userID string, project *Project, workspaceClient *workspace.Client) error {
 	if _, ready, _, maintenance, err := s.promoteProjectFromReachablePreview(ctx, userID, project); ready || maintenance || previewEmbeddingBlocked(err) {
 		return err
 	}
-	ready, status, err := fibe.PlaygroundReady(ctx, project.PlaygroundID)
+	ready, status, err := workspaceClient.PlaygroundReady(ctx, project.PlaygroundID)
 	if err != nil {
 		return err
 	}
 	if !ready {
-		switch projectStatusFromFibePlayground(status) {
+		switch projectStatusFromWorkspace(status) {
 		case "stopped":
 			project.Status = "stopped"
 			return s.store.UpdateProjectStatus(ctx, project.ID, userID, project.Status)
 		case "error":
-			if err := s.store.UpdateProjectError(ctx, project.ID, userID, "The linked Fibe playground is in an error state."); err != nil {
+			if err := s.store.UpdateProjectError(ctx, project.ID, userID, "The linked workspace is in an error state."); err != nil {
 				return err
 			}
 			return nil
@@ -399,7 +396,7 @@ func (s *Server) recoverProjectReadiness(ctx context.Context, userID string, pro
 		return fmt.Errorf("workspace is still starting: %s", status)
 	}
 	if strings.TrimSpace(project.PreviewURL) == "" {
-		if recovered, err := fibe.GreenfieldByPlaygroundID(ctx, project.PlaygroundID); err == nil {
+		if recovered, err := workspaceClient.GreenfieldByPlaygroundID(ctx, project.PlaygroundID); err == nil {
 			mergeProjectGreenfieldResult(project, recovered)
 			if err := s.store.SaveProjectProvisioningSnapshot(ctx, project, "launching"); err != nil {
 				return err
@@ -422,11 +419,11 @@ func (s *Server) refreshProjectReadiness(ctx context.Context, user *User, projec
 	if blocked, err := s.projectIsExportOnly(ctx, user, project); err != nil || blocked {
 		return project, err
 	}
-	fibe, err := s.fibeClientForProject(ctx, project, user.Email)
+	workspaceClient, err := s.workspaceClientForProject(ctx, project, user.Email)
 	if err != nil {
 		return project, err
 	}
-	if err := s.recoverProjectReadiness(ctx, user.ID, project, fibe); err != nil {
+	if err := s.recoverProjectReadiness(ctx, user.ID, project, workspaceClient); err != nil {
 		return project, err
 	}
 	updated, err := s.store.ProjectForUser(ctx, user.ID, project.ID)
@@ -466,7 +463,7 @@ func (s *Server) refreshProjectResources(ctx context.Context, user *User, projec
 		}
 		s.refreshing.Store(key, time.Now())
 	}
-	client, err := s.fibeClientForProject(ctx, project, user.Email)
+	client, err := s.workspaceClientForProject(ctx, project, user.Email)
 	if err != nil {
 		return project, err
 	}
@@ -482,7 +479,7 @@ func (s *Server) refreshProjectResources(ctx context.Context, user *User, projec
 	}
 	oldStatus := project.Status
 	status := project.Status
-	if nextStatus := projectStatusFromFibePlayground(result.PlaygroundStatus); nextStatus != "" {
+	if nextStatus := projectStatusFromWorkspace(result.PlaygroundStatus); nextStatus != "" {
 		status = nextStatus
 		project.Status = nextStatus
 	}
@@ -513,7 +510,7 @@ func (s *Server) refreshProjectResources(ctx context.Context, user *User, projec
 	return updated, nil
 }
 
-func projectStatusFromFibePlayground(status string) string {
+func projectStatusFromWorkspace(status string) string {
 	switch strings.ToLower(strings.TrimSpace(status)) {
 	case "running", "ready", "has_changes":
 		return "ready"
@@ -533,7 +530,7 @@ func (s *Server) applyCurrentProjectAssignment(ctx context.Context, user *User, 
 	if err != nil {
 		return err
 	}
-	assignment, changed, err := fibe.CurrentAssignmentForProject(cfg, project, project.ID)
+	assignment, changed, err := workspace.CurrentAssignmentForProject(cfg, project, project.ID)
 	if err != nil {
 		return err
 	}
@@ -605,8 +602,18 @@ func (s *Server) promoteProjectFromReachablePreview(ctx context.Context, userID 
 	if project == nil || strings.TrimSpace(project.PreviewURL) == "" {
 		return project, false, "starting", false, nil
 	}
-	result, err := fibe.ProbePreviewURLResult(ctx, s.http, project.PreviewURL)
+	result, err := workspace.ProbePreviewURLResult(ctx, s.http, project.PreviewURL)
 	if err != nil {
+		if sameOriginPreviewEmbeddingAllowed(err, project.PreviewURL, s.config.BaseURL) {
+			if userID != "" && project.Status != "ready" {
+				if err := s.store.SaveProjectProvisioningSnapshot(ctx, project, "ready"); err != nil && !errors.Is(err, sql.ErrNoRows) {
+					return project, false, result.Status, false, err
+				}
+			}
+			project.Status = "ready"
+			project.ErrorMessage = ""
+			return project, true, result.Status, false, nil
+		}
 		return project, false, result.Status, result.Maintenance, err
 	}
 	if result.Maintenance {
@@ -626,11 +633,23 @@ func (s *Server) promoteProjectFromReachablePreview(ctx context.Context, userID 
 }
 
 func previewEmbeddingBlocked(err error) bool {
-	var blocked *fibe.PreviewEmbeddingBlockedError
+	var blocked *workspace.PreviewEmbeddingBlockedError
 	return errors.As(err, &blocked)
 }
 
-func mergeProjectGreenfieldResult(project *Project, result *fibe.GreenfieldResult) {
+func sameOriginPreviewEmbeddingAllowed(err error, previewURL, baseURL string) bool {
+	var blocked *workspace.PreviewEmbeddingBlockedError
+	if !errors.As(err, &blocked) {
+		return false
+	}
+	header := strings.ToLower(strings.TrimSpace(blocked.Header))
+	if !strings.Contains(header, "x-frame-options: sameorigin") && !strings.Contains(header, "content-security-policy: frame-ancestors") {
+		return false
+	}
+	return sameOriginURL(previewURL, baseURL)
+}
+
+func mergeProjectGreenfieldResult(project *Project, result *workspace.GreenfieldResult) {
 	if project == nil || result == nil {
 		return
 	}
@@ -666,11 +685,11 @@ func mergeProjectGreenfieldResult(project *Project, result *fibe.GreenfieldResul
 	}
 }
 
-func greenfieldHasResourceSnapshot(result *fibe.GreenfieldResult) bool {
+func greenfieldHasResourceSnapshot(result *workspace.GreenfieldResult) bool {
 	return result != nil && (len(result.Repositories) > 0 || len(result.Services) > 0 || strings.TrimSpace(result.PreviewURL) != "" || strings.TrimSpace(result.PlayspecID) != "")
 }
 
-func applyProjectGreenfieldSnapshot(project *Project, result *fibe.GreenfieldResult) {
+func applyProjectGreenfieldSnapshot(project *Project, result *workspace.GreenfieldResult) {
 	if project == nil || result == nil {
 		return
 	}
@@ -760,7 +779,7 @@ func projectRepositoryForService(repositories []ProjectRepository, serviceName s
 	return nil
 }
 
-func projectRepositoriesFromGreenfield(projectID string, result *fibe.GreenfieldResult) []ProjectRepository {
+func projectRepositoriesFromGreenfield(projectID string, result *workspace.GreenfieldResult) []ProjectRepository {
 	if result == nil {
 		return nil
 	}
@@ -780,7 +799,7 @@ func projectRepositoriesFromGreenfield(projectID string, result *fibe.Greenfield
 	return out
 }
 
-func projectServicesFromGreenfield(projectID string, result *fibe.GreenfieldResult) []ProjectService {
+func projectServicesFromGreenfield(projectID string, result *workspace.GreenfieldResult) []ProjectService {
 	if result == nil {
 		return nil
 	}

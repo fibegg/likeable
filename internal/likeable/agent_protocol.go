@@ -3,7 +3,7 @@ package likeable
 import (
 	"strings"
 
-	fibegateway "github.com/fibegg/likeable/internal/fibe"
+	workspace "github.com/fibegg/likeable/internal/workspace"
 )
 
 const (
@@ -38,7 +38,7 @@ func sanitizeAgentProtocolMessages(messages []any) []any {
 	return out
 }
 
-func sanitizeAgentProtocolLiveState(live *fibegateway.ConversationLiveState) {
+func sanitizeAgentProtocolLiveState(live *workspace.ConversationLiveState) {
 	if live == nil || live.StreamText == "" {
 		return
 	}
@@ -85,7 +85,7 @@ func agentLiveStateErrorNotification(value string) string {
 		strings.Contains(normalized, "external api key"),
 		strings.Contains(normalized, "authentication_error"),
 		strings.Contains(normalized, "provider key"):
-		return "Build agent authentication failed. Check the Fibe agent provider key, then try again."
+		return "Build agent authentication failed. Check the OpenAI API key, then try again."
 	case strings.Contains(normalized, "rate limit"):
 		return "The build agent is rate limited. Try again shortly."
 	default:

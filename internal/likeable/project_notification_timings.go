@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	fibegateway "github.com/fibegg/likeable/internal/fibe"
+	workspace "github.com/fibegg/likeable/internal/workspace"
 )
 
 const notificationTurnTimeSlop = 5 * time.Second
@@ -37,11 +37,11 @@ type likeableNotificationSegment struct {
 	Fallback  bool
 }
 
-func (s *Server) syncProjectNotificationTimings(ctx context.Context, project *Project, local []Message, messages []any, activity []any, live *fibegateway.ConversationLiveState) (map[string]ProjectNotificationTiming, bool, error) {
+func (s *Server) syncProjectNotificationTimings(ctx context.Context, project *Project, local []Message, messages []any, activity []any, live *workspace.ConversationLiveState) (map[string]ProjectNotificationTiming, bool, error) {
 	return s.syncProjectNotificationTimingsAt(ctx, project, local, messages, activity, live, time.Now().UTC())
 }
 
-func (s *Server) syncProjectNotificationTimingsAt(ctx context.Context, project *Project, local []Message, messages []any, activity []any, live *fibegateway.ConversationLiveState, observedAt time.Time) (map[string]ProjectNotificationTiming, bool, error) {
+func (s *Server) syncProjectNotificationTimingsAt(ctx context.Context, project *Project, local []Message, messages []any, activity []any, live *workspace.ConversationLiveState, observedAt time.Time) (map[string]ProjectNotificationTiming, bool, error) {
 	shouldContinue := projectNotificationMonitorShouldContinue(live)
 	if project == nil {
 		return map[string]ProjectNotificationTiming{}, shouldContinue, nil
@@ -116,7 +116,7 @@ func (s *Server) syncProjectNotificationTimingsAt(ctx context.Context, project *
 	return timings, shouldContinue, err
 }
 
-func (s *Server) syncProjectWorkSessionsAt(ctx context.Context, project *Project, local []Message, rows []projectNotificationRow, live *fibegateway.ConversationLiveState, observedAt time.Time) (bool, error) {
+func (s *Server) syncProjectWorkSessionsAt(ctx context.Context, project *Project, local []Message, rows []projectNotificationRow, live *workspace.ConversationLiveState, observedAt time.Time) (bool, error) {
 	if project == nil {
 		return false, nil
 	}
@@ -169,7 +169,7 @@ func (s *Server) syncProjectWorkSessionsAt(ctx context.Context, project *Project
 	return billed, nil
 }
 
-func projectWorkObservations(local []Message, rows []projectNotificationRow, live *fibegateway.ConversationLiveState) []projectWorkObservation {
+func projectWorkObservations(local []Message, rows []projectNotificationRow, live *workspace.ConversationLiveState) []projectWorkObservation {
 	observationsByKey := map[string]projectWorkObservation{}
 	order := []string{}
 	for _, row := range rows {
@@ -222,7 +222,7 @@ func projectWorkObservations(local []Message, rows []projectNotificationRow, liv
 	return out
 }
 
-func liveWorkSessionKey(local []Message, live *fibegateway.ConversationLiveState) string {
+func liveWorkSessionKey(local []Message, live *workspace.ConversationLiveState) string {
 	userTimes := notificationUserTimes(local)
 	if len(userTimes) > 0 {
 		return notificationTurnKey(userTimes[len(userTimes)-1])
@@ -233,7 +233,7 @@ func liveWorkSessionKey(local []Message, live *fibegateway.ConversationLiveState
 	return "live"
 }
 
-func projectNotificationRows(local []Message, messages []any, activity []any, live *fibegateway.ConversationLiveState) []projectNotificationRow {
+func projectNotificationRows(local []Message, messages []any, activity []any, live *workspace.ConversationLiveState) []projectNotificationRow {
 	userTimes := notificationUserTimes(local)
 	latestTurnKey := ""
 	var latestUserTime time.Time
@@ -580,7 +580,7 @@ func parseLikeableNotificationSegments(value string) []likeableNotificationSegme
 	return segments
 }
 
-func projectNotificationMonitorShouldContinue(live *fibegateway.ConversationLiveState) bool {
+func projectNotificationMonitorShouldContinue(live *workspace.ConversationLiveState) bool {
 	return live != nil && (live.IsProcessing || live.QueuedTurns > 0)
 }
 

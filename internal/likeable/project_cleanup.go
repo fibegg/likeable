@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fibegg/likeable/internal/fibe"
 	projecttext "github.com/fibegg/likeable/internal/project"
+	"github.com/fibegg/likeable/internal/workspace"
 	"github.com/hibiken/asynq"
 )
 
@@ -35,9 +35,9 @@ func (s *Server) deleteProjectResourcesAsync(userID, userEmail string, project *
 			return
 		}
 		log.Printf("cleanup transition=retrying project_id=%s user_id=%s", snapshot.ID, userID)
-		fibeClient, err := s.completeProjectResourceSnapshot(ctx, userEmail, &snapshot)
+		workspaceClient, err := s.completeProjectResourceSnapshot(ctx, userEmail, &snapshot)
 		if err != nil {
-			if fibeClient == nil || !projectHasFibeResources(&snapshot) {
+			if workspaceClient == nil || !projectHasWorkspaceResources(&snapshot) {
 				log.Printf("delete project %s resources: %v", snapshot.ID, err)
 				_ = s.store.UpdateProjectCleanupError(context.Background(), snapshot.ID, userID, err.Error())
 				log.Printf("cleanup transition=failed project_id=%s user_id=%s error=%q", snapshot.ID, userID, err.Error())
@@ -45,8 +45,8 @@ func (s *Server) deleteProjectResourcesAsync(userID, userEmail string, project *
 			}
 			log.Printf("delete project %s resources: continuing with stored resources after snapshot error: %v", snapshot.ID, err)
 		}
-		if projectHasFibeResources(&snapshot) {
-			if err := fibeClient.DeleteProjectResources(ctx, &snapshot); err != nil {
+		if projectHasWorkspaceResources(&snapshot) {
+			if err := workspaceClient.DeleteProjectResources(ctx, &snapshot); err != nil {
 				log.Printf("delete project %s resources: %v", snapshot.ID, err)
 				_ = s.store.UpdateProjectCleanupError(context.Background(), snapshot.ID, userID, err.Error())
 				log.Printf("cleanup transition=failed project_id=%s user_id=%s error=%q", snapshot.ID, userID, err.Error())
@@ -123,8 +123,8 @@ func (s *Server) finalizePendingAccountDeletionIfReady(ctx context.Context, payl
 	return s.finalizeAccountDeletion(ctx, payload)
 }
 
-func (s *Server) completeProjectResourceSnapshot(ctx context.Context, userEmail string, project *Project) (*fibe.Client, error) {
-	fibeClient, err := s.fibeClientForProject(ctx, project, userEmail)
+func (s *Server) completeProjectResourceSnapshot(ctx context.Context, userEmail string, project *Project) (*workspace.Client, error) {
+	workspaceClient, err := s.workspaceClientForProject(ctx, project, userEmail)
 	if err != nil {
 		return nil, err
 	}
@@ -132,22 +132,22 @@ func (s *Server) completeProjectResourceSnapshot(ctx context.Context, userEmail 
 		project.PlaygroundName = projecttext.SourceNameForProject(project)
 	}
 	if projectHasDeleteReadySnapshot(project) {
-		return fibeClient, nil
+		return workspaceClient, nil
 	}
 	if strings.TrimSpace(project.PlaygroundID) != "" {
-		recovered, err := fibeClient.GreenfieldByPlaygroundID(ctx, project.PlaygroundID)
+		recovered, err := workspaceClient.GreenfieldByPlaygroundID(ctx, project.PlaygroundID)
 		if err != nil {
-			return fibeClient, err
+			return workspaceClient, err
 		}
 		mergeProjectGreenfieldResult(project, recovered)
-		return fibeClient, nil
+		return workspaceClient, nil
 	}
-	recovered, err := fibeClient.FindGreenfieldBySubdomain(ctx, projecttext.PreviewSubdomain(project))
+	recovered, err := workspaceClient.FindGreenfieldBySubdomain(ctx, projecttext.PreviewSubdomain(project))
 	if err != nil {
-		return fibeClient, nil
+		return workspaceClient, nil
 	}
 	mergeProjectGreenfieldResult(project, recovered)
-	return fibeClient, nil
+	return workspaceClient, nil
 }
 
 func (s *Server) deleteProjectLocally(ctx context.Context, project *Project, userID string) error {

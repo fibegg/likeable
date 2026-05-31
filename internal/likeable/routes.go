@@ -98,6 +98,18 @@ func sameOriginRequest(r *http.Request, baseURL string) bool {
 	return strings.EqualFold(originURL.Scheme, base.Scheme) && strings.EqualFold(originURL.Host, base.Host)
 }
 
+func sameOriginURL(targetURL, baseURL string) bool {
+	target, err := url.Parse(strings.TrimSpace(targetURL))
+	if err != nil || target.Scheme == "" || target.Host == "" {
+		return false
+	}
+	base, err := url.Parse(strings.TrimSpace(baseURL))
+	if err != nil || base.Scheme == "" || base.Host == "" {
+		return false
+	}
+	return strings.EqualFold(target.Scheme, base.Scheme) && strings.EqualFold(target.Host, base.Host)
+}
+
 func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.URL.Path == "/api/me":
@@ -116,8 +128,6 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		s.withAdmin(s.handleAdminConfig)(w, r)
 	case r.URL.Path == "/api/admin/recovery":
 		s.withAdmin(s.handleAdminRecovery)(w, r)
-	case r.URL.Path == "/api/admin/agent-pool/retire":
-		s.withAdmin(s.handleAdminAgentPoolRetire)(w, r)
 	case r.URL.Path == "/api/admin/users" || strings.HasPrefix(r.URL.Path, "/api/admin/users/"):
 		s.withAdmin(s.handleAdminUsers)(w, r)
 	case r.URL.Path == "/api/projects":

@@ -1,7 +1,7 @@
 {
   "name": "Likeable",
   "short_name": "Likeable",
-  "description": "Build and iterate on Fibe playground apps from a mobile-ready canvas.",
+  "description": "Build and iterate on local workspace apps from a mobile-ready canvas.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
