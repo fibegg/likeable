@@ -5,7 +5,7 @@ import type { AppDialogConfig, MessageAttachment, Project, ProjectService, UserF
 import { formatElapsedDuration, formatMessageTime } from './format';
 import { elapsedDurationLabels, statusLabel, useI18n } from './i18n';
 
-export function ProjectList({ projects, activeID, projectCap, busy, exportingID, controllingID, onSelect, onNew, onRename, onDelete, onExport, onControlPlayground, onClose }: { projects: Project[]; activeID: string; projectCap: number | null; busy: boolean; exportingID: string; controllingID: string; onSelect: (id: string) => void; onNew: () => void; onRename: (project: Project, title: string) => Promise<void>; onDelete: (project: Project) => void; onExport: (project: Project) => void; onControlPlayground: (project: Project, action: 'start' | 'stop' | 'restart') => Promise<void>; onClose: () => void }) {
+export function ProjectList({ projects, activeID, projectCap, busy, exportingID, controllingID, onSelect, onNew, onRename, onDelete, onExport, onControlWorkspace, onClose }: { projects: Project[]; activeID: string; projectCap: number | null; busy: boolean; exportingID: string; controllingID: string; onSelect: (id: string) => void; onNew: () => void; onRename: (project: Project, title: string) => Promise<void>; onDelete: (project: Project) => void; onExport: (project: Project) => void; onControlWorkspace: (project: Project, action: 'start' | 'stop' | 'restart') => Promise<void>; onClose: () => void }) {
   const { locale, t } = useI18n();
   const [editingID, setEditingID] = useState('');
   const [draftTitle, setDraftTitle] = useState('');
@@ -32,13 +32,13 @@ export function ProjectList({ projects, activeID, projectCap, busy, exportingID,
     await onRename(project, title);
     cancelEdit();
   };
-  const runPlaygroundAction = async (project: Project, action: 'start' | 'stop' | 'restart') => {
+  const runWorkspaceAction = async (project: Project, action: 'start' | 'stop' | 'restart') => {
     setMenuID('');
-    await onControlPlayground(project, action);
+    await onControlWorkspace(project, action);
   };
-  const canStartPlayground = (project: Project) => project.status === 'stopped';
-  const canStopPlayground = (project: Project) => project.status === 'ready';
-  const canRestartPlayground = (project: Project) => project.status === 'ready';
+  const canStartWorkspace = (project: Project) => project.status === 'stopped';
+  const canStopWorkspace = (project: Project) => project.status === 'ready';
+  const canRestartWorkspace = (project: Project) => project.status === 'ready';
   const projectRuntimeState = (project: Project) => {
     if (controllingID === project.id) return t('projects.actions.working');
     switch (project.status) {
@@ -158,9 +158,9 @@ export function ProjectList({ projects, activeID, projectCap, busy, exportingID,
                           <span>{t('projects.actions.runtime')}</span>
                           <strong>{projectRuntimeState(project)}</strong>
                         </div>
-                        <button role="menuitem" disabled={busy || !canStartPlayground(project)} onClick={() => void runPlaygroundAction(project, 'start')}><Play size={14} /> <span>{t('projects.start')}</span></button>
-                        <button role="menuitem" disabled={busy || !canStopPlayground(project)} onClick={() => void runPlaygroundAction(project, 'stop')}><Square size={13} /> <span>{t('projects.stop')}</span></button>
-                        <button role="menuitem" disabled={busy || !canRestartPlayground(project)} onClick={() => void runPlaygroundAction(project, 'restart')}><RotateCcw size={14} /> <span>{t('projects.restart')}</span></button>
+                        <button role="menuitem" disabled={busy || !canStartWorkspace(project)} onClick={() => void runWorkspaceAction(project, 'start')}><Play size={14} /> <span>{t('projects.start')}</span></button>
+                        <button role="menuitem" disabled={busy || !canStopWorkspace(project)} onClick={() => void runWorkspaceAction(project, 'stop')}><Square size={13} /> <span>{t('projects.stop')}</span></button>
+                        <button role="menuitem" disabled={busy || !canRestartWorkspace(project)} onClick={() => void runWorkspaceAction(project, 'restart')}><RotateCcw size={14} /> <span>{t('projects.restart')}</span></button>
                       </div>
                     )}
                   </div>

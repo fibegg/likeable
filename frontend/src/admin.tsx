@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, Plus, RefreshCw, Send, Trash2 } from 'lucide-react';
-import { cleanPoolRows, makePoolRow, parsePoolRows } from './admin_pool';
 import { api } from './api';
 import { AppDialog, Metric } from './builder_components';
 import { ADMIN_CONFIG_SECTIONS } from './config';
-import type { AdminConfigEntry, AdminConfigResponse, AdminProjectSummary, AdminRecoveryResponse, AdminUserDetail, AdminUserSummary, AdminUsersResponse, AgentAssignmentSummary, AgentPoolOption, AgentPoolStat, AppDialogConfig, PoolRow } from './domain';
+import type { AdminConfigEntry, AdminConfigResponse, AdminRecoveryResponse, AdminUserDetail, AdminUserSummary, AdminUsersResponse, AppDialogConfig } from './domain';
 import { formatBillingDuration, formatMessageTime, formatShortDate, userInitials } from './format';
 import { resetCountdownLabels, statusLabel, TranslationKey, useDocumentTitle, useI18n } from './i18n';
 
@@ -16,10 +15,8 @@ function AdminCustomersPanel() {
   const [total, setTotal] = useState(0);
   const [selectedUserID, setSelectedUserID] = useState('');
   const [detail, setDetail] = useState<AdminUserDetail | null>(null);
-  const [agentPool, setAgentPool] = useState<AgentPoolOption[]>([]);
   const [loading, setLoading] = useState(false);
   const [actionError, setActionError] = useState('');
-  const [reassigningProjectID, setReassigningProjectID] = useState('');
   const [accessNote, setAccessNote] = useState('');
   const [noticeBody, setNoticeBody] = useState('');
   const [noticeSeverity, setNoticeSeverity] = useState('warning');
@@ -43,7 +40,6 @@ function AdminCustomersPanel() {
     try {
       const response = await api<AdminUsersResponse>(`/api/admin/users?${query()}`);
       setUsers(response.users);
-      setAgentPool((current) => response.agentPool ?? current);
       setTotal(response.pagination.total);
       if (selectedUserID && !response.users.some((summary) => summary.user.id === selectedUserID)) {
         setSelectedUserID('');
@@ -60,7 +56,6 @@ function AdminCustomersPanel() {
     const response = await api<AdminUserDetail>(`/api/admin/users/${userID}`);
     setSelectedUserID(userID);
     setDetail(response);
-    setAgentPool((current) => response.agentPool ?? current);
     setAccessNote(response.summary.user.accessNote ?? '');
   };
   useEffect(() => {
@@ -132,7 +127,6 @@ function AdminCustomersPanel() {
         body: JSON.stringify({ hours })
       });
       setDetail(response.detail);
-      setAgentPool((current) => response.detail.agentPool ?? current);
       await loadUsers();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : t('admin.grant.failed'));
@@ -202,28 +196,6 @@ function AdminCustomersPanel() {
       onConfirm: () => applyDeleteProject(projectID)
     });
   };
-  const reassignProject = async (projectID: string, assignmentValue: string) => {
-    if (!selectedUserID) return;
-    const next = parsePairValue(assignmentValue);
-    if (!next.agentId || !next.serverId) return;
-    setActionError('');
-    setReassigningProjectID(projectID);
-    try {
-      const response = await api<{ detail: AdminUserDetail; warning?: string }>(`/api/admin/users/${selectedUserID}/projects/${projectID}/assignment`, {
-        method: 'PATCH',
-        body: JSON.stringify({ agent_id: next.agentId, server_id: next.serverId })
-      });
-      setDetail(response.detail);
-      setAgentPool((current) => response.detail.agentPool ?? current);
-      if (response.warning) setActionError(response.warning);
-      await loadUsers();
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : t('admin.assignment.failed'));
-    } finally {
-      setReassigningProjectID('');
-    }
-  };
-
   return (
     <section className="adminCard customersCard">
       {dialog && <AppDialog dialog={dialog} onClose={() => setDialog(null)} />}
@@ -307,11 +279,6 @@ function AdminCustomersPanel() {
                 <i>{summary.githubConnected ? t('common.github') : t('admin.noGithub')}</i>
                 <i>{paidHourStatus(summary)}</i>
                 {summary.user.accessStatus === 'restricted' && <i className="dangerBadge">{t('common.restricted')}</i>}
-                {(summary.agentPairs ?? []).slice(0, 2).map((pair) => (
-                  <i className="assignmentBadge" key={`${pair.agentId}:${pair.serverId}`}>
-                    {formatPairBadge(pair)}
-                  </i>
-                ))}
               </span>
             </button>
           ))}
@@ -423,10 +390,6 @@ function AdminCustomersPanel() {
                   <p>{t('admin.projects.body')}</p>
                 </div>
                 {detail.projects.map((item) => {
-                  const options = assignmentOptionsForProject(item, agentPool);
-                  const assignment = item.assignment;
-                  const assignmentValue = pairValue(assignment?.agentId ?? '', assignment?.serverId ?? '');
-                  const canReassign = options.some((option) => option.status === 'active') && item.project.status !== 'archived' && item.project.status !== 'deleting';
                   const previewUrl = item.project.previewUrl;
                   return (
                     <div className="adminProjectRow" key={item.project.id}>
@@ -434,22 +397,6 @@ function AdminCustomersPanel() {
                         <strong>{item.project.title}</strong>
                         <em>{statusLabel(item.project.status, t)} · {workDuration(item.workMs)}</em>
                       </span>
-                      <label className="adminProjectAssignment">
-                        <span>{t('admin.assignment')}</span>
-                        <select
-                          className="adminSelect"
-                          value={assignmentValue}
-                          disabled={!canReassign || reassigningProjectID === item.project.id}
-                          onChange={(event) => void reassignProject(item.project.id, event.target.value)}
-                        >
-                          {assignmentValue === pairValue('', '') && <option value={assignmentValue}>{t('admin.assignment.none')}</option>}
-                          {options.map((option) => (
-                            <option key={pairValue(option.agentId, option.serverId)} value={pairValue(option.agentId, option.serverId)} disabled={option.status !== 'active'}>
-                              {formatPoolOption(option, t)}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
                       <div className="adminProjectActions">
                         {previewUrl && <a className="ghostButton" href={previewUrl} target="_blank" rel="noopener noreferrer">{t('common.open')}</a>}
                         <button className="projectDelete" onClick={() => void deleteProject(item.project.id)} aria-label={t('admin.deleteProject.aria', { title: item.project.title })}><Trash2 size={15} /></button>
@@ -471,67 +418,6 @@ function formatMoney(cents: number, currency: string): string {
   if (!cents) return '0';
   const normalized = (currency || 'usd').toUpperCase();
   return `${normalized} ${(cents / 100).toFixed(2)}`;
-}
-
-function pairValue(agentId: string, serverId: string): string {
-  return JSON.stringify([agentId, serverId]);
-}
-
-function parsePairValue(value: string): { agentId: string; serverId: string } {
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    if (Array.isArray(parsed) && typeof parsed[0] === 'string' && typeof parsed[1] === 'string') {
-      return { agentId: parsed[0], serverId: parsed[1] };
-    }
-  } catch {
-    return { agentId: '', serverId: '' };
-  }
-  return { agentId: '', serverId: '' };
-}
-
-function formatPairBadge(pair: AgentAssignmentSummary): string {
-  const count = pair.projectCount && pair.projectCount > 1 ? ` x${pair.projectCount}` : '';
-  return `${pair.agentId}/${pair.serverId}${count}`;
-}
-
-function assignmentOptionsForProject(item: AdminProjectSummary, agentPool: AgentPoolOption[]): AgentPoolOption[] {
-  const current = item.assignment;
-  const out: AgentPoolOption[] = [];
-  const pushUnique = (option: AgentPoolOption) => {
-    if (!option.agentId || !option.serverId) return;
-    if (out.some((candidate) => candidate.agentId === option.agentId && candidate.serverId === option.serverId)) return;
-    out.push(option);
-  };
-  if (current?.agentId || current?.serverId) {
-    pushUnique({
-      agentId: current.agentId,
-      serverId: current.serverId,
-      status: current.status ?? 'retired'
-    });
-  }
-  agentPool.filter((option) => option.status === 'active').forEach(pushUnique);
-  return out;
-}
-
-function formatPoolOption(option: AgentPoolOption, t: (key: TranslationKey) => string): string {
-  const label = option.label ? `${option.label} · ` : '';
-  const status = poolStatusLabel(option.status, t);
-  return `${label}${option.agentId}/${option.serverId} · ${status}`;
-}
-
-function poolStatusLabel(status: string | undefined, t: (key: TranslationKey) => string): string {
-  switch (status) {
-    case 'active':
-      return t('admin.pool.status.active');
-    case 'draining':
-      return t('admin.pool.status.draining');
-    case 'retiring':
-      return t('admin.pool.status.retiring');
-    case 'retired':
-      return t('admin.pool.status.retired');
-    default:
-      return t('status.unknown');
-  }
 }
 
 function adminConfigLabel(key: string, t: (key: TranslationKey) => string): string {
@@ -569,9 +455,6 @@ export function Admin() {
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [signupMode, setSignupMode] = useState('forbidden');
   const [allowedEmails, setAllowedEmails] = useState('');
-  const [poolRows, setPoolRows] = useState<PoolRow[]>([]);
-  const [poolStats, setPoolStats] = useState<AgentPoolStat[]>([]);
-  const [retiringPoolRowID, setRetiringPoolRowID] = useState('');
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
@@ -585,8 +468,6 @@ export function Admin() {
     setDraft({});
     setSignupMode(response.config.signup_mode?.value ?? 'forbidden');
     setAllowedEmails(response.config.signup_allowed_emails?.value ?? '');
-    setPoolRows(parsePoolRows(response.config.workspace_agent_server_pool?.value ?? '[]'));
-    setPoolStats(response.agentPoolStats ?? []);
   };
 
   const loadRecovery = async () => {
@@ -606,45 +487,17 @@ export function Admin() {
     void loadRecovery();
   }, []);
 
-  const setPoolRow = (id: string, patch: Partial<PoolRow>) => {
-    setPoolRows((rows) => rows.map((row) => row.id === id ? { ...row, ...patch } : row));
-  };
-  const statForPoolRow = (row: PoolRow) => poolStats.find((stat) => stat.agentId === row.agentId.trim() && stat.serverId === row.serverId.trim());
-  const retirePoolRow = async (row: PoolRow) => {
-    setRetiringPoolRowID(row.id);
-    setStatus('');
-    setError('');
-    try {
-      await api('/api/admin/agent-pool/retire', {
-        method: 'POST',
-        body: JSON.stringify({ agent_id: row.agentId.trim(), server_id: row.serverId.trim() })
-      });
-      await loadConfig();
-      setStatus(t('admin.pool.retired'));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t('admin.saveFailed'));
-    } finally {
-      setRetiringPoolRowID('');
-    }
-  };
-
   const save = async () => {
     setSaving(true);
     setStatus('');
     setError('');
     try {
-      const pool = cleanPoolRows(poolRows);
-      const incomplete = pool.find((row) => !row.agent_id || !row.server_id);
-      if (incomplete) {
-        throw new Error(t('admin.poolIncomplete'));
-      }
       await api('/api/admin/config', {
         method: 'PUT',
         body: JSON.stringify({
           ...draft,
           signup_mode: signupMode,
-          signup_allowed_emails: allowedEmails,
-          workspace_agent_server_pool: JSON.stringify(pool)
+          signup_allowed_emails: allowedEmails
         })
       });
       await loadConfig();
@@ -767,62 +620,6 @@ export function Admin() {
             <p>{t('admin.workspace.body')}</p>
           </div>
           {renderConfigFields(['openai_api_key', 'openai_model', 'workspace_root'])}
-          <div className="adminCardHeader withAction">
-            <div>
-              <h3>{t('admin.pool.title')}</h3>
-              <p>{t('admin.pool.body')}</p>
-            </div>
-            <button className="ghostButton" type="button" onClick={() => setPoolRows((rows) => [...rows, makePoolRow()])}>
-              <Plus size={17} /> {t('admin.pool.add')}
-            </button>
-          </div>
-          <div className="poolRows">
-            {poolRows.length === 0 && <div className="emptyPool">{t('admin.pool.empty')}</div>}
-            {poolRows.map((row, index) => (
-              <div className={`poolRow ${row.status}`} key={row.id}>
-                <label>
-                  <span>{t('admin.pool.label')}</span>
-                  <input value={row.label} placeholder={t('admin.pool.pair', { number: index + 1 })} onChange={(event) => setPoolRow(row.id, { label: event.target.value })} />
-                </label>
-                <label>
-                  <span>{t('admin.pool.agentId')}</span>
-                  <input value={row.agentId} placeholder={t('admin.pool.agentPlaceholder')} onChange={(event) => setPoolRow(row.id, { agentId: event.target.value })} />
-                </label>
-                <label>
-                  <span>{t('admin.pool.serverId')}</span>
-                  <input value={row.serverId} placeholder={t('admin.pool.serverPlaceholder')} onChange={(event) => setPoolRow(row.id, { serverId: event.target.value })} />
-                </label>
-                <label>
-                  <span>{t('admin.pool.capacity')}</span>
-                  <input type="number" min="0" inputMode="numeric" value={row.capacity} placeholder={t('admin.pool.capacityPlaceholder')} onChange={(event) => setPoolRow(row.id, { capacity: event.target.value })} />
-                </label>
-                <label>
-                  <span>{t('admin.pool.status')}</span>
-                  <select className="adminSelect" value={row.status} onChange={(event) => setPoolRow(row.id, { status: event.target.value as PoolRow['status'] })}>
-                    <option value="active">{t('admin.pool.status.active')}</option>
-                    <option value="draining">{t('admin.pool.status.draining')}</option>
-                    <option value="retiring" disabled>{t('admin.pool.status.retiring')}</option>
-                    <option value="retired" disabled>{t('admin.pool.status.retired')}</option>
-                  </select>
-                </label>
-                <div className="poolStatLine">
-                  {(() => {
-                    const stat = statForPoolRow(row);
-                    return stat
-                      ? t('admin.pool.stats', { projects: stat.projectCount, active: stat.activeProjectCount ?? Math.max(0, stat.projectCount - stat.archivedCount), archived: stat.archivedCount, archives: stat.readyArchiveCount })
-                      : t('admin.pool.stats.empty');
-                  })()}
-                </div>
-                <button className="ghostButton poolRetireButton" type="button" disabled={saving || retiringPoolRowID === row.id || !row.agentId.trim() || !row.serverId.trim() || row.status === 'retired'} onClick={() => void retirePoolRow(row)}>
-                  {retiringPoolRowID === row.id ? <Loader2 className="spinIcon" size={15} /> : null}
-                  {t('admin.pool.retire')}
-                </button>
-                <button className="smallIconButton" type="button" disabled={row.status === 'retiring' || row.status === 'retired'} aria-label={t('admin.pool.remove')} onClick={() => setPoolRows((rows) => rows.filter((candidate) => candidate.id !== row.id))}>
-                  <Trash2 size={17} />
-                </button>
-              </div>
-            ))}
-          </div>
         </section>
 
         {ADMIN_CONFIG_SECTIONS.slice(1).map((section) => (

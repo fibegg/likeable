@@ -364,7 +364,7 @@ func TestProjectIdleForPlaygroundStopSkipsMissingOrInvalidUsageTimestamp(t *test
 
 func TestPublicProjectErrorMessageExplainsLinkedWorkspaceError(t *testing.T) {
 	got := publicProjectErrorMessage("The linked workspace is in an error state.")
-	want := "The linked workspace is in an error state. Restart the project playground from the project menu."
+	want := "The linked workspace is in an error state. Restart the project workspace from the project menu."
 	if got != want {
 		t.Fatalf("message=%q, want %q", got, want)
 	}

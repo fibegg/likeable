@@ -38,7 +38,7 @@ func (s *Server) ensureDefaultProject(ctx context.Context, user *User) {
 	if len(projects) > 0 || s.projectCapForUser(ctx, user) <= 0 {
 		return
 	}
-	project, err := s.createProjectRecord(ctx, user, "New playground")
+	project, err := s.createProjectRecord(ctx, user, "New project")
 	if err != nil {
 		log.Printf("create starter project: %v", err)
 		return

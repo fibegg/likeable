@@ -408,7 +408,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
   const chatCollapsedForTutorial = viewMode === 'overlay' && showOnboardingWizard;
   const effectiveChatCollapsed = basicChatCollapsed || chatCollapsedForTutorial;
   const canvasStatusLabel = agentWorking ? t('builder.status.agentWorking') : previewMaintenance ? t('builder.status.maintenance') : activeProject?.status === 'ready' ? (previewReady ? t('builder.status.canvasLive') : t('builder.status.canvasStarting')) : isProjectStarting ? t('builder.status.canvasStarting') : projectArchived ? t('builder.status.canvasArchived') : activeProject?.status === 'stopped' ? t('builder.status.canvasStopped') : activeProject?.status === 'error' ? t('builder.status.canvasError') : t('builder.status.canvasIdle');
-  const idleStopCountdown = activeProject?.status === 'ready' && activeProject.playgroundIdleStopAt ? formatResetCountdown(activeProject.playgroundIdleStopAt, quotaNow, resetCountdownLabels(t)) : '';
+  const idleStopCountdown = activeProject?.status === 'ready' && activeProject.workspaceIdleStopAt ? formatResetCountdown(activeProject.workspaceIdleStopAt, quotaNow, resetCountdownLabels(t)) : '';
   const idleStopTooltip = idleStopCountdown ? t('builder.idleStop.tooltip', { time: idleStopCountdown }) : '';
   const promptHasText = Boolean(prompt.trim());
   const hasDraft = promptHasText || attachments.length > 0;
@@ -886,18 +886,18 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       setBusy(false);
     }
   };
-  const controlProjectPlayground = async (project: Project, action: 'start' | 'stop' | 'restart') => {
+  const controlProjectWorkspace = async (project: Project, action: 'start' | 'stop' | 'restart') => {
     if (!signedIn) return;
     setBusy(true);
     setControllingProjectID(project.id);
     try {
-      const res = await api<{ project: Project }>(`/api/projects/${project.id}/playground`, { method: 'POST', body: JSON.stringify({ action }) });
+      const res = await api<{ project: Project }>(`/api/projects/${project.id}/workspace`, { method: 'POST', body: JSON.stringify({ action }) });
       setPreviewStatus(null);
       setIframeLoaded(false);
       setProjects((current) => current.map((item) => item.id === project.id ? res.project : item));
       setFeed((current) => current?.project.id === project.id ? { ...current, project: res.project } : current);
     } catch (err) {
-      setDialog({ title: t('dialog.playgroundActionFailed.title'), body: err instanceof Error ? err.message : t('dialog.requestFailed.title'), tone: 'warning', confirmLabel: t('common.close') });
+      setDialog({ title: t('dialog.projectActionFailed.title'), body: err instanceof Error ? err.message : t('dialog.requestFailed.title'), tone: 'warning', confirmLabel: t('common.close') });
     } finally {
       setControllingProjectID('');
       setBusy(false);
@@ -1355,7 +1355,7 @@ function Builder({ nav, me, profileRoute = false }: { nav: (to: string) => void;
       </div>
       {projectTitleButton('chatProjectTitle', true, true)}
       {builderChrome}
-      {showProjects && <ProjectList projects={currentProjects} activeID={activeID} projectCap={projectCap} busy={busy} exportingID={exportingID} controllingID={controllingProjectID} onSelect={(id) => { setActiveID(id); setShowProjects(false); }} onNew={() => setConfirmNewProject(true)} onRename={renameProject} onDelete={setDeleteTarget} onExport={requestProjectExport} onControlPlayground={controlProjectPlayground} onClose={() => setShowProjects(false)} />}
+      {showProjects && <ProjectList projects={currentProjects} activeID={activeID} projectCap={projectCap} busy={busy} exportingID={exportingID} controllingID={controllingProjectID} onSelect={(id) => { setActiveID(id); setShowProjects(false); }} onNew={() => setConfirmNewProject(true)} onRename={renameProject} onDelete={setDeleteTarget} onExport={requestProjectExport} onControlWorkspace={controlProjectWorkspace} onClose={() => setShowProjects(false)} />}
       {showProfile && <ProfilePanel me={accountMe} onClose={closeProfilePanel} onOpenTutorial={openOnboardingTutorial} onRefreshAccount={refreshBuilder} />}
       {showHelp && <HelpPanel markdown={t('help.markdown')} onClose={() => setShowHelp(false)} />}
       {showServices && activeProject?.services && <ServicePanel services={activeProject.services} selectedName={selectedService?.name} busy={busy} onSelect={(service) => void selectService(service)} onClose={() => setShowServices(false)} />}

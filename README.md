@@ -40,7 +40,7 @@ Signup defaults to forbidden until the admin changes it.
 3. Set `LIKEABLE_PUBLIC_URL=https://your-domain`, `OPENAI_API_KEY`, and optionally `OPENAI_MODEL`.
 4. Run `docker compose --profile app up --build -d`.
 5. Sign in as `ADMIN_EMAIL`, open Admin, save the remaining provider settings, then switch signup from `forbidden` when ready.
-6. Create a test playground. The project should create `/data/workspaces/<project-id>/index.html`, serve preview from your domain, and export ZIP/GitHub from that local folder.
+6. Create a test project. The project should create `/data/workspaces/<project-id>/index.html`, serve preview from your domain, and export ZIP/GitHub from that local folder.
 
 For a fresh Ubuntu/Debian droplet, the deploy script handles the same flow:
 

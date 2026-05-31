@@ -17,8 +17,8 @@ import (
 )
 
 var (
-	errInvalidPlaygroundAction  = errors.New("invalid playground action")
-	errProjectPlaygroundMissing = errors.New("project has no playground")
+	errInvalidPlaygroundAction  = errors.New("invalid workspace action")
+	errProjectPlaygroundMissing = errors.New("project has no workspace")
 )
 
 func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
@@ -179,7 +179,7 @@ func (s *Server) handleProjectRoute(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeError(w, http.StatusNotFound, "not found")
-	case "playground":
+	case "workspace", "playground":
 		s.handleProjectPlaygroundAction(w, r, user, project)
 	case "attachments":
 		if len(parts) != 3 {
@@ -204,7 +204,7 @@ func (s *Server) handleProjectPreview(w http.ResponseWriter, r *http.Request, us
 	if project.Status == "stopped" {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusServiceUnavailable)
-		_, _ = w.Write([]byte("<!doctype html><title>Stopped</title><p>This playground is stopped.</p>"))
+		_, _ = w.Write([]byte("<!doctype html><title>Stopped</title><p>This workspace is paused.</p>"))
 		return
 	}
 	client, err := s.workspaceClientForProject(r.Context(), project, user.Email)
@@ -340,11 +340,11 @@ func (s *Server) handleProjectPlaygroundAction(w http.ResponseWriter, r *http.Re
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		log.Printf("project playground action %s for project %s: %v", body.Action, project.ID, err)
+		log.Printf("project workspace action %s for project %s: %v", body.Action, project.ID, err)
 		if isPlatformRateLimited(err) {
 			writeError(w, http.StatusServiceUnavailable, "workspace platform is rate limited; try again shortly")
 		} else {
-			writeError(w, http.StatusBadGateway, "could not update the playground")
+			writeError(w, http.StatusBadGateway, "could not update the workspace")
 		}
 		return
 	}

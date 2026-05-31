@@ -123,7 +123,7 @@ func (s *Server) handleProjectMessages(w http.ResponseWriter, r *http.Request, u
 	}
 	agentText := text
 	if agentText == "" {
-		agentText = "Review the attached file(s) and update the playground accordingly."
+		agentText = "Review the attached file(s) and update the project accordingly."
 	}
 	agentText, promptArtefacts, err := s.resolvePromptArtefactMacros(r.Context(), agentText)
 	if err != nil {

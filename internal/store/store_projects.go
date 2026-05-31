@@ -163,7 +163,7 @@ func publicProjectErrorMessage(message string) string {
 	case raw == "":
 		return "The canvas could not start. Ask an admin to check workspace settings, then create a new project."
 	case strings.Contains(raw, "linked workspace is in an error state"):
-		return "The linked workspace is in an error state. Restart the project playground from the project menu."
+		return "The linked workspace is in an error state. Restart the project workspace from the project menu."
 	case strings.Contains(raw, "not configured"):
 		return "Workspace settings are incomplete. Ask an admin to review the configuration, then create a new project."
 	case strings.Contains(raw, "timed out") || strings.Contains(raw, "timeout") || strings.Contains(raw, "did not become ready"):

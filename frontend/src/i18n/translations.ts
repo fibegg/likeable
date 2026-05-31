@@ -10,7 +10,7 @@ const en = {
   'nav.admin': 'Admin',
   'auth.signIn': 'Sign in',
   'auth.signInToBuild': 'Sign in to build',
-  'auth.signInToCreateProjects': 'Sign in to create playgrounds',
+  'auth.signInToCreateProjects': 'Sign in to create projects',
   'auth.signInToOpenProfile': 'Sign in to open profile',
   'auth.dev': 'Dev',
   'auth.signOut': 'Sign out',
@@ -19,7 +19,7 @@ const en = {
   'language.english': 'English',
   'language.ukrainian': 'Ukrainian',
   'notice.offlineTitle': 'Offline',
-  'notice.offlineBody': 'The app is cached. Live playgrounds and messages need a connection.',
+  'notice.offlineBody': 'The app is cached. Live projects and messages need a connection.',
   'notice.system': 'System',
   'notice.dismiss': 'Dismiss notice',
   'common.close': 'Close',
@@ -48,7 +48,7 @@ const en = {
   'common.you': 'You',
   'common.system': 'System',
   'common.messages': 'messages',
-  'common.projects': 'playgrounds',
+  'common.projects': 'projects',
   'common.debt': 'debt',
   'common.users': 'users',
   'common.until': 'until',
@@ -72,11 +72,11 @@ const en = {
   'dialog.close': 'Close dialog',
   'dialog.requestFailed.title': 'Request failed',
   'dialog.stopFailed.title': 'Could not stop',
-  'dialog.projectFailed.title': 'Playground failed',
+  'dialog.projectFailed.title': 'Project failed',
   'dialog.renameFailed.title': 'Rename failed',
   'dialog.serviceSwitchFailed.title': 'Could not switch service',
   'dialog.deleteFailed.title': 'Delete failed',
-  'dialog.playgroundActionFailed.title': 'Playground action failed',
+  'dialog.projectActionFailed.title': 'Project action failed',
   'dialog.exportReady.title': 'Export ready',
   'dialog.exportReady.body': 'Your GitHub repository is ready.',
   'dialog.exportReady.bodyProject': '{title} was pushed to {url}.',
@@ -92,7 +92,7 @@ const en = {
   'error.workspaceRateLimited': 'The workspace platform is rate limited. Try again shortly.',
   'error.workspaceMessageFailed': 'Likeable could not send the request to the workspace. Try again in a moment.',
   'builder.agent.transmitting': 'Sending request',
-  'builder.agent.synthesizing': 'Building the playground',
+  'builder.agent.synthesizing': 'Building the project',
   'builder.agent.waiting': 'Waiting for the build agent',
   'builder.agent.noActivity': 'No build activity yet. The request may still be queued; retry if this does not change.',
   'builder.mode.basic': 'Basic',
@@ -102,9 +102,9 @@ const en = {
   'builder.preview.open': 'Open preview',
   'builder.preview.frameTitle': 'preview',
   'builder.brand.tooltip': 'Stable link',
-  'builder.projects.tooltip': 'Playgrounds',
-  'builder.project.new': 'New playground',
-  'builder.project.name': 'Playground name',
+  'builder.projects.tooltip': 'Projects',
+  'builder.project.new': 'New project',
+  'builder.project.name': 'Project name',
   'builder.projectMeta.updated': '{status} · updated {time}',
   'builder.stopAgent': 'Stop agent',
   'builder.busy.queue': 'Queue new messages',
@@ -120,7 +120,7 @@ const en = {
   'help.close': 'Close help',
   'help.markdown': `# How Likeable works
 
-Describe the app you want in the composer. The OpenAI build agent creates the first playground in a few minutes, then keeps refining it in chat.
+Describe the app you want in the composer. The OpenAI build agent creates the first project in a few minutes, then keeps refining it in chat.
 
 ## Writing great prompts
 
@@ -133,37 +133,37 @@ Describe the app you want in the composer. The OpenAI build agent creates the fi
 
 ## What you get
 
-- A live playground to open and use, with the frontend and any backing services.
+- A live project to open and use, with the frontend and any backing services.
 - Source code, downloadable as a ZIP or pushed to a private GitHub repository.
-- Conversation history — the playground keeps evolving as the chat continues.
+- Conversation history — the project keeps evolving as the chat continues.
 
 ## Limits and lifecycle
 
 - Free build hours reset on a window. Paid hours roll over and are used after free time.
-- Playgrounds auto-pause when inactive. Start them again from the menu.
-- Archived playgrounds stay downloadable for a while after archiving.
-- Delete a playground or the whole account from Profile — everything goes with it.
+- Projects auto-pause when inactive. Start them again from the menu.
+- Archived projects stay downloadable for a while after archiving.
+- Delete a project or the whole account from Profile — everything goes with it.
 
 <details>
 <summary>Terms of Service</summary>
 
 Last updated: May 25, 2026
 
-Likeable lets you build and run application playgrounds from prompts. By signing in, creating a playground, sending a prompt, or buying build time, you agree to these terms.
+Likeable lets you build and run application projects from prompts. By signing in, creating a project, sending a prompt, or buying build time, you agree to these terms.
 
 **Account.** You are responsible for activity under your account. Keep your sign-in method secure and contact support from Profile if you suspect unauthorized access.
 
 **Acceptable use.** Do not use Likeable to create, host, or distribute malware, phishing, credential theft, spam, illegal content, infringing material, or anything you do not have the rights to publish. Do not overload the platform, bypass limits, scrape without permission, share accounts, or try to access systems or data that are not yours.
 
-**Your content and generated code.** You keep ownership of the prompts, uploads, and generated source code you create through Likeable, where the law allows. You grant Likeable the rights needed to operate the service, including storing, processing, displaying, running, exporting, and backing up your playgrounds. You are responsible for reviewing generated code before using it in production or publishing it.
+**Your content and generated code.** You keep ownership of the prompts, uploads, and generated source code you create through Likeable, where the law allows. You grant Likeable the rights needed to operate the service, including storing, processing, displaying, running, exporting, and backing up your projects. You are responsible for reviewing generated code before using it in production or publishing it.
 
-**Playgrounds and secrets.** Playgrounds may run generated code, install dependencies, call external services, and store files needed for the app. Do not include secrets, credentials, regulated data, or private third-party data unless you intend that data to be processed in the playground and by the build agent.
+**Projects and secrets.** Projects may run generated code, install dependencies, call external services, and store files needed for the app. Do not include secrets, credentials, regulated data, or private third-party data unless you intend that data to be processed in the project and by the build agent.
 
 **Billing.** Free and paid build hours, project slots, and reset windows are shown in the app. Payments are processed by Stripe. Paid features are delivered according to the limits shown at purchase; future prices and limits may change prospectively.
 
-**Service availability.** Likeable is provided on a best-effort basis. Playgrounds may be queued, paused, restarted, archived, deleted, or temporarily unavailable for maintenance, security, capacity, or abuse-prevention reasons. Uninterrupted service is not guaranteed.
+**Service availability.** Likeable is provided on a best-effort basis. Projects may be queued, paused, restarted, archived, deleted, or temporarily unavailable for maintenance, security, capacity, or abuse-prevention reasons. Uninterrupted service is not guaranteed.
 
-**Suspension and removal.** Accounts or playgrounds that violate these terms, abuse the platform, create security risk, or expose other users to harm may be suspended, limited, or removed. Where practical, notice will be given before permanent action.
+**Suspension and removal.** Accounts or projects that violate these terms, abuse the platform, create security risk, or expose other users to harm may be suspended, limited, or removed. Where practical, notice will be given before permanent action.
 
 **No warranty.** Likeable and generated output are provided "as is". Generated code may contain bugs, security issues, licensing issues, or inaccurate behavior. You are responsible for testing, security review, compliance review, and deployment decisions.
 
@@ -181,14 +181,14 @@ Last updated: May 25, 2026
 **What we collect**
 
 - Account info from Google when you sign in (name, email, profile picture).
-- Prompts, chat messages, attached files, generated source code, playground state, preview URLs, export history, and support messages.
+- Prompts, chat messages, attached files, generated source code, project state, preview URLs, export history, and support messages.
 - OAuth connection metadata for services you connect, such as GitHub export. Access tokens are stored only as needed to provide the connected feature.
 - Billing events when you buy build hours or slots. Stripe handles payment details; Likeable does not store full card numbers.
 - Usage, device, and security data such as IP address, browser, timestamps, request logs, quota usage, errors, and abuse-prevention signals.
 
 **How we use it**
 
-- To authenticate you, build and run playgrounds, deliver messages, keep history, export code, and provide support.
+- To authenticate you, build and run projects, deliver messages, keep history, export code, and provide support.
 - To process payments, maintain quotas, send receipts, and prevent fraud or abuse.
 - To debug issues, improve reliability, protect the platform, and enforce the terms.
 - To contact you about your account, support requests, security issues, or major service changes.
@@ -196,27 +196,27 @@ Last updated: May 25, 2026
 **Who we share it with**
 
 - Google for sign-in, Stripe for payments, GitHub when you connect export, hosting/infrastructure providers, email delivery providers, and AI providers needed to turn prompts and project context into code.
-- We do not sell your personal data or use your playground content for third-party advertising.
+- We do not sell your personal data or use your project content for third-party advertising.
 
 **AI processing**
 
-Prompts, attachments, project context, and relevant generated code may be sent to AI providers so they can generate, debug, and improve the playground you requested. Do not submit data you are not allowed to share with these processors.
+Prompts, attachments, project context, and relevant generated code may be sent to AI providers so they can generate, debug, and improve the project you requested. Do not submit data you are not allowed to share with these processors.
 
 **Security**
 
-Likeable uses reasonable technical and organizational safeguards for account, project, and payment-related data. No internet service is perfectly secure, so you should avoid placing unnecessary secrets or sensitive data in prompts, attachments, or generated playgrounds.
+Likeable uses reasonable technical and organizational safeguards for account, project, and payment-related data. No internet service is perfectly secure, so you should avoid placing unnecessary secrets or sensitive data in prompts, attachments, or generated projects.
 
 **Retention and deletion**
 
-- Active playgrounds and conversations are kept while your account is open.
-- Archived playgrounds remain downloadable for a limited time after archiving.
+- Active projects and conversations are kept while your account is open.
+- Archived projects remain downloadable for a limited time after archiving.
 - Operational logs, backups, billing records, and security records may remain for a limited period where needed for reliability, fraud prevention, accounting, legal compliance, or dispute handling.
-- Deleting an account from Profile removes its playgrounds, messages, exports, and connected-service tokens from the active service.
+- Deleting an account from Profile removes its projects, messages, exports, and connected-service tokens from the active service.
 
 **Your choices**
 
-- Export any playground to GitHub or as a ZIP from the playground menu.
-- Disconnect GitHub by reconnecting or revoking access from GitHub, and delete individual playgrounds or the whole account from Profile.
+- Export any project to GitHub or as a ZIP from the project menu.
+- Disconnect GitHub by reconnecting or revoking access from GitHub, and delete individual projects or the whole account from Profile.
 - Contact support from Profile with questions, correction requests, deletion requests, or requests for a copy of your data.
 
 </details>`,
@@ -230,21 +230,21 @@ Likeable uses reasonable technical and organizational safeguards for account, pr
   'pullRefresh.release': 'Release to refresh',
   'pullRefresh.refreshing': 'Refreshing',
   'builder.placeholder.signIn': 'Sign in to start building...',
-  'builder.placeholder.loadingProjects': 'Loading playgrounds...',
-  'builder.placeholder.noProject': 'Create a playground to start building...',
-  'builder.placeholder.starting': 'Playground is starting...',
-  'builder.placeholder.archived': 'This playground is archived. Export it or start a new one.',
-  'builder.placeholder.error': 'Playground needs attention...',
+  'builder.placeholder.loadingProjects': 'Loading projects...',
+  'builder.placeholder.noProject': 'Create a project to start building...',
+  'builder.placeholder.starting': 'Project is starting...',
+  'builder.placeholder.archived': 'This project is archived. Export it or start a new one.',
+  'builder.placeholder.error': 'Project needs attention...',
   'builder.placeholder.single': 'Describe your idea...',
   'builder.placeholder.default': 'Describe what you want to build...',
   'builder.status.agentWorking': 'Agent working',
   'builder.status.maintenance': 'Maintenance',
-  'builder.status.canvasLive': 'Playground live',
-  'builder.status.canvasStarting': 'Playground starting',
-  'builder.status.canvasStopped': 'Playground stopped',
+  'builder.status.canvasLive': 'Project live',
+  'builder.status.canvasStarting': 'Project starting',
+  'builder.status.canvasStopped': 'Project stopped',
   'builder.status.canvasArchived': 'Archived',
-  'builder.status.canvasError': 'Playground error',
-  'builder.status.canvasIdle': 'Playground idle',
+  'builder.status.canvasError': 'Project error',
+  'builder.status.canvasIdle': 'Project idle',
   'builder.idleStop.label': 'Pauses in {time}',
   'builder.idleStop.tooltip': 'Pauses when inactive: {time}',
   'builder.nextAction.eyebrow': 'Next',
@@ -265,27 +265,27 @@ Likeable uses reasonable technical and organizational safeguards for account, pr
   'builder.composerHint.agentSteer': 'Agent running · message will steer',
   'builder.composerHint.improvingPrompt': 'Improving prompt...',
   'builder.composerHint.signIn': 'Sign in to send prompts',
-  'builder.composerHint.loadingProjects': 'Loading playgrounds',
-  'builder.composerHint.noProject': 'Create a playground first',
+  'builder.composerHint.loadingProjects': 'Loading projects',
+  'builder.composerHint.noProject': 'Create a project first',
   'builder.composerHint.starting': 'Workspace is provisioning',
   'builder.composerHint.error': 'Resolve workspace error first',
-  'builder.composerHint.stopped': 'Start playground to send',
-  'builder.composerHint.archived': 'Archived playground',
-  'builder.preview.startingTitle': 'Starting playground',
-  'builder.preview.preparingTitle': 'Preparing playground',
-  'builder.preview.launchingBody': 'Likeable is preparing your playground.',
-  'builder.preview.preparingBody': 'Setting up a new playground.',
+  'builder.composerHint.stopped': 'Start project to send',
+  'builder.composerHint.archived': 'Archived project',
+  'builder.preview.startingTitle': 'Starting project',
+  'builder.preview.preparingTitle': 'Preparing project',
+  'builder.preview.launchingBody': 'Likeable is preparing your project.',
+  'builder.preview.preparingBody': 'Setting up a new project.',
   'builder.preview.agentWorkingBody': 'The build agent is applying the latest changes. The preview will reopen when the app responds.',
-  'builder.preview.respondedBody': 'Playground is ready. Opening the preview.',
-  'builder.preview.warmingBody': "The playground is warming up. It will open as soon as it's ready.",
-  'builder.preview.launchFailedTitle': 'Playground launch failed',
-  'builder.preview.launchFailedBody': 'The playground could not start. Please try again, or contact support.',
-  'builder.preview.connectingTitle': 'Connecting playground',
-  'builder.preview.stoppedTitle': 'Playground stopped',
-  'builder.preview.stoppedBody': 'This playground is stopped. Start it again from the menu when needed.',
-  'builder.preview.archivedTitle': 'Playground archived',
-  'builder.preview.archivedBody': 'This playground is export-only. Create a new one to keep building.',
-  'onboarding.eyebrow': 'First playground',
+  'builder.preview.respondedBody': 'Project is ready. Opening the preview.',
+  'builder.preview.warmingBody': "The project is warming up. It will open as soon as it's ready.",
+  'builder.preview.launchFailedTitle': 'Project launch failed',
+  'builder.preview.launchFailedBody': 'The project could not start. Please try again, or contact support.',
+  'builder.preview.connectingTitle': 'Connecting project',
+  'builder.preview.stoppedTitle': 'Project stopped',
+  'builder.preview.stoppedBody': 'This project is stopped. Start it again from the menu when needed.',
+  'builder.preview.archivedTitle': 'Project archived',
+  'builder.preview.archivedBody': 'This project is export-only. Create a new one to keep building.',
+  'onboarding.eyebrow': 'First project',
   'onboarding.title': 'Start with a clear prompt',
   'onboarding.body': 'Pick a sample prompt or press Start to open the chat. Close guide hides this screen.',
   'onboarding.close': 'Close guide',
@@ -293,8 +293,8 @@ Likeable uses reasonable technical and organizational safeguards for account, pr
   'onboarding.action.prompt': 'Pick a prompt',
   'onboarding.action.start': 'Start chat',
   'onboarding.action.close': 'Close guide',
-  'onboarding.status.loading': 'Preparing first playground',
-  'onboarding.status.ready': 'Playground ready',
+  'onboarding.status.loading': 'Preparing first project',
+  'onboarding.status.ready': 'Project ready',
   'onboarding.start': 'Start',
   'onboarding.waiting': 'Loading',
   'onboarding.previous': 'Previous tutorial slide',
@@ -307,7 +307,7 @@ Likeable uses reasonable technical and organizational safeguards for account, pr
   'onboarding.slide.buildBulletTwo': 'Attach references when layout or copy matters.',
   'onboarding.slide.modesTitle': 'Chat modes',
   'onboarding.slide.modesBody': 'Use the mode button for split or basic view. Collapse chat when you only need the canvas.',
-  'onboarding.slide.modesBulletOne': 'Basic overlays chat on the playground and can shrink to a small bubble.',
+  'onboarding.slide.modesBulletOne': 'Basic overlays chat on the project and can shrink to a small bubble.',
   'onboarding.slide.modesBulletTwo': 'Split keeps chat and preview side by side on wide screens.',
   'onboarding.slide.messagesTitle': 'Free build hours',
   'onboarding.slide.messagesBody': 'Free build hours reset on a window. Paid hours are used after free time.',
@@ -316,16 +316,16 @@ Likeable uses reasonable technical and organizational safeguards for account, pr
   'onboarding.slide.messagesBulletThree': 'Improve Prompt runs a separate improvement pass, so it can take a moment and may use build minutes when charging is enabled.',
   'onboarding.slide.helpTitle': 'Help and policies',
   'onboarding.slide.helpBody': 'Open Help from the top controls for prompt tips, lifecycle notes, terms, and privacy.',
-  'onboarding.slide.helpBulletOne': 'Help stays inside the chat panel, so the playground remains nearby.',
+  'onboarding.slide.helpBulletOne': 'Help stays inside the chat panel, so the project remains nearby.',
   'onboarding.slide.helpBulletTwo': 'Use Profile for account, support, archives, and this tutorial later.',
   'onboarding.slide.exportTitle': 'Export code',
-  'onboarding.slide.exportBody': 'Open the playground menu, choose Export, then ZIP or GitHub.',
+  'onboarding.slide.exportBody': 'Open the project menu, choose Export, then ZIP or GitHub.',
   'onboarding.slide.exportBulletOne': 'GitHub connect is one-time; reconnect if the token expires.',
   'onboarding.slide.exportBulletTwo': 'ZIP archives remain available from Profile for a limited time.',
   'onboarding.slide.lifecycleTitle': 'Lifecycle',
-  'onboarding.slide.lifecycleBody': 'Playgrounds keep the chat, code, preview services, and export history together.',
-  'onboarding.slide.lifecycleBulletOne': 'Inactive playgrounds pause; start or restart from the menu.',
-  'onboarding.slide.lifecycleBulletTwo': 'Delete a playground or the whole account from Profile.',
+  'onboarding.slide.lifecycleBody': 'Projects keep the chat, code, preview services, and export history together.',
+  'onboarding.slide.lifecycleBulletOne': 'Inactive projects pause; start or restart from the menu.',
+  'onboarding.slide.lifecycleBulletTwo': 'Delete a project or the whole account from Profile.',
   'onboarding.card.productTitle': 'Product UI',
   'onboarding.card.productBody': 'Dashboards, landing pages, forms, and internal tools.',
   'onboarding.card.opsTitle': 'Workflow app',
@@ -345,37 +345,37 @@ Likeable uses reasonable technical and organizational safeguards for account, pr
   'service.show': 'Show {name}',
   'service.authRequired': 'auth required',
   'service.public': 'public',
-  'projects.title': 'Playgrounds',
-  'projects.close': 'Close playgrounds',
-  'projects.count.one': '{count} playground',
-  'projects.count.many': '{count} playgrounds',
-  'projects.count.cap': '{count}/{cap} playgrounds',
+  'projects.title': 'Projects',
+  'projects.close': 'Close projects',
+  'projects.count.one': '{count} project',
+  'projects.count.many': '{count} projects',
+  'projects.count.cap': '{count}/{cap} projects',
   'projects.quotaFull': 'Project limit reached',
   'projects.rowMeta.updated': '{services} svc · updated {time}',
   'projects.rowMeta.servicesOnly': '{services} svc',
   'projects.rowDetail.starting': 'Waiting for workspace provisioning.',
   'projects.rowDetail.error': 'Workspace needs attention before it can run.',
   'projects.rowDetail.stopped': 'Preview is paused; start it from actions.',
-  'projects.rowDetail.archived': 'Archived project. Export or create a new playground.',
+  'projects.rowDetail.archived': 'Archived project. Export or create a new project.',
   'projects.rename.aria': 'Rename {title}',
   'projects.delete.aria': 'Delete {title}',
   'projects.export.aria': 'Export {title}',
-  'projects.export.title': 'Export playground',
+  'projects.export.title': 'Export project',
   'projects.actions.aria': 'Actions for {title}',
-  'projects.actions.title': 'Playground actions',
+  'projects.actions.title': 'Project actions',
   'projects.actions.runtime': 'Runtime controls',
-  'projects.actions.ready': 'Live playground',
-  'projects.actions.paused': 'Paused playground',
+  'projects.actions.ready': 'Live project',
+  'projects.actions.paused': 'Paused project',
   'projects.actions.starting': 'Provisioning workspace',
   'projects.actions.error': 'Needs attention',
-  'projects.actions.archived': 'Archived playground',
+  'projects.actions.archived': 'Archived project',
   'projects.actions.working': 'Updating runtime',
-  'projects.start': 'Start playground',
-  'projects.stop': 'Stop playground',
-  'projects.restart': 'Restart playground',
+  'projects.start': 'Start project',
+  'projects.stop': 'Stop project',
+  'projects.restart': 'Restart project',
   'projects.saveName': 'Save name',
   'projects.cancelRename': 'Cancel rename',
-  'projects.new': 'New playground',
+  'projects.new': 'New project',
   'message.sent': 'Sent',
   'message.attachedFiles': 'Attached files',
   'message.attachments': 'Attachments',
@@ -388,26 +388,26 @@ Likeable uses reasonable technical and organizational safeguards for account, pr
   'message.preview.unavailableBody': 'This attachment is listed in the message, but the file is not available to preview.',
   'message.preview.download': 'Download file',
   'notification.receiving': 'Receiving update',
-  'notification.canvasUpdated': 'Playground updated',
+  'notification.canvasUpdated': 'Project updated',
   'empty.awaitingTitle': 'Awaiting your prompt',
-  'empty.awaitingBody': 'Your playground is ready. Describe what to build and the agent will create it.',
-  'empty.noProjectTitle': 'No playgrounds yet',
-  'empty.noProjectBody': 'Create a playground before sending a prompt.',
-  'empty.loadingProjectsTitle': 'Loading playgrounds',
+  'empty.awaitingBody': 'Your project is ready. Describe what to build and the agent will create it.',
+  'empty.noProjectTitle': 'No projects yet',
+  'empty.noProjectBody': 'Create a project before sending a prompt.',
+  'empty.loadingProjectsTitle': 'Loading projects',
   'empty.loadingProjectsBody': 'Checking your workspace before opening the builder.',
-  'newProject.eyebrow': 'New playground',
-  'newProject.title': 'Create another playground?',
-  'newProject.body': 'A fresh playground will start right away.',
-  'newProject.capReachedBody': 'All project slots are in use. Delete a playground or wait for cleanup before creating another.',
-  'newProject.placeholder': 'New playground {number}',
-  'newProject.quota': 'Playgrounds: {count}/{cap}',
+  'newProject.eyebrow': 'New project',
+  'newProject.title': 'Create another project?',
+  'newProject.body': 'A fresh project will start right away.',
+  'newProject.capReachedBody': 'All project slots are in use. Delete a project or wait for cleanup before creating another.',
+  'newProject.placeholder': 'New project {number}',
+  'newProject.quota': 'Projects: {count}/{cap}',
   'newProject.capReached': 'Cap reached',
-  'newProject.capReachedAction': 'Free a slot from the playground menu, then create a new playground.',
-  'deleteProject.eyebrow': 'Delete playground',
-  'deleteProject.title': 'Delete this playground?',
+  'newProject.capReachedAction': 'Free a slot from the project menu, then create a new project.',
+  'deleteProject.eyebrow': 'Delete project',
+  'deleteProject.title': 'Delete this project?',
   'deleteProject.body': '{title} and its files will be permanently removed.',
-  'exportProject.eyebrow': 'Playground export',
-  'exportProject.title': 'Export playground?',
+  'exportProject.eyebrow': 'Project export',
+  'exportProject.title': 'Export project?',
   'exportProject.body': 'Download a ZIP or push the source for {title} to GitHub.',
   'exportProject.archivedBody': 'Download the ZIP archive for {title}.',
   'exportProject.zipHint': 'ZIP archive',
@@ -421,7 +421,7 @@ Likeable uses reasonable technical and organizational safeguards for account, pr
   'exportProject.exportGithub': 'Export to GitHub',
   'deleteAll.eyebrow': 'danger zone',
   'deleteAll.title': 'Delete everything?',
-  'deleteAll.body': 'Permanently removes every playground, message, and connected repository for this account.',
+  'deleteAll.body': 'Permanently removes every project, message, and connected repository for this account.',
   'deleteAll.confirmInstruction': 'Type {email} to confirm.',
   'deleteAll.button': 'DELETE ALL',
   'profile.title': 'Profile',
@@ -449,22 +449,22 @@ Likeable uses reasonable technical and organizational safeguards for account, pr
   'profile.quotaReadout.limit': 'of {limit}',
   'profile.quotaDetail': '{paid} paid hours · resets in {reset} · {lifetime} lifetime',
   'profile.paidPacksUnavailable': 'Paid packs off',
-  'profile.projects': 'Playgrounds',
-  'profile.projectQuota': 'Playground quota',
-  'profile.projectSlots': '{used}/{limit} playground slots',
+  'profile.projects': 'Projects',
+  'profile.projectQuota': 'Project quota',
+  'profile.projectSlots': '{used}/{limit} project slots',
   'profile.projectSlotsAvailable': '{remaining} slots available',
   'profile.projectSlotsFull': 'Project limit reached',
   'profile.projectSlotDetail': '{paid} paid monthly slots{reset}',
-  'profile.projectSlotFullDetail': 'Delete or export an older playground before creating another.',
+  'profile.projectSlotFullDetail': 'Delete or export an older project before creating another.',
   'profile.addSlot': '+1 slot',
   'profile.projectSlotsUnavailable': 'Slot packs off',
   'profile.session': 'Session',
   'profile.sessionBody': 'End your session on this device.',
   'profile.dangerZone': 'Danger zone',
   'profile.deleteAllTitle': 'Delete all account data',
-  'profile.deleteAllBody': 'Removes all playgrounds, messages, linked accounts, payments, and this profile.',
-  'profile.archives.title': 'Archived playgrounds',
-  'profile.archives.body': 'Download archived playgrounds here. Available for a limited time.',
+  'profile.deleteAllBody': 'Removes all projects, messages, linked accounts, payments, and this profile.',
+  'profile.archives.title': 'Archived projects',
+  'profile.archives.body': 'Download archived projects here. Available for a limited time.',
   'profile.mailbox.title': 'Messages',
   'profile.mailbox.body': 'Messages from Likeable and to support stay here.',
   'profile.dismissed': 'Dismissed',
@@ -473,7 +473,7 @@ Likeable uses reasonable technical and organizational safeguards for account, pr
   'profile.support.send': 'Send',
   'profile.support.sendAria': 'Send support message',
   'admin.customers.title': 'Customers',
-  'admin.customers.body': 'Search, filter, inspect usage, moderate access, message users, and clean up playgrounds.',
+  'admin.customers.body': 'Search, filter, inspect usage, moderate access, message users, and clean up projects.',
   'admin.search': 'Search',
   'admin.search.placeholder': 'email, name, or user id',
   'admin.access': 'Access',
@@ -482,7 +482,7 @@ Likeable uses reasonable technical and organizational safeguards for account, pr
   'admin.sort.newest': 'newest',
   'admin.sort.hours': 'hours',
   'admin.sort.paid': 'paid',
-  'admin.sort.projects': 'playgrounds',
+  'admin.sort.projects': 'projects',
   'admin.sort.email': 'email',
   'admin.subscriptionLegacy': 'legacy subscription',
   'admin.noGithub': 'No GitHub',
@@ -492,7 +492,7 @@ Likeable uses reasonable technical and organizational safeguards for account, pr
   'admin.previous': 'Previous',
   'admin.next': 'Next',
   'admin.pagination': '{page}/{totalPages} · {total} users',
-  'admin.selectUser': 'Select a user to inspect playgrounds, payments, notices, and access.',
+  'admin.selectUser': 'Select a user to inspect projects, payments, notices, and access.',
   'admin.customer': 'Customer',
   'admin.ops.customers': 'Customers',
   'admin.ops.pageLoaded': '{count} loaded',
@@ -503,7 +503,7 @@ Likeable uses reasonable technical and organizational safeguards for account, pr
   'admin.metric.freeWindowHours': 'Free window',
   'admin.metric.lifetimeHours': 'Lifetime hours',
   'admin.metric.paidHours': 'Paid hours',
-  'admin.metric.projects': 'Playgrounds',
+  'admin.metric.projects': 'Projects',
   'admin.metric.paidSlots': 'Paid slots',
   'admin.metric.github': 'GitHub',
   'admin.metric.paid': 'Paid',
@@ -525,26 +525,22 @@ Likeable uses reasonable technical and organizational safeguards for account, pr
   'admin.severity': 'Severity',
   'admin.notice.placeholder': 'Write a system message to this user...',
   'admin.send': 'Send',
-  'admin.projects.title': 'Playgrounds',
-  'admin.projects.body': 'Deleting a playground here works the same as if the user deleted it.',
-  'admin.assignment': 'Agent pair',
-  'admin.assignment.none': 'No pair set',
-  'admin.assignment.failed': 'Could not update pair',
-  'admin.noActiveProjects': 'No active playgrounds.',
+  'admin.projects.title': 'Projects',
+  'admin.projects.body': 'Deleting a project here works the same as if the user deleted it.',
+  'admin.noActiveProjects': 'No active projects.',
   'admin.deleteProject.aria': 'Delete {title}',
   'admin.loadUsersFailed': 'Could not load users',
   'admin.accessUpdateFailed': 'Could not update access',
   'admin.noticeFailed': 'Could not send notice',
   'admin.unsendFailed': 'Could not unsend',
-  'admin.projectDeleteFailed': 'Could not delete playground',
+  'admin.projectDeleteFailed': 'Could not delete project',
   'admin.restrictDialog.title': 'Restrict user?',
   'admin.restrictDialog.body': 'The user still receives system notices, but app actions are blocked until access is restored.',
   'admin.unsendDialog.title': 'Unsend system message?',
   'admin.unsendDialog.body': 'It disappears from the user mailbox and any active banners.',
-  'admin.deleteProjectDialog.title': 'Delete user playground?',
-  'admin.deleteProjectDialog.body': 'Permanently removes this playground.',
+  'admin.deleteProjectDialog.title': 'Delete user project?',
+  'admin.deleteProjectDialog.body': 'Permanently removes this project.',
   'admin.panel.title': 'Admin',
-  'admin.poolIncomplete': 'Every pool row needs both an agent ID and a server ID.',
   'admin.saveFailed': 'Could not save',
   'admin.noSettings': 'No settings exposed for this section.',
   'admin.accessCard.title': 'Access',
@@ -557,40 +553,18 @@ Likeable uses reasonable technical and organizational safeguards for account, pr
   'admin.signupAllowedEmails.placeholder': 'pilot@gmail.com\nfounder@gmail.com\n@trusted.test',
   'admin.workspace.title': 'Workspace engine',
   'admin.workspace.body': 'Local droplet workspaces and the OpenAI key used by the build agent.',
-  'admin.pool.title': 'Agent and server pool',
-  'admin.pool.body': 'New playgrounds pick a pair from this pool. Existing playgrounds keep theirs.',
-  'admin.pool.add': 'Add pair',
-  'admin.pool.empty': 'No pool pairs configured. Add one before onboarding users.',
-  'admin.pool.label': 'Label',
-  'admin.pool.pair': 'Pair {number}',
-  'admin.pool.agentId': 'Agent ID',
-  'admin.pool.serverId': 'Server ID',
-  'admin.pool.capacity': 'Capacity',
-  'admin.pool.capacityPlaceholder': '200',
-  'admin.pool.status': 'Status',
-  'admin.pool.status.active': 'Active',
-  'admin.pool.status.draining': 'Draining',
-  'admin.pool.status.retiring': 'Retiring',
-  'admin.pool.status.retired': 'Retired',
-  'admin.pool.stats': '{active}/{projects} active · {archived} archived · {archives} ZIPs',
-  'admin.pool.stats.empty': '0 playgrounds',
-  'admin.pool.retire': 'Archive',
-  'admin.pool.retired': 'Pair archived',
-  'admin.pool.agentPlaceholder': 'agent_...',
-  'admin.pool.serverPlaceholder': 'server_...',
-  'admin.pool.remove': 'Remove pair',
   'admin.recovery.title': 'Recovery',
   'admin.recovery.body': 'Deletion and cleanup state that should recover automatically.',
   'admin.recovery.refresh': 'Refresh',
   'admin.recovery.loadFailed': 'Could not load recovery state',
   'admin.recovery.pendingAccounts': 'Pending accounts',
-  'admin.recovery.deletingProjects': 'Deleting playgrounds',
+  'admin.recovery.deletingProjects': 'Deleting projects',
   'admin.recovery.sweep': 'Sweep',
   'admin.recovery.sweepEvery': 'every {seconds}s',
   'admin.recovery.checkedAt': 'Checked',
   'admin.recovery.noIssues': 'No pending deletion recovery work.',
   'admin.recovery.accountReady': 'ready to finalize',
-  'admin.recovery.accountWaiting': 'waiting on {projects} playgrounds',
+  'admin.recovery.accountWaiting': 'waiting on {projects} projects',
   'admin.recovery.projectWaiting': 'cleanup queued or running',
   'admin.config.secretHelp': 'Secrets are write-only; leave blank to keep the current value.',
   'admin.config.set': '**************',
@@ -608,7 +582,7 @@ Likeable uses reasonable technical and organizational safeguards for account, pr
   'admin.config.google_client_id': 'OAuth client ID',
   'admin.config.google_client_secret': 'OAuth client secret',
   'admin.config.stripe.title': 'Stripe integration',
-  'admin.config.stripe.body': 'Checkout and webhook credentials for build-hour packs and playground slots.',
+  'admin.config.stripe.body': 'Checkout and webhook credentials for build-hour packs and project slots.',
   'admin.config.application.title': 'Application settings',
   'admin.config.application.body': 'Defaults, caps, and email delivery for user notifications.',
   'admin.config.stripe_publishable_key': 'Publishable key',
@@ -616,12 +590,12 @@ Likeable uses reasonable technical and organizational safeguards for account, pr
   'admin.config.stripe_price_id_1_hour': '1 hour price ID',
   'admin.config.stripe_price_id_10_hours': '10 hours price ID',
   'admin.config.stripe_price_id_100_hours': '100 hours price ID',
-  'admin.config.stripe_project_quota_price_id': 'Playground quota price ID',
+  'admin.config.stripe_project_quota_price_id': 'Project quota price ID',
   'admin.config.stripe_webhook_secret': 'Webhook secret',
   'admin.config.free_hours': 'Free hours per window',
   'admin.config.free_hour_window_hours': 'Free-hour window hours',
   'admin.config.prompt_improve_charge_minutes': 'Improve prompt charge minutes',
-  'admin.config.project_cap': 'Base playground cap',
+  'admin.config.project_cap': 'Base project cap',
   'admin.config.agent_artefacts': 'Agent artefacts JSON'
 } as const;
 
@@ -637,7 +611,7 @@ const uk: Record<keyof typeof en, string> = {
   'nav.admin': 'Адмін',
   'auth.signIn': 'Увійти',
   'auth.signInToBuild': 'Вхід, щоб створювати',
-  'auth.signInToCreateProjects': 'Вхід, щоб створювати майданчики',
+  'auth.signInToCreateProjects': 'Вхід, щоб створювати проєкти',
   'auth.signInToOpenProfile': 'Вхід, щоб відкрити профіль',
   'auth.dev': 'Dev',
   'auth.signOut': 'Вийти',
@@ -646,7 +620,7 @@ const uk: Record<keyof typeof en, string> = {
   'language.english': 'Англійська',
   'language.ukrainian': 'Українська',
   'notice.offlineTitle': 'Офлайн',
-  'notice.offlineBody': 'Застосунок у кеші. Для майданчиків і повідомлень потрібен звʼязок.',
+  'notice.offlineBody': 'Застосунок у кеші. Для проєктів і повідомлень потрібен звʼязок.',
   'notice.system': 'Система',
   'notice.dismiss': 'Закрити сповіщення',
   'common.close': 'Закрити',
@@ -675,7 +649,7 @@ const uk: Record<keyof typeof en, string> = {
   'common.you': 'Ви',
   'common.system': 'Система',
   'common.messages': 'повідомлення',
-  'common.projects': 'майданчики',
+  'common.projects': 'проєкти',
   'common.debt': 'борг',
   'common.users': 'користувачі',
   'common.until': 'до',
@@ -699,11 +673,11 @@ const uk: Record<keyof typeof en, string> = {
   'dialog.close': 'Закрити діалог',
   'dialog.requestFailed.title': 'Запит не виконано',
   'dialog.stopFailed.title': 'Не вдалося зупинити',
-  'dialog.projectFailed.title': 'Помилка майданчика',
+  'dialog.projectFailed.title': 'Помилка проєкту',
   'dialog.renameFailed.title': 'Не вдалося перейменувати',
   'dialog.serviceSwitchFailed.title': 'Не вдалося перемкнути сервіс',
   'dialog.deleteFailed.title': 'Не вдалося видалити',
-  'dialog.playgroundActionFailed.title': 'Не вдалося виконати дію в майданчику',
+  'dialog.projectActionFailed.title': 'Не вдалося виконати дію в проєкті',
   'dialog.exportReady.title': 'Експорт готовий',
   'dialog.exportReady.body': 'Репозиторій GitHub готовий.',
   'dialog.exportReady.bodyProject': '{title} надіслано до {url}.',
@@ -711,15 +685,15 @@ const uk: Record<keyof typeof en, string> = {
   'dialog.exportFailed.title': 'Не вдалося експортувати',
   'dialog.zipExportFailed.title': 'Не вдалося експортувати ZIP',
   'error.attachmentLimit': 'Можна додати до {count} файлів.',
-  'error.attachmentTooLarge': 'Цей файл завеликий для майданчика. Спробуйте менший файл або стиснений знімок екрана.',
-  'error.attachmentUnsupported': 'Likeable не зміг передати цей файл у майданчик. Спробуйте PNG, JPG, GIF, PDF, ZIP, text, CSV, Markdown, JSON, Word або Excel.',
+  'error.attachmentTooLarge': 'Цей файл завеликий для проєкту. Спробуйте менший файл або стиснений знімок екрана.',
+  'error.attachmentUnsupported': 'Likeable не зміг передати цей файл у проєкт. Спробуйте PNG, JPG, GIF, PDF, ZIP, text, CSV, Markdown, JSON, Word або Excel.',
   'error.agentRuntimeStarting': 'Build agent був офлайн. Likeable запускає його зараз; повторіть спробу трохи пізніше.',
   'error.agentRuntimeUnavailable': 'Build agent офлайн або ще запускається. Спробуйте трохи пізніше.',
   'error.agentRuntimeStartFailed': 'Build agent офлайн, і Likeable не зміг його запустити. Перевірте конфігурацію workspace, потім повторіть спробу.',
-  'error.workspaceRateLimited': 'Платформа майданчика тимчасово обмежила запити. Спробуйте трохи пізніше.',
-  'error.workspaceMessageFailed': 'Likeable не зміг надіслати запит у майданчик. Спробуйте ще раз за мить.',
+  'error.workspaceRateLimited': 'Платформа проєкту тимчасово обмежила запити. Спробуйте трохи пізніше.',
+  'error.workspaceMessageFailed': 'Likeable не зміг надіслати запит у проєкт. Спробуйте ще раз за мить.',
   'builder.agent.transmitting': 'Надсилання запиту',
-  'builder.agent.synthesizing': 'Агент оновлює майданчик',
+  'builder.agent.synthesizing': 'Агент оновлює проєкт',
   'builder.agent.waiting': 'Очікування build agent',
   'builder.agent.noActivity': 'Активності build agent ще немає. Запит може бути в черзі; повторіть, якщо стан не зміниться.',
   'builder.mode.basic': 'Базовий',
@@ -729,9 +703,9 @@ const uk: Record<keyof typeof en, string> = {
   'builder.preview.open': 'Відкрити превʼю',
   'builder.preview.frameTitle': 'превʼю',
   'builder.brand.tooltip': 'Стабільне посилання',
-  'builder.projects.tooltip': 'Майданчики',
-  'builder.project.new': 'Новий майданчик',
-  'builder.project.name': 'Назва майданчика',
+  'builder.projects.tooltip': 'Проєкти',
+  'builder.project.new': 'Новий проєкт',
+  'builder.project.name': 'Назва проєкту',
   'builder.projectMeta.updated': '{status} · оновлено {time}',
   'builder.stopAgent': 'Зупинити агента',
   'builder.busy.queue': 'Додати в чергу',
@@ -747,7 +721,7 @@ const uk: Record<keyof typeof en, string> = {
   'help.close': 'Закрити допомогу',
   'help.markdown': `# Як працює Likeable
 
-Опис застосунку — у полі повідомлення. OpenAI build agent створює перший майданчик за кілька хвилин і далі доопрацьовує його в чаті.
+Опис застосунку — у полі повідомлення. OpenAI build agent створює перший проєкт за кілька хвилин і далі доопрацьовує його в чаті.
 
 ## Як писати хороші запити
 
@@ -760,37 +734,37 @@ const uk: Record<keyof typeof en, string> = {
 
 ## Результат
 
-- Живий майданчик, доступний для роботи, з фронтендом і всіма потрібними сервісами.
+- Живий проєкт, доступний для роботи, з фронтендом і всіма потрібними сервісами.
 - Вихідний код — для завантаження як ZIP або відправки в приватний репозиторій GitHub.
-- Історія розмови — майданчик продовжує розвиватися, поки триває діалог.
+- Історія розмови — проєкт продовжує розвиватися, поки триває діалог.
 
 ## Ліміти та життєвий цикл
 
 - Безплатні години збірки оновлюються кожне вікно. Платні години переходять на наступний період і використовуються після безплатного часу.
-- Майданчики автоматично призупиняються в стані спокою. Запустити знову — з меню.
-- Архівовані майданчики можна завантажити обмежений час після архівування.
-- Видалення майданчика чи всього акаунта — у Профілі. Усе зникає разом.
+- Проєкти автоматично призупиняються в стані спокою. Запустити знову — з меню.
+- Архівовані проєкти можна завантажити обмежений час після архівування.
+- Видалення проєкту чи всього акаунта — у Профілі. Усе зникає разом.
 
 <details>
 <summary>Умови використання</summary>
 
 Останнє оновлення: 25 травня 2026
 
-Likeable дає змогу створювати й запускати майданчики застосунків із текстових запитів. Коли ви входите, створюєте майданчик, надсилаєте запит або купуєте час збірки, ви погоджуєтеся з цими умовами.
+Likeable дає змогу створювати й запускати проєкти застосунків із текстових запитів. Коли ви входите, створюєте проєкт, надсилаєте запит або купуєте час збірки, ви погоджуєтеся з цими умовами.
 
 **Акаунт.** Ви відповідаєте за дії у своєму акаунті. Бережіть спосіб входу і зверніться в підтримку з Профілю, якщо підозрюєте несанкціонований доступ.
 
 **Прийнятне використання.** Не використовуйте Likeable для створення, хостингу чи поширення шкідливого ПЗ, фішингу, викрадення облікових даних, спаму, незаконного контенту, матеріалів із порушенням прав або того, на що у вас немає прав. Не перевантажуйте платформу, не обходьте ліміти, не скрейпіть без дозволу, не передавайте акаунт іншим і не намагайтеся отримати доступ до чужих систем чи даних.
 
-**Ваш контент і згенерований код.** Вам належать запити, вкладення та згенерований код, створені через Likeable, наскільки це дозволяє закон. Ви надаєте Likeable права, потрібні для роботи сервісу: зберігати, обробляти, показувати, запускати, експортувати й резервно копіювати майданчики. Ви відповідаєте за перевірку згенерованого коду перед використанням у production або публікацією.
+**Ваш контент і згенерований код.** Вам належать запити, вкладення та згенерований код, створені через Likeable, наскільки це дозволяє закон. Ви надаєте Likeable права, потрібні для роботи сервісу: зберігати, обробляти, показувати, запускати, експортувати й резервно копіювати проєкти. Ви відповідаєте за перевірку згенерованого коду перед використанням у production або публікацією.
 
-**Майданчики та секрети.** Майданчики можуть запускати згенерований код, встановлювати залежності, звертатися до зовнішніх сервісів і зберігати файли, потрібні застосунку. Не додавайте секрети, облікові дані, регульовані дані або приватні дані третіх осіб, якщо ви не хочете, щоб ці дані оброблялися в майданчику та агентом збірки.
+**Проєкти та секрети.** Проєкти можуть запускати згенерований код, встановлювати залежності, звертатися до зовнішніх сервісів і зберігати файли, потрібні застосунку. Не додавайте секрети, облікові дані, регульовані дані або приватні дані третіх осіб, якщо ви не хочете, щоб ці дані оброблялися в проєкті та агентом збірки.
 
 **Білінг.** Безплатні й платні години збірки, слоти проєктів і вікна оновлення показані в застосунку. Платежі обробляє Stripe. Платні функції надаються в межах, показаних під час купівлі; майбутні ціни й ліміти можуть змінюватися для наступних покупок.
 
-**Доступність сервісу.** Likeable надається за принципом найкращих зусиль. Майданчики можуть ставати в чергу, призупинятися, перезапускатися, архівуватися, видалятися або бути тимчасово недоступні через обслуговування, безпеку, навантаження чи запобігання зловживанням. Безперервна робота не гарантується.
+**Доступність сервісу.** Likeable надається за принципом найкращих зусиль. Проєкти можуть ставати в чергу, призупинятися, перезапускатися, архівуватися, видалятися або бути тимчасово недоступні через обслуговування, безпеку, навантаження чи запобігання зловживанням. Безперервна робота не гарантується.
 
-**Призупинення та видалення.** Акаунти або майданчики, що порушують ці умови, зловживають платформою, створюють ризик безпеки або шкодять іншим користувачам, можуть бути призупинені, обмежені чи видалені. Де практично можливо, попереджаємо перед остаточною дією.
+**Призупинення та видалення.** Акаунти або проєкти, що порушують ці умови, зловживають платформою, створюють ризик безпеки або шкодять іншим користувачам, можуть бути призупинені, обмежені чи видалені. Де практично можливо, попереджаємо перед остаточною дією.
 
 **Без гарантій.** Likeable і згенерований результат надаються "як є". Згенерований код може містити помилки, вразливості, ліцензійні проблеми або неточну поведінку. Тестування, перевірка безпеки, перевірка відповідності та рішення про розгортання — ваша відповідальність.
 
@@ -808,14 +782,14 @@ Likeable дає змогу створювати й запускати майда
 **Що збираємо**
 
 - Інформацію акаунта з Google під час входу (імʼя, email, фото профілю).
-- Запити, повідомлення чату, вкладені файли, згенерований код, стан майданчиків, preview-посилання, історію експорту та звернення в підтримку.
+- Запити, повідомлення чату, вкладені файли, згенерований код, стан проєктів, preview-посилання, історію експорту та звернення в підтримку.
 - Метадані OAuth-підключень для сервісів, які ви підключаєте, наприклад експорту GitHub. Токени доступу зберігаються лише настільки, наскільки це потрібно для підключеної функції.
 - Події білінгу під час купівлі годин збірки або слотів. Платіжні реквізити обробляє Stripe; Likeable не зберігає повні номери карток.
 - Дані використання, пристрою та безпеки: IP, браузер, часові мітки, журнали запитів, використання лімітів, помилки та сигнали запобігання зловживанням.
 
 **Як використовуємо**
 
-- Для входу, створення й запуску майданчиків, доставки повідомлень, збереження історії, експорту коду та підтримки.
+- Для входу, створення й запуску проєктів, доставки повідомлень, збереження історії, експорту коду та підтримки.
 - Для обробки платежів, підтримки лімітів, надсилання чеків і запобігання шахрайству чи зловживанням.
 - Для діагностики, підвищення стабільності, захисту платформи та виконання умов.
 - Для звʼязку щодо акаунта, звернень у підтримку, питань безпеки або важливих змін сервісу.
@@ -823,27 +797,27 @@ Likeable дає змогу створювати й запускати майда
 **Кому передаємо**
 
 - Google для входу, Stripe для платежів, GitHub під час підключення експорту, провайдерам хостингу й інфраструктури, провайдерам email-доставки та AI-провайдерам, потрібним для перетворення запитів і контексту проєкту на код.
-- Ми не продаємо персональні дані й не використовуємо контент майданчиків для сторонньої реклами.
+- Ми не продаємо персональні дані й не використовуємо контент проєктів для сторонньої реклами.
 
 **AI-обробка**
 
-Запити, вкладення, контекст проєкту та релевантний згенерований код можуть передаватися AI-провайдерам, щоб вони могли створювати, діагностувати й покращувати майданчик за вашим запитом. Не надсилайте дані, які вам не дозволено передавати цим обробникам.
+Запити, вкладення, контекст проєкту та релевантний згенерований код можуть передаватися AI-провайдерам, щоб вони могли створювати, діагностувати й покращувати проєкт за вашим запитом. Не надсилайте дані, які вам не дозволено передавати цим обробникам.
 
 **Безпека**
 
-Likeable застосовує розумні технічні та організаційні заходи для захисту акаунтів, проєктів і платіжних даних. Жоден інтернет-сервіс не є повністю захищеним, тому не додавайте без потреби секрети чи чутливі дані в запити, вкладення або згенеровані майданчики.
+Likeable застосовує розумні технічні та організаційні заходи для захисту акаунтів, проєктів і платіжних даних. Жоден інтернет-сервіс не є повністю захищеним, тому не додавайте без потреби секрети чи чутливі дані в запити, вкладення або згенеровані проєкти.
 
 **Зберігання та видалення**
 
-- Активні майданчики й розмови зберігаються, поки акаунт активний.
-- Архівовані майданчики доступні для завантаження обмежений час після архівування.
+- Активні проєкти й розмови зберігаються, поки акаунт активний.
+- Архівовані проєкти доступні для завантаження обмежений час після архівування.
 - Операційні логи, резервні копії, білінгові записи та записи безпеки можуть зберігатися обмежений час, якщо це потрібно для стабільності, запобігання шахрайству, бухгалтерії, виконання закону або вирішення спорів.
-- Видалення акаунта з Профілю прибирає майданчики, повідомлення, експорти та токени підключених сервісів з активного сервісу.
+- Видалення акаунта з Профілю прибирає проєкти, повідомлення, експорти та токени підключених сервісів з активного сервісу.
 
 **Можливості**
 
-- Експорт будь-якого майданчика в GitHub або як ZIP — з меню майданчика.
-- Відключення GitHub через повторне підключення або відкликання доступу в GitHub, а також видалення окремих майданчиків або всього акаунта з Профілю.
+- Експорт будь-якого проєкту в GitHub або як ZIP — з меню проєкту.
+- Відключення GitHub через повторне підключення або відкликання доступу в GitHub, а також видалення окремих проєктів або всього акаунта з Профілю.
 - Звернення в підтримку з Профілю щодо питань, виправлення, видалення або отримання копії даних.
 
 </details>`,
@@ -857,21 +831,21 @@ Likeable застосовує розумні технічні та органі�
   'pullRefresh.release': 'Відпустіть, щоб оновити',
   'pullRefresh.refreshing': 'Оновлення',
   'builder.placeholder.signIn': 'Увійдіть, щоб почати...',
-  'builder.placeholder.loadingProjects': 'Завантаження майданчиків...',
-  'builder.placeholder.noProject': 'Створіть майданчик, щоб почати...',
-  'builder.placeholder.starting': 'Запуск майданчика...',
-  'builder.placeholder.archived': 'Майданчик архівовано. Експорт або новий майданчик.',
-  'builder.placeholder.error': 'Майданчик потребує уваги...',
+  'builder.placeholder.loadingProjects': 'Завантаження проєктів...',
+  'builder.placeholder.noProject': 'Створіть проєкт, щоб почати...',
+  'builder.placeholder.starting': 'Запуск проєкту...',
+  'builder.placeholder.archived': 'Проєкт архівовано. Експорт або новий проєкт.',
+  'builder.placeholder.error': 'Проєкт потребує уваги...',
   'builder.placeholder.single': 'Опишіть ідею...',
   'builder.placeholder.default': 'Опишіть, що створити...',
   'builder.status.agentWorking': 'Агент працює',
   'builder.status.maintenance': 'Обслуговування',
-  'builder.status.canvasLive': 'Майданчик активний',
-  'builder.status.canvasStarting': 'Запуск майданчика',
-  'builder.status.canvasStopped': 'Майданчик зупинено',
+  'builder.status.canvasLive': 'Проєкт активний',
+  'builder.status.canvasStarting': 'Запуск проєкту',
+  'builder.status.canvasStopped': 'Проєкт зупинено',
   'builder.status.canvasArchived': 'Архівовано',
-  'builder.status.canvasError': 'Помилка майданчика',
-  'builder.status.canvasIdle': 'Майданчик у спокої',
+  'builder.status.canvasError': 'Помилка проєкту',
+  'builder.status.canvasIdle': 'Проєкт у спокої',
   'builder.idleStop.label': 'Зупинка через {time}',
   'builder.idleStop.tooltip': 'Зупинка при неактивності: {time}',
   'builder.nextAction.eyebrow': 'Далі',
@@ -892,27 +866,27 @@ Likeable застосовує розумні технічні та органі�
   'builder.composerHint.agentSteer': 'Агент працює · повідомлення скерує хід',
   'builder.composerHint.improvingPrompt': 'Покращення запиту...',
   'builder.composerHint.signIn': 'Увійдіть, щоб надсилати запити',
-  'builder.composerHint.loadingProjects': 'Завантаження майданчиків',
-  'builder.composerHint.noProject': 'Спочатку створіть майданчик',
+  'builder.composerHint.loadingProjects': 'Завантаження проєктів',
+  'builder.composerHint.noProject': 'Спочатку створіть проєкт',
   'builder.composerHint.starting': 'Provisioning робочого простору',
   'builder.composerHint.error': 'Спочатку усуньте помилку workspace',
-  'builder.composerHint.stopped': 'Запустіть майданчик, щоб надсилати',
-  'builder.composerHint.archived': 'Майданчик архівовано',
-  'builder.preview.startingTitle': 'Запуск майданчика',
-  'builder.preview.preparingTitle': 'Підготовка майданчика',
-  'builder.preview.launchingBody': 'Likeable готує майданчик.',
-  'builder.preview.preparingBody': 'Підготовка нового майданчика.',
+  'builder.composerHint.stopped': 'Запустіть проєкт, щоб надсилати',
+  'builder.composerHint.archived': 'Проєкт архівовано',
+  'builder.preview.startingTitle': 'Запуск проєкту',
+  'builder.preview.preparingTitle': 'Підготовка проєкту',
+  'builder.preview.launchingBody': 'Likeable готує проєкт.',
+  'builder.preview.preparingBody': 'Підготовка нового проєкту.',
   'builder.preview.agentWorkingBody': 'Build agent застосовує останні зміни. Превʼю відкриється, коли застосунок відповість.',
-  'builder.preview.respondedBody': 'Майданчик готовий. Відкриття превʼю.',
-  'builder.preview.warmingBody': 'Майданчик прогрівається. Відкриється автоматично, щойно буде готовий.',
-  'builder.preview.launchFailedTitle': 'Не вдалося запустити майданчик',
-  'builder.preview.launchFailedBody': 'Не вдалося запустити майданчик. Спробуйте ще раз або звʼяжіться з підтримкою.',
-  'builder.preview.connectingTitle': 'Підключення майданчика',
-  'builder.preview.stoppedTitle': 'Майданчик зупинено',
-  'builder.preview.stoppedBody': 'Майданчик зупинено. Запустити знову — з меню.',
-  'builder.preview.archivedTitle': 'Майданчик архівовано',
-  'builder.preview.archivedBody': 'Майданчик доступний лише для експорту. Створіть новий, щоб продовжити.',
-  'onboarding.eyebrow': 'Перший майданчик',
+  'builder.preview.respondedBody': 'Проєкт готовий. Відкриття превʼю.',
+  'builder.preview.warmingBody': 'Проєкт прогрівається. Відкриється автоматично, щойно буде готовий.',
+  'builder.preview.launchFailedTitle': 'Не вдалося запустити проєкт',
+  'builder.preview.launchFailedBody': 'Не вдалося запустити проєкт. Спробуйте ще раз або звʼяжіться з підтримкою.',
+  'builder.preview.connectingTitle': 'Підключення проєкту',
+  'builder.preview.stoppedTitle': 'Проєкт зупинено',
+  'builder.preview.stoppedBody': 'Проєкт зупинено. Запустити знову — з меню.',
+  'builder.preview.archivedTitle': 'Проєкт архівовано',
+  'builder.preview.archivedBody': 'Проєкт доступний лише для експорту. Створіть новий, щоб продовжити.',
+  'onboarding.eyebrow': 'Перший проєкт',
   'onboarding.title': 'Почніть з чіткого запиту',
   'onboarding.body': 'Оберіть готовий приклад або натисніть Start, щоб відкрити чат. Закрити гайд прибере цей екран.',
   'onboarding.close': 'Закрити гайд',
@@ -920,8 +894,8 @@ Likeable застосовує розумні технічні та органі�
   'onboarding.action.prompt': 'Оберіть приклад',
   'onboarding.action.start': 'Відкрити чат',
   'onboarding.action.close': 'Закрити гайд',
-  'onboarding.status.loading': 'Підготовка першого майданчика',
-  'onboarding.status.ready': 'Майданчик готовий',
+  'onboarding.status.loading': 'Підготовка першого проєкту',
+  'onboarding.status.ready': 'Проєкт готовий',
   'onboarding.start': 'Start',
   'onboarding.waiting': 'Завантаження',
   'onboarding.previous': 'Попередній слайд туторіалу',
@@ -934,7 +908,7 @@ Likeable застосовує розумні технічні та органі�
   'onboarding.slide.buildBulletTwo': 'Додавайте референси, коли важливі верстка або текст.',
   'onboarding.slide.modesTitle': 'Режими чату',
   'onboarding.slide.modesBody': 'Кнопка режиму перемикає split або basic. Згортайте чат, коли потрібне лише полотно.',
-  'onboarding.slide.modesBulletOne': 'Basic накладає чат на майданчик і може згортатися в маленьку кнопку.',
+  'onboarding.slide.modesBulletOne': 'Basic накладає чат на проєкт і може згортатися в маленьку кнопку.',
   'onboarding.slide.modesBulletTwo': 'Split тримає чат і превʼю поруч на широких екранах.',
   'onboarding.slide.messagesTitle': 'Безплатні години збірки',
   'onboarding.slide.messagesBody': 'Безплатні години збірки оновлюються за вікном. Платні години йдуть після безплатного часу.',
@@ -943,16 +917,16 @@ Likeable застосовує розумні технічні та органі�
   'onboarding.slide.messagesBulletThree': 'Improve Prompt запускає окреме покращення, тому може зайняти трохи часу й використовувати хвилини збірки, якщо списання увімкнене.',
   'onboarding.slide.helpTitle': 'Help і правила',
   'onboarding.slide.helpBody': 'Відкрийте Help у верхніх контролах: підказки для запитів, lifecycle, terms і privacy.',
-  'onboarding.slide.helpBulletOne': 'Help відкривається всередині панелі чату, тож майданчик лишається поруч.',
+  'onboarding.slide.helpBulletOne': 'Help відкривається всередині панелі чату, тож проєкт лишається поруч.',
   'onboarding.slide.helpBulletTwo': 'Profile містить акаунт, підтримку, архіви й цей туторіал на потім.',
   'onboarding.slide.exportTitle': 'Експорт коду',
-  'onboarding.slide.exportBody': 'Відкрийте меню майданчика, оберіть Export, потім ZIP або GitHub.',
+  'onboarding.slide.exportBody': 'Відкрийте меню проєкту, оберіть Export, потім ZIP або GitHub.',
   'onboarding.slide.exportBulletOne': 'GitHub підключається один раз; перепідключіть, якщо токен закінчився.',
   'onboarding.slide.exportBulletTwo': 'ZIP-архіви певний час доступні в Профілі.',
   'onboarding.slide.lifecycleTitle': 'Життєвий цикл',
-  'onboarding.slide.lifecycleBody': 'Майданчик зберігає чат, код, сервіси превʼю та історію експорту разом.',
-  'onboarding.slide.lifecycleBulletOne': 'Неактивні майданчики паузяться; запуск і restart — з меню.',
-  'onboarding.slide.lifecycleBulletTwo': 'Майданчик або весь акаунт можна видалити в Профілі.',
+  'onboarding.slide.lifecycleBody': 'Проєкт зберігає чат, код, сервіси превʼю та історію експорту разом.',
+  'onboarding.slide.lifecycleBulletOne': 'Неактивні проєкти паузяться; запуск і restart — з меню.',
+  'onboarding.slide.lifecycleBulletTwo': 'Проєкт або весь акаунт можна видалити в Профілі.',
   'onboarding.card.productTitle': 'Продуктовий UI',
   'onboarding.card.productBody': 'Дашборди, лендінги, форми та внутрішні інструменти.',
   'onboarding.card.opsTitle': 'Workflow-застосунок',
@@ -972,37 +946,37 @@ Likeable застосовує розумні технічні та органі�
   'service.show': 'Показати {name}',
   'service.authRequired': 'потрібна авторизація',
   'service.public': 'публічний',
-  'projects.title': 'Майданчики',
-  'projects.close': 'Закрити майданчики',
-  'projects.count.one': '{count} майданчик',
-  'projects.count.many': '{count} майданчиків',
-  'projects.count.cap': '{count}/{cap} майданчиків',
+  'projects.title': 'Проєкти',
+  'projects.close': 'Закрити проєкти',
+  'projects.count.one': '{count} проєкт',
+  'projects.count.many': '{count} проєктів',
+  'projects.count.cap': '{count}/{cap} проєктів',
   'projects.quotaFull': 'Ліміт проєктів досягнуто',
   'projects.rowMeta.updated': '{services} серв. · оновлено {time}',
   'projects.rowMeta.servicesOnly': '{services} серв.',
   'projects.rowDetail.starting': 'Очікування provisioning робочого простору.',
   'projects.rowDetail.error': 'Робочий простір потребує уваги перед запуском.',
   'projects.rowDetail.stopped': 'Превʼю призупинено; запустіть його з дій.',
-  'projects.rowDetail.archived': 'Архівний проєкт. Експортуйте або створіть новий майданчик.',
+  'projects.rowDetail.archived': 'Архівний проєкт. Експортуйте або створіть новий проєкт.',
   'projects.rename.aria': 'Перейменувати {title}',
   'projects.delete.aria': 'Видалити {title}',
   'projects.export.aria': 'Експортувати {title}',
-  'projects.export.title': 'Експорт майданчика',
+  'projects.export.title': 'Експорт проєкту',
   'projects.actions.aria': 'Дії для {title}',
-  'projects.actions.title': 'Дії з майданчиком',
+  'projects.actions.title': 'Дії з проєктом',
   'projects.actions.runtime': 'Керування runtime',
-  'projects.actions.ready': 'Майданчик live',
-  'projects.actions.paused': 'Майданчик на паузі',
+  'projects.actions.ready': 'Проєкт live',
+  'projects.actions.paused': 'Проєкт на паузі',
   'projects.actions.starting': 'Provisioning робочого простору',
   'projects.actions.error': 'Потребує уваги',
-  'projects.actions.archived': 'Архівний майданчик',
+  'projects.actions.archived': 'Архівний проєкт',
   'projects.actions.working': 'Оновлення runtime',
-  'projects.start': 'Запустити майданчик',
-  'projects.stop': 'Зупинити майданчик',
-  'projects.restart': 'Перезапустити майданчик',
+  'projects.start': 'Запустити проєкт',
+  'projects.stop': 'Зупинити проєкт',
+  'projects.restart': 'Перезапустити проєкт',
   'projects.saveName': 'Зберегти назву',
   'projects.cancelRename': 'Скасувати перейменування',
-  'projects.new': 'Новий майданчик',
+  'projects.new': 'Новий проєкт',
   'message.sent': 'Надіслано',
   'message.attachedFiles': 'Додані файли',
   'message.attachments': 'Вкладення',
@@ -1015,26 +989,26 @@ Likeable застосовує розумні технічні та органі�
   'message.preview.unavailableBody': 'Це вкладення є в повідомленні, але файл недоступний для перегляду.',
   'message.preview.download': 'Завантажити файл',
   'notification.receiving': 'Отримання оновлення',
-  'notification.canvasUpdated': 'Майданчик оновлено',
+  'notification.canvasUpdated': 'Проєкт оновлено',
   'empty.awaitingTitle': 'Очікування запиту',
-  'empty.awaitingBody': 'Майданчик готовий. Опишіть задум — агент його створить.',
-  'empty.noProjectTitle': 'Майданчиків ще немає',
-  'empty.noProjectBody': 'Створіть майданчик, перш ніж надсилати запит.',
-  'empty.loadingProjectsTitle': 'Завантаження майданчиків',
+  'empty.awaitingBody': 'Проєкт готовий. Опишіть задум — агент його створить.',
+  'empty.noProjectTitle': 'Проєктів ще немає',
+  'empty.noProjectBody': 'Створіть проєкт, перш ніж надсилати запит.',
+  'empty.loadingProjectsTitle': 'Завантаження проєктів',
   'empty.loadingProjectsBody': 'Перевірка робочого простору перед відкриттям конструктора.',
-  'newProject.eyebrow': 'Новий майданчик',
-  'newProject.title': 'Створити ще один майданчик?',
-  'newProject.body': 'Новий майданчик запуститься одразу.',
-  'newProject.capReachedBody': 'Усі слоти проєктів зайняті. Видаліть майданчик або дочекайтесь очищення, перш ніж створювати новий.',
-  'newProject.placeholder': 'Новий майданчик {number}',
-  'newProject.quota': 'Майданчики: {count}/{cap}',
+  'newProject.eyebrow': 'Новий проєкт',
+  'newProject.title': 'Створити ще один проєкт?',
+  'newProject.body': 'Новий проєкт запуститься одразу.',
+  'newProject.capReachedBody': 'Усі слоти проєктів зайняті. Видаліть проєкт або дочекайтесь очищення, перш ніж створювати новий.',
+  'newProject.placeholder': 'Новий проєкт {number}',
+  'newProject.quota': 'Проєкти: {count}/{cap}',
   'newProject.capReached': 'Ліміт досягнуто',
-  'newProject.capReachedAction': 'Звільніть місце в меню майданчиків, а потім створіть новий майданчик.',
-  'deleteProject.eyebrow': 'Видалення майданчика',
-  'deleteProject.title': 'Видалити цей майданчик?',
+  'newProject.capReachedAction': 'Звільніть місце в меню проєктів, а потім створіть новий проєкт.',
+  'deleteProject.eyebrow': 'Видалення проєкту',
+  'deleteProject.title': 'Видалити цей проєкт?',
   'deleteProject.body': '{title} і його файли буде остаточно видалено.',
-  'exportProject.eyebrow': 'Експорт майданчика',
-  'exportProject.title': 'Експортувати майданчик?',
+  'exportProject.eyebrow': 'Експорт проєкту',
+  'exportProject.title': 'Експортувати проєкт?',
   'exportProject.body': 'Завантажити ZIP або надіслати код {title} на GitHub.',
   'exportProject.archivedBody': 'Завантажити ZIP-архів для {title}.',
   'exportProject.zipHint': 'ZIP-архів',
@@ -1048,7 +1022,7 @@ Likeable застосовує розумні технічні та органі�
   'exportProject.exportGithub': 'Експортувати в GitHub',
   'deleteAll.eyebrow': 'небезпечна зона',
   'deleteAll.title': 'Видалити все?',
-  'deleteAll.body': 'Назавжди видаляє всі майданчики, повідомлення та повʼязані репозиторії для цього акаунта.',
+  'deleteAll.body': 'Назавжди видаляє всі проєкти, повідомлення та повʼязані репозиторії для цього акаунта.',
   'deleteAll.confirmInstruction': 'Введіть {email}, щоб підтвердити.',
   'deleteAll.button': 'ВИДАЛИТИ ВСЕ',
   'profile.title': 'Профіль',
@@ -1076,22 +1050,22 @@ Likeable застосовує розумні технічні та органі�
   'profile.quotaReadout.limit': 'з {limit}',
   'profile.quotaDetail': '{paid} платних годин · оновлення через {reset} · {lifetime} за весь час',
   'profile.paidPacksUnavailable': 'Платні пакети вимкнено',
-  'profile.projects': 'Майданчики',
-  'profile.projectQuota': 'Ліміт майданчиків',
-  'profile.projectSlots': '{used}/{limit} місць для майданчиків',
+  'profile.projects': 'Проєкти',
+  'profile.projectQuota': 'Ліміт проєктів',
+  'profile.projectSlots': '{used}/{limit} місць для проєктів',
   'profile.projectSlotsAvailable': 'Доступно місць: {remaining}',
   'profile.projectSlotsFull': 'Ліміт проєктів досягнуто',
   'profile.projectSlotDetail': '{paid} платних місячних місць{reset}',
-  'profile.projectSlotFullDetail': 'Видаліть або експортуйте старіший майданчик, перш ніж створювати новий.',
+  'profile.projectSlotFullDetail': 'Видаліть або експортуйте старіший проєкт, перш ніж створювати новий.',
   'profile.addSlot': '+1 місце',
   'profile.projectSlotsUnavailable': 'Пакети місць вимкнено',
   'profile.session': 'Сесія',
   'profile.sessionBody': 'Завершити сесію на цьому пристрої.',
   'profile.dangerZone': 'Небезпечна зона',
   'profile.deleteAllTitle': 'Видалити всі дані акаунта',
-  'profile.deleteAllBody': 'Видаляє всі майданчики, повідомлення, повʼязані акаунти, платежі та цей профіль.',
-  'profile.archives.title': 'Архівовані майданчики',
-  'profile.archives.body': 'Тут можна завантажити архівовані майданчики. Доступні обмежений час.',
+  'profile.deleteAllBody': 'Видаляє всі проєкти, повідомлення, повʼязані акаунти, платежі та цей профіль.',
+  'profile.archives.title': 'Архівовані проєкти',
+  'profile.archives.body': 'Тут можна завантажити архівовані проєкти. Доступні обмежений час.',
   'profile.mailbox.title': 'Повідомлення',
   'profile.mailbox.body': 'Повідомлення від Likeable і до підтримки зберігаються тут.',
   'profile.dismissed': 'Закрито',
@@ -1100,7 +1074,7 @@ Likeable застосовує розумні технічні та органі�
   'profile.support.send': 'Надіслати',
   'profile.support.sendAria': 'Надіслати повідомлення підтримці',
   'admin.customers.title': 'Клієнти',
-  'admin.customers.body': 'Пошук, фільтри, перегляд використання, керування доступом, повідомлення та чистка майданчиків.',
+  'admin.customers.body': 'Пошук, фільтри, перегляд використання, керування доступом, повідомлення та чистка проєктів.',
   'admin.search': 'Пошук',
   'admin.search.placeholder': 'email, імʼя або id користувача',
   'admin.access': 'Доступ',
@@ -1109,7 +1083,7 @@ Likeable застосовує розумні технічні та органі�
   'admin.sort.newest': 'новіші',
   'admin.sort.hours': 'години',
   'admin.sort.paid': 'оплата',
-  'admin.sort.projects': 'майданчики',
+  'admin.sort.projects': 'проєкти',
   'admin.sort.email': 'email',
   'admin.subscriptionLegacy': 'стара підписка',
   'admin.noGithub': 'Немає GitHub',
@@ -1119,7 +1093,7 @@ Likeable застосовує розумні технічні та органі�
   'admin.previous': 'Попередня',
   'admin.next': 'Наступна',
   'admin.pagination': '{page}/{totalPages} · {total} користувачів',
-  'admin.selectUser': 'Виберіть користувача, щоб переглянути майданчики, платежі, сповіщення та доступ.',
+  'admin.selectUser': 'Виберіть користувача, щоб переглянути проєкти, платежі, сповіщення та доступ.',
   'admin.customer': 'Клієнт',
   'admin.ops.customers': 'Клієнти',
   'admin.ops.pageLoaded': '{count} завантажено',
@@ -1130,7 +1104,7 @@ Likeable застосовує розумні технічні та органі�
   'admin.metric.freeWindowHours': 'Безплатно у вікні',
   'admin.metric.lifetimeHours': 'Години за весь час',
   'admin.metric.paidHours': 'Платні години',
-  'admin.metric.projects': 'Майданчики',
+  'admin.metric.projects': 'Проєкти',
   'admin.metric.paidSlots': 'Платні місця',
   'admin.metric.github': 'GitHub',
   'admin.metric.paid': 'Оплачено',
@@ -1152,26 +1126,22 @@ Likeable застосовує розумні технічні та органі�
   'admin.severity': 'Рівень',
   'admin.notice.placeholder': 'Системне повідомлення цьому користувачу...',
   'admin.send': 'Надіслати',
-  'admin.projects.title': 'Майданчики',
-  'admin.projects.body': 'Видалення тут працює так само, як якби майданчик видалив сам користувач.',
-  'admin.assignment': 'Пара агента',
-  'admin.assignment.none': 'Пара не задана',
-  'admin.assignment.failed': 'Не вдалося оновити пару',
-  'admin.noActiveProjects': 'Активних майданчиків немає.',
+  'admin.projects.title': 'Проєкти',
+  'admin.projects.body': 'Видалення тут працює так само, як якби проєкт видалив сам користувач.',
+  'admin.noActiveProjects': 'Активних проєктів немає.',
   'admin.deleteProject.aria': 'Видалити {title}',
   'admin.loadUsersFailed': 'Не вдалося завантажити користувачів',
   'admin.accessUpdateFailed': 'Не вдалося оновити доступ',
   'admin.noticeFailed': 'Не вдалося надіслати сповіщення',
   'admin.unsendFailed': 'Не вдалося скасувати',
-  'admin.projectDeleteFailed': 'Не вдалося видалити майданчик',
+  'admin.projectDeleteFailed': 'Не вдалося видалити проєкт',
   'admin.restrictDialog.title': 'Обмежити користувача?',
   'admin.restrictDialog.body': 'Користувач і далі бачитиме системні сповіщення, але дії в застосунку будуть заблоковані до відновлення доступу.',
   'admin.unsendDialog.title': 'Скасувати системне повідомлення?',
   'admin.unsendDialog.body': 'Воно зникне з поштової скриньки користувача та активних банерів.',
-  'admin.deleteProjectDialog.title': 'Видалити майданчик користувача?',
-  'admin.deleteProjectDialog.body': 'Остаточно видаляє цей майданчик.',
+  'admin.deleteProjectDialog.title': 'Видалити проєкт користувача?',
+  'admin.deleteProjectDialog.body': 'Остаточно видаляє цей проєкт.',
   'admin.panel.title': 'Адмін',
-  'admin.poolIncomplete': 'У кожному рядку пулу потрібні Agent ID і Server ID.',
   'admin.saveFailed': 'Не вдалося зберегти',
   'admin.noSettings': 'Налаштувань для цього розділу немає.',
   'admin.accessCard.title': 'Доступ',
@@ -1184,40 +1154,18 @@ Likeable застосовує розумні технічні та органі�
   'admin.signupAllowedEmails.placeholder': 'pilot@gmail.com\nfounder@gmail.com\n@trusted.test',
   'admin.workspace.title': 'Workspace engine',
   'admin.workspace.body': 'Локальні workspace на droplet і OpenAI ключ для build agent.',
-  'admin.pool.title': 'Пул агентів і серверів',
-  'admin.pool.body': 'Нові майданчики беруть пару з цього пулу. Існуючі залишаються зі своєю.',
-  'admin.pool.add': 'Додати пару',
-  'admin.pool.empty': 'Пар у пулі немає. Додайте хоча б одну перед онбордингом користувачів.',
-  'admin.pool.label': 'Мітка',
-  'admin.pool.pair': 'Пара {number}',
-  'admin.pool.agentId': 'Agent ID',
-  'admin.pool.serverId': 'Server ID',
-  'admin.pool.capacity': 'Місткість',
-  'admin.pool.capacityPlaceholder': '200',
-  'admin.pool.status': 'Статус',
-  'admin.pool.status.active': 'Активна',
-  'admin.pool.status.draining': 'Згортається',
-  'admin.pool.status.retiring': 'Архівується',
-  'admin.pool.status.retired': 'Архівована',
-  'admin.pool.stats': '{active}/{projects} активних · {archived} архівованих · {archives} ZIP',
-  'admin.pool.stats.empty': '0 майданчиків',
-  'admin.pool.retire': 'Архівувати',
-  'admin.pool.retired': 'Пару архівовано',
-  'admin.pool.agentPlaceholder': 'agent_...',
-  'admin.pool.serverPlaceholder': 'server_...',
-  'admin.pool.remove': 'Прибрати пару',
   'admin.recovery.title': 'Відновлення',
   'admin.recovery.body': 'Стан видалення й cleanup, який має відновлюватися автоматично.',
   'admin.recovery.refresh': 'Оновити',
   'admin.recovery.loadFailed': 'Не вдалося завантажити стан відновлення',
   'admin.recovery.pendingAccounts': 'Очікують акаунти',
-  'admin.recovery.deletingProjects': 'Видаляються майданчики',
+  'admin.recovery.deletingProjects': 'Видаляються проєкти',
   'admin.recovery.sweep': 'Sweep',
   'admin.recovery.sweepEvery': 'кожні {seconds}с',
   'admin.recovery.checkedAt': 'Перевірено',
   'admin.recovery.noIssues': 'Немає задач відновлення видалення.',
   'admin.recovery.accountReady': 'готовий до фіналізації',
-  'admin.recovery.accountWaiting': 'очікує {projects} майданчиків',
+  'admin.recovery.accountWaiting': 'очікує {projects} проєктів',
   'admin.recovery.projectWaiting': 'cleanup у черзі або виконується',
   'admin.config.secretHelp': 'Секрети доступні лише для запису; залиште порожнім, щоб зберегти поточне значення.',
   'admin.config.set': '**************',
@@ -1235,7 +1183,7 @@ Likeable застосовує розумні технічні та органі�
   'admin.config.google_client_id': 'OAuth client ID',
   'admin.config.google_client_secret': 'OAuth client secret',
   'admin.config.stripe.title': 'Інтеграція Stripe',
-  'admin.config.stripe.body': 'Дані Checkout і webhook для пакетів годин збірки і місць майданчиків.',
+  'admin.config.stripe.body': 'Дані Checkout і webhook для пакетів годин збірки і місць проєктів.',
   'admin.config.application.title': 'Налаштування застосунку',
   'admin.config.application.body': 'Стандартні значення, ліміти та доставка email для сповіщень користувачів.',
   'admin.config.stripe_publishable_key': 'Публічний ключ',
@@ -1243,12 +1191,12 @@ Likeable застосовує розумні технічні та органі�
   'admin.config.stripe_price_id_1_hour': 'Price ID для 1 години',
   'admin.config.stripe_price_id_10_hours': 'Price ID для 10 годин',
   'admin.config.stripe_price_id_100_hours': 'Price ID для 100 годин',
-  'admin.config.stripe_project_quota_price_id': 'Price ID ліміту майданчиків',
+  'admin.config.stripe_project_quota_price_id': 'Price ID ліміту проєктів',
   'admin.config.stripe_webhook_secret': 'Webhook secret',
   'admin.config.free_hours': 'Безплатних годин за вікно',
   'admin.config.free_hour_window_hours': 'Години вікна безплатних годин',
   'admin.config.prompt_improve_charge_minutes': 'Хвилин списання за Improve Prompt',
-  'admin.config.project_cap': 'Базовий ліміт майданчиків',
+  'admin.config.project_cap': 'Базовий ліміт проєктів',
   'admin.config.agent_artefacts': 'JSON артефактів агента'
 };
 
