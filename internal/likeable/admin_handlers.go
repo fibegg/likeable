@@ -157,7 +157,7 @@ type adminRecoveryProject struct {
 	Title            string `json:"title"`
 	Status           string `json:"status"`
 	CleanupLastError string `json:"cleanupLastError,omitempty"`
-	PlaygroundID     string `json:"playgroundId,omitempty"`
+	PlaygroundID     string `json:"workspaceId,omitempty"`
 	PlayspecID       string `json:"playspecId,omitempty"`
 	PropID           string `json:"propId,omitempty"`
 	UpdatedAt        string `json:"updatedAt"`

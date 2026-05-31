@@ -37,8 +37,8 @@ type Project struct {
 	ErrorMessage          string              `json:"errorMessage,omitempty"`
 	ProvisioningLockUntil string              `json:"-"`
 	CleanupLastError      string              `json:"-"`
-	PlaygroundLastUsedAt  string              `json:"playgroundLastUsedAt,omitempty"`
-	PlaygroundIdleStopAt  string              `json:"playgroundIdleStopAt,omitempty"`
+	PlaygroundLastUsedAt  string              `json:"-"`
+	PlaygroundIdleStopAt  string              `json:"-"`
 	WorkspaceLastUsedAt   string              `json:"workspaceLastUsedAt,omitempty"`
 	WorkspaceIdleStopAt   string              `json:"workspaceIdleStopAt,omitempty"`
 	CreatedAt             string              `json:"createdAt"`
