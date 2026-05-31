@@ -42,6 +42,12 @@ Signup defaults to forbidden until the admin changes it.
 5. Sign in as `ADMIN_EMAIL`, open Admin, save the remaining provider settings, then switch signup from `forbidden` when ready.
 6. Create a test playground. The project should create `/data/workspaces/<project-id>/index.html`, serve preview from your domain, and export ZIP/GitHub from that local folder.
 
+For a fresh Ubuntu/Debian droplet, the deploy script handles the same flow:
+
+```bash
+OPENAI_API_KEY=sk-... LIKEABLE_PUBLIC_URL=http://your-droplet-ip:8080 scripts/deploy-standalone-droplet.sh
+```
+
 ## Local Development
 
 ```bash
