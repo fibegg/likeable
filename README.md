@@ -48,6 +48,8 @@ For a fresh Ubuntu/Debian droplet, the deploy script handles the same flow:
 OPENAI_API_KEY=sk-... LIKEABLE_PUBLIC_URL=http://your-droplet-ip:8080 scripts/deploy-standalone-droplet.sh
 ```
 
+If `8080` is already taken on a shared test droplet, set `LIKEABLE_HTTP_PORT=18080` and include that port in `LIKEABLE_PUBLIC_URL`.
+
 ## Local Development
 
 ```bash

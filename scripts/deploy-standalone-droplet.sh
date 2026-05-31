@@ -7,6 +7,7 @@ APP_DIR="${APP_DIR:-/opt/likeable}"
 ADMIN_EMAIL="${ADMIN_EMAIL:-admin@example.com}"
 OPENAI_MODEL="${OPENAI_MODEL:-gpt-5-mini}"
 LIKEABLE_DEV_AUTH="${LIKEABLE_DEV_AUTH:-1}"
+LIKEABLE_HTTP_PORT="${LIKEABLE_HTTP_PORT:-8080}"
 
 log() {
   printf '[likeable-deploy] %s\n' "$*"
@@ -106,6 +107,7 @@ write_env() {
   umask 077
   {
     printf 'LIKEABLE_PUBLIC_URL=%s\n' "$url"
+    printf 'LIKEABLE_HTTP_PORT=%s\n' "$LIKEABLE_HTTP_PORT"
     printf 'ADMIN_EMAIL=%s\n' "$ADMIN_EMAIL"
     printf 'OPENAI_MODEL=%s\n' "$OPENAI_MODEL"
     printf 'OPENAI_API_KEY=%s\n' "$openai_key"
