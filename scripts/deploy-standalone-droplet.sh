@@ -131,7 +131,7 @@ compose_up() {
 wait_for_health() {
   log "waiting for health check"
   for _ in $(seq 1 60); do
-    if curl -fsS http://127.0.0.1:8080/healthz >/dev/null; then
+    if curl -fsS "http://127.0.0.1:${LIKEABLE_HTTP_PORT}/healthz" >/dev/null; then
       log "health check passed"
       return
     fi
